@@ -14,8 +14,8 @@ git submodule pull <module_name>
 
 Some specific files of note:
 
-[(SlicerCaseIterator) LayoutLogic.py](SlicerCaseIterator/SlicerCaseIteratorLib/LayoutLogic.py) -- This is a great logic file that we can adapt to our needs. I think this is going to be required to interface with the "taskConfig" and define any "Hanging Protocols"
+**(SlicerCaseIterator) LayoutLogic.py** -- This is a great logic file that we can adapt to our needs. I think this is going to be required to interface with the "taskConfig" and define any "Hanging Protocols"
 
-[(SlicerCaseIterator) SegmentationBackend.py](SlicerCaseIterator/SlicerCaseIteratorLib/SegmentationBackend.py) -- This is a starting point for defining the new genric "Task" base class. And one of the first goals of this is to recreate the functionality of this file using the new base classes.
+**(SlicerCaseIterator) SegmentationBackend.py** -- This is a starting point for defining the new genric "Task" base class. And one of the first goals of this is to recreate the functionality of this file using the new base classes.
 
-[(SlicerUltrasound) AnnotateUltrasound.ui](SlicerUltrasound/AnnotateUltrasound/Resources/UI/AnnotateUltrasound.ui) -- The UI file for the annotator, which was used for the basis of our own.
+**(SlicerUltrasound) AnnotateUltrasound.ui** -- The UI file for the annotator, which was used for the basis of our own.
