@@ -23,12 +23,21 @@
 - **CARTLib/TaskConfig**: Contains the base classes for defining a TaskConfig.
   - TaskConfig is used to define all of the hyperparameters and configurations for a specific 'project' or set of tasks 
 
-Logical Extensions:
-    - **CART/SegmentationTask**: A specific task for segmentation.
-    - **CART/ClassificationTask**: A specific task for classification.
-    - **CART/ReviewTask**: A specific task for reviewing existing segmentations or classifications."
-    - **CARTLib/TaskWorkflow**: Contains the base classes for defining a TaskWorkflow.
-    - **CARTLib/TaskConfigMaker**: Contains the base classes for defining a TaskWorkflowManager.
-    - **CARTLib/CSVCohortMaker**: Contains the base classes for defining a CSVCohortMaker.
+Logical Extensions: 
+- **CART/SegmentationTask**: A specific task for segmentation. 
+- **CART/ClassificationTask**: A specific task for classification.
+- **CART/ReviewTask**: A specific task for reviewing existing segmentations or classifications."
+- **CARTLib/TaskWorkflow**: Contains the base classes for defining a TaskWorkflow.
+- **CARTLib/TaskConfigMaker**: Contains the base classes for defining a TaskWorkflowManager.
+- **CARTLib/CSVCohortMaker**: Contains the base classes for defining a CSVCohortMaker.
+
+
+---
+# Example Data
+
+The example data is a subset, fold0, of the PI-CAI dataset, which is a collection of prostate MRI images and their corresponding segmentations.
+1. Go to the [provided website](https://zenodo.org/records/6624726)
+   and download the `picai_public_images_fold0.zip` file.
+2. Unzip the file to a folder of your choice.
 
 
