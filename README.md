@@ -34,10 +34,9 @@ Logical Extensions:
 
 ---
 # Example Data
+The example data consists of a subset (fold0) from the PI-CAI dataset, featuring prostate MRI images and their corresponding segmentations. The original data can be obtained from the [official website](https://zenodo.org/records/6624726) by downloading the `picai_public_images_fold0.zip` file. 
+For this project, the first four subjects were selected and the images were converted from MHA to NRRD format.
 
-The example data is a subset, fold0, of the PI-CAI dataset, which is a collection of prostate MRI images and their corresponding segmentations.
-1. Go to the [provided website](https://zenodo.org/records/6624726)
-   and download the `picai_public_images_fold0.zip` file.
+1. Example `sample_data` is adapted from this original data and will be located under `sample_data.zip`.
 2. Unzip the file to a folder of your choice.
-
 
