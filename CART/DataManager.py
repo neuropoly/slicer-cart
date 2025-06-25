@@ -1,7 +1,7 @@
 from __future__ import annotations
-from collections import deque
 from pathlib import Path
 import csv
+from collections import deque
 
 # TODO: Replace Dummy Implementation with actual imports
 class DataIO:
@@ -14,12 +14,15 @@ class TaskConfig:
 
 class DataManager:
     """
-    Base class for managing CSV data input and converting rows into DataIO objects.
+    Manages CSV data and provides a fixed-size window (queue) of DataIO objects
+    with efficient forward/backward traversal.
 
     Attributes:
-        config: Optional TaskConfig for customizing behavior.
-        raw_data: List of row dicts loaded from the last CSV.
-        queue: Rolling queue of DataIO objects built on demand.
+        config: Optional TaskConfig for behavior customization.
+        raw_data: List of row dicts loaded from CSV.
+        queue_length: Number of DataIO objects in the traversal window.
+        queue: Deque holding current window of DataIO objects.
+        current_queue_index: Position within the queue for traversal.
     """
 
     def __init__(
@@ -28,65 +31,97 @@ class DataManager:
         queue_length: int = 1,
     ) -> None:
         """
-        Initialize DataManager with optional configuration and queue capacity.
+        Initialize DataManager with optional configuration and window size.
 
         Args:
             config: Configuration object for customizing behavior.
-            queue_length: Maximum number of DataIO objects to retain in the rolling queue.
+            queue_length: Max number of DataIO objects in the window.
         """
         self.config = config
         self.raw_data: list[dict[str, str]] = []
         self.queue_length = queue_length
         self.queue: deque[DataIO] = deque(maxlen=self.queue_length)
-        self.current_index: int = 0
+        self.current_queue_index: int = 0
 
     def load_data(self, csv_path: Path) -> None:
         """
-        Read a CSV file, validate its structure, update raw_data,
-        and reset the rolling queue and index.
+        Load CSV into raw_data, validate, and initialize the traversal queue.
 
         Args:
-            csv_path: Path to the CSV file.
+            csv_path: Path to CSV file.
 
         Raises:
-            ValueError: If the CSV structure or content is invalid.
+            ValueError: If CSV is invalid.
         """
         rows = self._read_csv(csv_path)
         self._validate_columns(rows)
         self._validate_unique_uids(rows)
         self.raw_data = rows
-        self.queue.clear()
-        self.current_index = 0
+        self._init_queue()
         print(f"Loaded {len(rows)} rows from {csv_path}")
+
+    def _init_queue(self) -> None:
+        """
+        Populate the queue with the first `queue_length` DataIO objects
+        and reset the traversal index.
+        """
+        self.queue.clear()
+        initial = self.raw_data[: self.queue_length]
+        for row in initial:
+            self.queue.append(
+                DataIO(uid=row['uid'], resources={k: v for k, v in row.items() if k != 'uid'})
+            )
+        self.current_queue_index = 0
 
     def get_queue(self) -> list[DataIO]:
         """
-        Retrieve the current rolling queue of DataIO objects.
-        If the queue is empty, populate it based on raw_data,
-        current_index, and queue_length.
-
-        Returns:
-            A list of DataIO instances in FIFO order.
+        Return the current window of DataIO objects.
         """
-        if not self.queue:
-            self._populate_queue()
         return list(self.queue)
 
-    def _populate_queue(self) -> None:
+    def current_item(self) -> DataIO:
         """
-        Populate the rolling queue with DataIO objects from raw_data
-        starting at current_index, wrapping around as needed.
-        Advances current_index by queue_length.
+        Return the current DataIO in the queue without changing the index.
+
+        Raises:
+            IndexError: If the queue is empty.
         """
-        total = len(self.raw_data)
-        if total == 0:
-            return
-        for _ in range(self.queue_length):
-            idx = self.current_index % total
-            row = self.raw_data[idx]
-            data_io = DataIO(uid=row['uid'], resources={k: v for k, v in row.items() if k != 'uid'})
-            self.queue.append(data_io)
-            self.current_index += 1
+        length = len(self.queue)
+        if length == 0:
+            raise IndexError("Traversal queue is empty")
+        return self.queue[self.current_queue_index]
+
+    def next_item(self) -> DataIO:
+        """
+        Advance the traversal pointer forward by one within the queue.
+
+        Returns:
+            The next DataIO in the window.
+
+        Raises:
+            IndexError: If no items are in the queue.
+        """
+        length = len(self.queue)
+        if length == 0:
+            raise IndexError("Traversal queue is empty")
+        self.current_queue_index = (self.current_queue_index + 1) % length
+        return self.queue[self.current_queue_index]
+
+    def previous_item(self) -> DataIO:
+        """
+        Move the traversal pointer backward by one within the queue.
+
+        Returns:
+            The previous DataIO in the window.
+
+        Raises:
+            IndexError: If no items are in the queue.
+        """
+        length = len(self.queue)
+        if length == 0:
+            raise IndexError("Traversal queue is empty")
+        self.current_queue_index = (self.current_queue_index - 1) % length
+        return self.queue[self.current_queue_index]
 
     def _read_csv(self, csv_path: Path) -> list[dict[str, str]]:
         with csv_path.open(newline='') as csvfile:
@@ -116,14 +151,11 @@ class DataManager:
             raise ValueError(f"Duplicate uid values found in file: {duplicates}")
 
 
-
-
-
 if __name__ == "__main__":
-    # Example usage
-    manager = DataManager()
-    try:
-        manager.load_data(Path("/Users/iejohnson/NAMIC/CART/sample_data/example_cohort.csv"))
-        manager.raw_data
-    except ValueError as e:
-        print(f"Error loading data: {e}")
+    manager = DataManager(queue_length=3)
+    manager.load_data(Path("/Users/iejohnson/NAMIC/CART/sample_data/example_cohort.csv"))
+    print([item.uid for item in manager.get_queue()])
+    print(manager.current_item().uid)
+    print(manager.next_item().uid)
+    print(manager.next_item().uid)
+    print(manager.previous_item().uid)
