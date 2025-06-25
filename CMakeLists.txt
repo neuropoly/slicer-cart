@@ -5,8 +5,8 @@ project(CART)
 #-----------------------------------------------------------------------------
 # Extension meta-information
 set(EXTENSION_HOMEPAGE "https://www.slicer.org/wiki/Documentation/Nightly/Extensions/CART")
-set(EXTENSION_CONTRIBUTORS "Kalum Ost (Montréal Polytechnique), Kuan Li (Montréal Polytechnique)")
-set(EXTENSION_DESCRIPTION "This is an example of a simple extension")
+set(EXTENSION_CONTRIBUTORS "Kalum Ost (Montréal Polytechnique), Kuan Li (Montréal Polytechnique), Ivan Johnson-Eversoll (University of Iowa)"),
+set(EXTENSION_DESCRIPTION "This is an project trying to unify and standardize the common functionaility of 'Case' itterators such as SlicerCart, mpReview, CaseIterator, and many more non published projects. ")
 set(EXTENSION_ICONURL "https://www.example.com/Slicer/Extensions/CART.png")
 set(EXTENSION_SCREENSHOTURLS "https://www.example.com/Slicer/Extensions/CART/Screenshots/1.png")
 set(EXTENSION_DEPENDS "NA") # Specified as a list or "NA" if no dependencies
