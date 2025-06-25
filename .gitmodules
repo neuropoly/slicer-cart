@@ -1,0 +1,7 @@
+[submodule "Legacy/SlicerCaseIterator"]
+	path = Legacy/SlicerCaseIterator
+	url = https://github.com/JoostJM/SlicerCaseIterator.git
+	branch = dev
+[submodule "Legacy/SlicerUltrasound"]
+	path = Legacy/SlicerUltrasound
+	url = https://github.com/SlicerUltrasound/SlicerUltrasound.git
