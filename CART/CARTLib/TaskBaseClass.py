@@ -42,10 +42,8 @@ class TaskBaseClass(ABC, Generic[D]):
 
         # If the task was specified, update the GUI with contents
         if self.data_unit:
-            required_fields = self.getRequiredFields()
-            # TODO: Validate this list against the DataUnit to ensure its validity
+            # TODO: Validate that the DataUnit has all fields needed for this task.
             self.setup(self.data_unit)
-
 
     @abstractmethod
     def buildGUI(self):
