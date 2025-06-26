@@ -206,6 +206,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         cohortFileSelectionButton = ctk.ctkDirectoryButton()
         formLayout.addRow(_("Cohort File:"), cohortFileSelectionButton)
 
+        # When the cohort selects a directory, update everything to match
+        cohortFileSelectionButton.directoryChanged.connect(self.onCohortChanged)
+
+        # Make the button easy-to-access
         self.cohortFileSelectionButton = cohortFileSelectionButton
 
         return cohortCollapsibleButton
@@ -218,6 +222,17 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def getCohortSelectedFile(self):
         return self.cohortFileSelectionButton.directory
+
+
+    def onCohortChanged(self):
+        """
+        Runs when a new cohort CSV is selected.
+
+        Currently only run when the Cohort button finishes selecting
+         a directory
+        """
+        # TMP: Print the selected directory to console
+        print(self.cohortFileSelectionButton.directory)
 
 
     def cleanup(self) -> None:
