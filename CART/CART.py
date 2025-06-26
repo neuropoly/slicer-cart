@@ -160,6 +160,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.cohortUIWidget = self.buildCohortUI()
         self.layout.addWidget(self.cohortUIWidget)
 
+        # Case Iterator UI
+        self.caseIteratorUI = self.buildCaseIteratorUI()
+        self.layout.addWidget(self.caseIteratorUI)
+
         # Create logic class. Logic implements all computations that should be possible to run
         # in batch mode, without a graphical user interface.
         self.logic = CARTLogic()
@@ -217,6 +221,32 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         return cohortCollapsibleButton
 
+    def buildCaseIteratorUI(self):
+        # Layout
+        groupBox = qt.QGroupBox()
+        layout = qt.QHBoxLayout(groupBox)
+
+        # Next + previous buttons
+        previousButton = qt.QPushButton(_("Previous"))
+        previousButton.toolTip = _("Return to the previous case.")
+
+        nextButton = qt.QPushButton(_("Next"))
+        nextButton.toolTip = _("Move onto the next case.")
+
+        # Add them to the layout "backwards" so previous is on the left
+        layout.addWidget(previousButton)
+        layout.addWidget(nextButton)
+
+        # Connections
+        nextButton.clicked.connect(self.nextCase)
+        previousButton.clicked.connect(self.previousCase)
+
+        # Make the buttons easy-to-access
+        self.nextButton = nextButton
+        self.previousButton = previousButton
+
+        return groupBox
+
 
     ## Connected Functions ##
 
@@ -236,6 +266,17 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # TMP: Print the selected directory to console
         print(self.cohortFileSelectionButton.directory)
 
+    def nextCase(self):
+        # TODO: Implement something here
+        print("NEXT CASE!")
+        self.nextButton.setEnabled(False)
+        self.previousButton.setEnabled(True)
+
+    def previousCase(self):
+        # TODO: Implement something here
+        print("PREVIOUS CASE!")
+        self.nextButton.setEnabled(True)
+        self.previousButton.setEnabled(False)
 
     ## Management ##
 
