@@ -233,7 +233,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
 
     def getCohortSelectedFile(self):
-        return
+        return self.cohortFileSelectionButton.directory
 
 
     def cleanup(self) -> None:
