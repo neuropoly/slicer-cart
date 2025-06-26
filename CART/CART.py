@@ -250,9 +250,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     ## Connected Functions ##
 
-    def getNewUserText(self):
-        return self.newUserTextWidget.text
-
     def getCohortSelectedFile(self):
         return self.cohortFileSelectionButton.directory
 
