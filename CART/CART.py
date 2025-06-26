@@ -231,7 +231,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         ]
 
         # Optionally set a default filter
-        cohortFileSelectionButton.currentNameFilter = "All readable files (*.csv)"
+        # TODO
 
         formLayout.addRow(_("Cohort File:"), cohortFileSelectionButton)
 
