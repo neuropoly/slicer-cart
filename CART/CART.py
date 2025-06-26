@@ -126,6 +126,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.StartCloseEvent, self.onSceneStartClose)
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.EndCloseEvent, self.onSceneEndClose)
 
+        # TODO: Remove this hard-coded data once we're ready to test properly
         self.base_path = Path("/Users/iejohnson/NAMIC/CART/sample_data")
         # Set the base path for data storage
         hardcoded_dict = {
