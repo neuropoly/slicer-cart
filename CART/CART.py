@@ -278,9 +278,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         text = self.priorUsersCollapsibleButton.currentText
         print(f"User selected: {text} ({index})")
 
-    def getCohortSelectedFile(self):
-        return self.cohortFileSelectionButton.directory
-
     def onCohortChanged(self):
         """
         Runs when a new cohort CSV is selected.
