@@ -2,7 +2,10 @@ import logging
 import os
 from typing import Annotated, Optional
 
+
 import vtk
+import ctk
+import qt
 
 import slicer
 from slicer.i18n import tr as _
@@ -134,6 +137,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     https://github.com/Slicer/Slicer/blob/main/Base/Python/slicer/ScriptedLoadableModule.py
     """
 
+    ## Initialization ##
+
     def __init__(self, parent=None) -> None:
         """Called when the user opens the module the first time and the widget is initialized."""
         ScriptedLoadableModuleWidget.__init__(self, parent)
@@ -146,16 +151,18 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """Called when the user opens the module the first time and the widget is initialized."""
         ScriptedLoadableModuleWidget.setup(self)
 
-        # Load widget from .ui file (created by Qt Designer).
-        # Additional widgets can be instantiated manually and added to self.layout.
-        uiWidget = slicer.util.loadUI(self.resourcePath("UI/CART.ui"))
-        self.layout.addWidget(uiWidget)
-        self.ui = slicer.util.childWidgetVariables(uiWidget)
+        # User UI
+        self.userUIWidget = self.buildUserUI()
+        # self.userUIWidget.setMRMLScene(slicer.mrmlScene)
+        self.layout.addWidget(self.userUIWidget)
 
-        # Set scene in MRML widgets. Make sure that in Qt designer the top-level qMRMLWidget's
-        # "mrmlSceneChanged(vtkMRMLScene*)" signal in is connected to each MRML widget's.
-        # "setMRMLScene(vtkMRMLScene*)" slot.
-        uiWidget.setMRMLScene(slicer.mrmlScene)
+        # Cohort UI
+        self.cohortUIWidget = self.buildCohortUI()
+        self.layout.addWidget(self.cohortUIWidget)
+
+        # Case Iterator UI
+        self.caseIteratorUI = self.buildCaseIteratorUI()
+        self.layout.addWidget(self.caseIteratorUI)
 
         # Create logic class. Logic implements all computations that should be possible to run
         # in batch mode, without a graphical user interface.
@@ -167,90 +174,229 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.StartCloseEvent, self.onSceneStartClose)
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.EndCloseEvent, self.onSceneEndClose)
 
-        # Buttons
-        self.ui.applyButton.connect("clicked(bool)", self.onApplyButton)
+    ## GUI builders ##
 
-        # Make sure parameter node is initialized (needed for module reload)
-        self.initializeParameterNode()
+    def buildUserUI(self):
+        """
+        Builds the GUI for the user management section of the Widget
+        :return:
+        """
+        # Layout management
+        userCollapsibleButton = ctk.ctkCollapsibleButton()
+        userCollapsibleButton.text = _("User Selection")
+        formLayout = qt.QFormLayout(userCollapsibleButton)
+
+        # User entry
+        newUserHBox = qt.QHBoxLayout()
+        newUserTextWidget = qt.QLineEdit()
+        newUserTextWidget.toolTip = _("Your name, or an equivalent identifier")
+        newUserHBox.addWidget(newUserTextWidget)
+        formLayout.addRow(_("New User:"), newUserHBox)
+
+        # When the user confirms their entry (with enter), add it to the
+        #  prior users list
+        newUserTextWidget.returnPressed.connect(self.newUserEntered)
+
+        # Make it accessible
+        self.newUserTextWidget = newUserTextWidget
+
+        # Prior users list
+        priorUsersCollapsibleButton = qt.QComboBox()
+        priorUsersCollapsibleButton.placeholderText = _("[Not Selected]")
+        # TODO Make this list dynamically loaded from a config/manifest
+        priorUsersCollapsibleButton.addItems(["Kalum", "Kuan", "Ivan"])
+        formLayout.addRow(_("Prior User"), priorUsersCollapsibleButton)
+
+        # When the user selects an existing entry, update the program to match
+        priorUsersCollapsibleButton.currentIndexChanged.connect(self.userSelected)
+
+        # Make it accessible
+        self.priorUsersCollapsibleButton = priorUsersCollapsibleButton
+
+        return userCollapsibleButton
+
+    def buildCohortUI(self):
+        # Layout management
+        cohortCollapsibleButton = ctk.ctkCollapsibleButton()
+        cohortCollapsibleButton.text = _("Cohort Selection")
+        formLayout = qt.QFormLayout(cohortCollapsibleButton)
+
+        # Directory selection button
+        cohortFileSelectionButton = ctk.ctkPathLineEdit()
+        # TODO Fix/ Ensure this works as expected
+        # Set file filters to only show readable file types
+        cohortFileSelectionButton.filters = ctk.ctkPathLineEdit.Files
+        cohortFileSelectionButton.nameFilters = [
+            "CSV files (*.csv)",
+        ]
+
+        # Optionally set a default filter
+        cohortFileSelectionButton.currentNameFilter = "All readable files (*.csv)"
+
+        formLayout.addRow(_("Cohort File:"), cohortFileSelectionButton)
+
+        # When the cohort selects a directory, update everything to match
+        cohortFileSelectionButton.currentPathChanged.connect(self.onCohortChanged)
+
+        # Make the button easy-to-access
+        self.cohortFileSelectionButton = cohortFileSelectionButton
+
+        return cohortCollapsibleButton
+
+    def buildCaseIteratorUI(self):
+        # Layout
+        groupBox = qt.QGroupBox("Iteration Manager")
+        layout = qt.QHBoxLayout(groupBox)
+
+        # Hide this by default, only showing it when we're ready to iterate
+        groupBox.setEnabled(False)
+
+        # Next + previous buttons
+        previousButton = qt.QPushButton(_("Previous"))
+        previousButton.toolTip = _("Return to the previous case.")
+
+        nextButton = qt.QPushButton(_("Next"))
+        nextButton.toolTip = _("Move onto the next case.")
+
+        # Add them to the layout "backwards" so previous is on the left
+        layout.addWidget(previousButton)
+        layout.addWidget(nextButton)
+
+        # Connections
+        nextButton.clicked.connect(self.nextCase)
+        previousButton.clicked.connect(self.previousCase)
+
+        # Make the buttons easy-to-access
+        self.nextButton = nextButton
+        self.previousButton = previousButton
+
+        return groupBox
+
+
+    ## Connected Functions ##
+
+    def newUserEntered(self):
+        # TODO: Connect functionality
+        print(f"NEW USER: {self.newUserTextWidget.text}")
+        self.newUserTextWidget.text = ""
+
+        # Show the hidden parts of the GUI if we're ready to proceed
+        self.checkIteratorReady()
+
+    def userSelected(self):
+        index = self.priorUsersCollapsibleButton.currentIndex
+        text = self.priorUsersCollapsibleButton.currentText
+        print(f"User selected: {text} ({index})")
+
+    def onCohortChanged(self):
+        """
+        Runs when a new cohort CSV is selected.
+
+        Currently only run when the Cohort button finishes selecting
+         a directory
+        """
+        # TMP: Print the selected directory to console
+        print(self.cohortFileSelectionButton.directory)
+
+        # Show the hidden parts of the GUI if we're ready to proceed
+        self.checkIteratorReady()
+
+    def checkIteratorReady(self):
+        # If there is a specified user
+        if self.priorUsersCollapsibleButton.currentIndex != -1:
+            # If there is a valid cohort
+            if self.cohortFileSelectionButton.directory != "":
+                self.caseIteratorUI.setEnabled(True)
+
+    def nextCase(self):
+        # TODO: Implement something here
+        print("NEXT CASE!")
+        self.nextButton.setEnabled(False)
+        self.previousButton.setEnabled(True)
+
+    def previousCase(self):
+        # TODO: Implement something here
+        print("PREVIOUS CASE!")
+        self.nextButton.setEnabled(True)
+        self.previousButton.setEnabled(False)
+
+    ## Management ##
 
     def cleanup(self) -> None:
         """Called when the application closes and the module widget is destroyed."""
-        self.removeObservers()
+        pass
 
-    def enter(self) -> None:
-        """Called each time the user opens this module."""
-        # Make sure parameter node exists and observed
-        self.initializeParameterNode()
+    # def enter(self) -> None:
+    #     """Called each time the user opens this module."""
+    #     # Make sure parameter node exists and observed
+    #     self.initializeParameterNode()
 
-    def exit(self) -> None:
-        """Called each time the user opens a different module."""
-        # Do not react to parameter node changes (GUI will be updated when the user enters into the module)
-        if self._parameterNode:
-            self._parameterNode.disconnectGui(self._parameterNodeGuiTag)
-            self._parameterNodeGuiTag = None
-            self.removeObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._checkCanApply)
+    # def exit(self) -> None:
+    #     """Called each time the user opens a different module."""
+    #     # Do not react to parameter node changes (GUI will be updated when the user enters into the module)
+    #     if self._parameterNode:
+    #         self._parameterNode.disconnectGui(self._parameterNodeGuiTag)
+    #         self._parameterNodeGuiTag = None
+    #         self.removeObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._checkCanApply)
 
     def onSceneStartClose(self, caller, event) -> None:
         """Called just before the scene is closed."""
-        # Parameter node will be reset, do not use it anymore
-        self.setParameterNode(None)
+        pass
 
     def onSceneEndClose(self, caller, event) -> None:
         """Called just after the scene is closed."""
-        # If this module is shown while the scene is closed then recreate a new parameter node immediately
-        if self.parent.isEntered:
-            self.initializeParameterNode()
+        pass
 
-    def initializeParameterNode(self) -> None:
-        """Ensure parameter node exists and observed."""
-        # Parameter node stores all user choices in parameter values, node selections, etc.
-        # so that when the scene is saved and reloaded, these settings are restored.
-
-        self.setParameterNode(self.logic.getParameterNode())
-
-        # Select default input nodes if nothing is selected yet to save a few clicks for the user
-        if not self._parameterNode.inputVolume:
-            firstVolumeNode = slicer.mrmlScene.GetFirstNodeByClass("vtkMRMLScalarVolumeNode")
-            if firstVolumeNode:
-                self._parameterNode.inputVolume = firstVolumeNode
-
-    def setParameterNode(self, inputParameterNode: Optional[CARTParameterNode]) -> None:
-        """
-        Set and observe parameter node.
-        Observation is needed because when the parameter node is changed then the GUI must be updated immediately.
-        """
-
-        if self._parameterNode:
-            self._parameterNode.disconnectGui(self._parameterNodeGuiTag)
-            self.removeObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._checkCanApply)
-        self._parameterNode = inputParameterNode
-        if self._parameterNode:
-            # Note: in the .ui file, a Qt dynamic property called "SlicerParameterName" is set on each
-            # ui element that needs connection.
-            self._parameterNodeGuiTag = self._parameterNode.connectGui(self.ui)
-            self.addObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._checkCanApply)
-            self._checkCanApply()
-
-    def _checkCanApply(self, caller=None, event=None) -> None:
-        if self._parameterNode and self._parameterNode.inputVolume and self._parameterNode.thresholdedVolume:
-            self.ui.applyButton.toolTip = _("Compute output volume")
-            self.ui.applyButton.enabled = True
-        else:
-            self.ui.applyButton.toolTip = _("Select input and output volume nodes")
-            self.ui.applyButton.enabled = False
-
-    def onApplyButton(self) -> None:
-        """Run processing when user clicks "Apply" button."""
-        with slicer.util.tryWithErrorDisplay(_("Failed to compute results."), waitCursor=True):
-            # Compute output
-            self.logic.process(self.ui.inputSelector.currentNode(), self.ui.outputSelector.currentNode(),
-                               self.ui.imageThresholdSliderWidget.value, self.ui.invertOutputCheckBox.checked)
-
-            # Compute inverted output (if needed)
-            if self.ui.invertedOutputSelector.currentNode():
-                # If additional output volume is selected then result with inverted threshold is written there
-                self.logic.process(self.ui.inputSelector.currentNode(), self.ui.invertedOutputSelector.currentNode(),
-                                   self.ui.imageThresholdSliderWidget.value, not self.ui.invertOutputCheckBox.checked, showResult=False)
+    # def initializeParameterNode(self) -> None:
+    #     """Ensure parameter node exists and observed."""
+    #     # Parameter node stores all user choices in parameter values, node selections, etc.
+    #     # so that when the scene is saved and reloaded, these settings are restored.
+    #
+    #     self.setParameterNode(self.logic.getParameterNode())
+    #
+    #     # Select default input nodes if nothing is selected yet to save a few clicks for the user
+    #     if not self._parameterNode.inputVolume:
+    #         firstVolumeNode = slicer.mrmlScene.GetFirstNodeByClass("vtkMRMLScalarVolumeNode")
+    #         if firstVolumeNode:
+    #             self._parameterNode.inputVolume = firstVolumeNode
+    #
+    # def setParameterNode(self, inputParameterNode: Optional[CARTParameterNode]) -> None:
+    #     """
+    #     Set and observe parameter node.
+    #     Observation is needed because when the parameter node is changed then the GUI must be updated immediately.
+    #     """
+    #
+    #     if self._parameterNode:
+    #         self._parameterNode.disconnectGui(self._parameterNodeGuiTag)
+    #         self.removeObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._checkCanApply)
+    #     self._parameterNode = inputParameterNode
+    #     if self._parameterNode:
+    #         # Note: in the .ui file, a Qt dynamic property called "SlicerParameterName" is set on each
+    #         # ui element that needs connection.
+    #         self._parameterNodeGuiTag = self._parameterNode.connectGui(self.ui)
+    #         self.addObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._checkCanApply)
+    #         self._checkCanApply()
+    #
+    # def _checkCanApply(self, caller=None, event=None) -> None:
+    #     if self._parameterNode and self._parameterNode.inputVolume and self._parameterNode.thresholdedVolume:
+    #         self.ui.applyButton.toolTip = _("Compute output volume")
+    #         self.ui.applyButton.enabled = True
+    #     else:
+    #         self.ui.applyButton.toolTip = _("Select input and output volume nodes")
+    #         self.ui.applyButton.enabled = False
+    #
+    # def onApplyButton(self) -> None:
+    #     """Run processing when user clicks "Apply" button."""
+    #     with slicer.util.tryWithErrorDisplay(_("Failed to compute results."), waitCursor=True):
+    #         # Compute output
+    #         self.logic.process(self.ui.inputSelector.currentNode(), self.ui.outputSelector.currentNode(),
+    #                            self.ui.imageThresholdSliderWidget.value, self.ui.invertOutputCheckBox.checked)
+    #
+    #         # Compute inverted output (if needed)
+    #         if self.ui.invertedOutputSelector.currentNode():
+    #             # If additional output volume is selected then result with inverted threshold is written there
+    #             self.logic.process(self.ui.inputSelector.currentNode(), self.ui.invertedOutputSelector.currentNode(),
+    #                                self.ui.imageThresholdSliderWidget.value, not self.ui.invertOutputCheckBox.checked, showResult=False)
 
 
 #
