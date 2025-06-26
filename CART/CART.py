@@ -137,6 +137,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     https://github.com/Slicer/Slicer/blob/main/Base/Python/slicer/ScriptedLoadableModule.py
     """
 
+    ## Initialization ##
+
     def __init__(self, parent=None) -> None:
         """Called when the user opens the module the first time and the widget is initialized."""
         ScriptedLoadableModuleWidget.__init__(self, parent)
@@ -169,6 +171,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.EndCloseEvent, self.onSceneEndClose)
 
     ## GUI builders ##
+
     def buildUserUI(self):
         """
         Builds the GUI for the user management section of the Widget
@@ -215,14 +218,13 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         return cohortCollapsibleButton
 
 
-    ## Connectors ##
+    ## Connected Functions ##
+
     def getNewUserText(self):
         return self.newUserTextWidget.text
 
-
     def getCohortSelectedFile(self):
         return self.cohortFileSelectionButton.directory
-
 
     def onCohortChanged(self):
         """
@@ -234,6 +236,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # TMP: Print the selected directory to console
         print(self.cohortFileSelectionButton.directory)
 
+
+    ## Management ##
 
     def cleanup(self) -> None:
         """Called when the application closes and the module widget is destroyed."""
