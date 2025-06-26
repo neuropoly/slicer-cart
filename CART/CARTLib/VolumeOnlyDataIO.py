@@ -90,4 +90,5 @@ class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):
         Returns:
             dict: A dictionary representation of the data.
         """
-        pass
+        # THIS IS NOT A COMMMON USE CASE, BUT BC THERE IS NO DATA IN THE MRML SCENE ONLY FILES WE ARE GOOD
+        return self.data
