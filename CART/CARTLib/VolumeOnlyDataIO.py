@@ -1,10 +1,10 @@
-from DataIOBase import DataIOBase
+from DataUnitBase import DataUnitBase
 import slicer
 from slicer.i18n import tr as _
 from slicer.i18n import translate
 from slicer.ScriptedLoadableModule import *
 
-class VolumeOnlyDataIO(DataIOBase, ScriptedLoadableModuleLogic):
+class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):
 
     def __init__(
             self,
@@ -18,7 +18,10 @@ class VolumeOnlyDataIO(DataIOBase, ScriptedLoadableModuleLogic):
         Args:
             initial_data (dict, optional): Initial data to populate the instance.
         """
-        super().__init__()
+        super().__init__(
+            data=initial_data,
+            scene=scene
+        )
         self.initial_data = initial_data if initial_data else {}
         self.resources = {}
 

@@ -3,7 +3,7 @@ from typing import Any
 
 import slicer
 
-class DataIOBase(ABC):
+class DataUnitBase(ABC):
 
     def __init__(self, data: dict, scene: slicer.vtkMRMLScene):
         """
