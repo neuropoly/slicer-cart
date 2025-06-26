@@ -222,11 +222,21 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         formLayout = qt.QFormLayout(cohortCollapsibleButton)
 
         # Directory selection button
-        cohortFileSelectionButton = ctk.ctkDirectoryButton()
+        cohortFileSelectionButton = ctk.ctkPathLineEdit()
+        # TODO Fix/ Ensure this works as expected
+        # Set file filters to only show readable file types
+        cohortFileSelectionButton.filters = ctk.ctkPathLineEdit.Files
+        cohortFileSelectionButton.nameFilters = [
+            "CSV files (*.csv)",
+        ]
+
+        # Optionally set a default filter
+        cohortFileSelectionButton.currentNameFilter = "All readable files (*.csv)"
+
         formLayout.addRow(_("Cohort File:"), cohortFileSelectionButton)
 
         # When the cohort selects a directory, update everything to match
-        cohortFileSelectionButton.directoryChanged.connect(self.onCohortChanged)
+        cohortFileSelectionButton.currentPathChanged.connect(self.onCohortChanged)
 
         # Make the button easy-to-access
         self.cohortFileSelectionButton = cohortFileSelectionButton
