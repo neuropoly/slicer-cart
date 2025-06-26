@@ -296,7 +296,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
          a directory
         """
         # TMP: Print the selected directory to console
-        print(self.cohortFileSelectionButton.directory)
+        print(self.cohortFileSelectionButton.currentPath)
 
         # Show the hidden parts of the GUI if we're ready to proceed
         self.checkIteratorReady()
@@ -305,7 +305,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # If there is a specified user
         if self.priorUsersCollapsibleButton.currentIndex != -1:
             # If there is a valid cohort
-            if self.cohortFileSelectionButton.directory != "":
+            if self.cohortFileSelectionButton.currentPath != "":
                 self.caseIteratorUI.setEnabled(True)
 
     def nextCase(self):
