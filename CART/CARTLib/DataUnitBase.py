@@ -43,7 +43,7 @@ class DataUnitBase(ABC):
     @abstractmethod
     def _validate(self):
         """
-        Validate the data in this DataIOBase instance.
+        Validate the data in this DataUnitBase instance.
 
         This method should be implemented to ensure that the initial input data is valid.
         Raises:
@@ -63,7 +63,7 @@ class DataUnitBase(ABC):
         """
         raise NotImplementedError("This method must be implemented in subclasses.")
 
-    @abstractmethod
+
     def get_resource(self, key: str) -> Any:
         """
         Retrieve a specified resource associated with this DataUnitBase instance.
@@ -71,12 +71,16 @@ class DataUnitBase(ABC):
         A resource can be any data that should be managed on a unit-by-unit basis,
         as it is presented within Slicer/Python.
         This is how your Task implementation should access data for display or processing.
+
+        By default, this uses a backing dictionary, but you can override this in a subclass
         
         Generally, the return type should be a Slicer Node, but this is not enforced.
 
         """
-        raise NotImplementedError("This method must be implemented in subclasses.")
-
+        if key in self.resources:
+            return self.resources[key]
+        else:
+            raise KeyError(f"Resource '{key}' not found in VolumeOnlyDataUnit.")
 
     def get_scene(self) -> slicer.vtkMRMLScene:
         """

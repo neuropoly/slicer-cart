@@ -22,16 +22,13 @@ class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):
         """
 
         if scene is None:
+            # Use the default MRML scene if none is provided
             scene = slicer.mrmlScene
         super().__init__(
             data=data,
             scene=scene
         )
-        self.data = data if data else {}
-        self.resources = {}
-
-        self.uid = self.data.get("uid", None)
-        self.validated = False
+        self._initialize_resources()
 
 
 
@@ -86,7 +83,6 @@ class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):
                     raise ValueError(f"Failed to load volume from {value}")
 
 
-
     def to_dict(self) -> dict:
         """
         Convert the data from the associated MRML nodes to a dictionary representation.
@@ -95,20 +91,3 @@ class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):
             dict: A dictionary representation of the data.
         """
         pass
-
-    def get_resource(self, key: str) -> Any:
-        """
-        Retrieve a specified resource associated with this VolumeOnlyDataUnit instance.
-
-        Args:
-            key (str): The key for the resource to retrieve.
-
-        Returns:
-            Any: The resource associated with the given key.
-        """
-        if key in self.resources:
-            return self.resources[key]
-        else:
-            raise KeyError(f"Resource '{key}' not found in VolumeOnlyDataUnit.")
-
-
