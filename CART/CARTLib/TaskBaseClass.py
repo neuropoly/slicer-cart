@@ -8,8 +8,8 @@ class TaskBaseClass(ABC):
     """
     Base class for a task in the CART library.
 
-    A "Task" is both the front-facing GUI component and the backend code interfaces between
-    said GUI and a DataUnit instance.
+    A "Task" is both the front-facing GUI component and the backend code
+    interfaces between said GUI and a DataUnit instance.
     """
 
     def __init__(self, data_unit: DataUnitBase | None = None):
