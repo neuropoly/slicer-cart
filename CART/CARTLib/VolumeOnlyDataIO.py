@@ -87,14 +87,5 @@ class VolumeOnlyDataIO(DataIOBase, ScriptedLoadableModuleLogic):
         """
         pass
 
-    def get_data_uid(self) -> str:
-        """
-        Retrieve the unique identifier (UID) for this VolumeOnlyDataIO instance.
-
-        Returns:
-            str: The UID of the data.
-        """
-        return self.uid
-
 
 
