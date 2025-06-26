@@ -202,9 +202,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Prior users list
         priorUsersCollapsibleButton = qt.QComboBox()
+        priorUsersCollapsibleButton.placeholderText = _("[Not Selected]")
         # TODO Make this list dynamically loaded from a config/manifest
         priorUsersCollapsibleButton.addItems(["Kalum", "Kuan", "Ivan"])
-        formLayout.addRow(_("Prior Users"), priorUsersCollapsibleButton)
+        formLayout.addRow(_("Prior User"), priorUsersCollapsibleButton)
 
         # When the user selects an existing entry, update the program to match
         priorUsersCollapsibleButton.currentIndexChanged.connect(self.userSelected)
@@ -234,8 +235,11 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def buildCaseIteratorUI(self):
         # Layout
-        groupBox = qt.QGroupBox()
+        groupBox = qt.QGroupBox("Iteration Manager")
         layout = qt.QHBoxLayout(groupBox)
+
+        # Hide this by default, only showing it when we're ready to iterate
+        groupBox.setEnabled(False)
 
         # Next + previous buttons
         previousButton = qt.QPushButton(_("Previous"))
@@ -266,6 +270,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         print(f"NEW USER: {self.newUserTextWidget.text}")
         self.newUserTextWidget.text = ""
 
+        # Show the hidden parts of the GUI if we're ready to proceed
+        self.checkIteratorReady()
+
     def userSelected(self):
         index = self.priorUsersCollapsibleButton.currentIndex
         text = self.priorUsersCollapsibleButton.currentText
@@ -283,6 +290,16 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """
         # TMP: Print the selected directory to console
         print(self.cohortFileSelectionButton.directory)
+
+        # Show the hidden parts of the GUI if we're ready to proceed
+        self.checkIteratorReady()
+
+    def checkIteratorReady(self):
+        # If there is a specified user
+        if self.priorUsersCollapsibleButton.currentIndex != -1:
+            # If there is a valid cohort
+            if self.cohortFileSelectionButton.directory != "":
+                self.caseIteratorUI.setEnabled(True)
 
     def nextCase(self):
         # TODO: Implement something here
