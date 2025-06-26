@@ -21,5 +21,7 @@
   "autosave_frequency": 2,
   "number_of_sessions_kept_in_logs": 10,
   "display_timer": false,
-  "iterator_increment": 1
+  "iterator_increment": 1,
+
+  "contributors": ["Ivan", "Kalum", "Kuan"]
 }

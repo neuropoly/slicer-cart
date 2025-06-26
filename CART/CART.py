@@ -1,6 +1,7 @@
 import logging
 import os
 from typing import Annotated, Optional
+from pathlib import Path
 
 
 import vtk
@@ -19,6 +20,12 @@ from slicer.parameterNodeWrapper import (
 
 from slicer import vtkMRMLScalarVolumeNode
 
+import json
+
+from CARTLib.DataManager import DataManager
+
+CURRENT_DIR = Path(__file__).parent
+CONFIGURATION_FILE_NAME = CURRENT_DIR / "configuration.json"
 
 #
 # CART
@@ -146,6 +153,14 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.logic = None
         self._parameterNode = None
         self._parameterNodeGuiTag = None
+        
+        with open(CONFIGURATION_FILE_NAME, "r") as cf:
+          self.configuration_data = json.load(cf)   
+        cf.close()
+        
+        self.cohort_csv_path = None    
+        self.current_case = None    
+        self.DataManagerInstance = DataManager(4)
 
     def setup(self) -> None:
         """Called when the user opens the module the first time and the widget is initialized."""
@@ -203,8 +218,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Prior users list
         priorUsersCollapsibleButton = qt.QComboBox()
         priorUsersCollapsibleButton.placeholderText = _("[Not Selected]")
-        # TODO Make this list dynamically loaded from a config/manifest
-        priorUsersCollapsibleButton.addItems(["Kalum", "Kuan", "Ivan"])
+          
+        priorUsersCollapsibleButton.addItems(self.configuration_data["contributors"])
         formLayout.addRow(_("Prior User"), priorUsersCollapsibleButton)
 
         # When the user selects an existing entry, update the program to match
@@ -240,66 +255,100 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Make the button easy-to-access
         self.cohortFileSelectionButton = cohortFileSelectionButton
-
+        
+      
         return cohortCollapsibleButton
 
     def buildCaseIteratorUI(self):
-        # Layout
-        groupBox = qt.QGroupBox("Iteration Manager")
-        layout = qt.QHBoxLayout(groupBox)
+      # Layout
+      self.groupBox = qt.QGroupBox("Iteration Manager")
+      mainLayout = qt.QVBoxLayout(self.groupBox)
 
-        # Hide this by default, only showing it when we're ready to iterate
-        groupBox.setEnabled(False)
+      # Hide this by default, only showing it when we're ready to iterate
+      self.groupBox.setEnabled(False)
 
-        # Next + previous buttons
-        previousButton = qt.QPushButton(_("Previous"))
-        previousButton.toolTip = _("Return to the previous case.")
+      # Next + previous buttons in a horizontal layout
+      buttonLayout = qt.QHBoxLayout()
+      previousButton = qt.QPushButton(_("Previous"))
+      previousButton.toolTip = _("Return to the previous case.")
 
-        nextButton = qt.QPushButton(_("Next"))
-        nextButton.toolTip = _("Move onto the next case.")
+      nextButton = qt.QPushButton(_("Next"))
+      nextButton.toolTip = _("Move onto the next case.")
 
-        # Add them to the layout "backwards" so previous is on the left
-        layout.addWidget(previousButton)
-        layout.addWidget(nextButton)
+      # Add them to the layout "backwards" so previous is on the left
+      buttonLayout.addWidget(previousButton)
+      buttonLayout.addWidget(nextButton)
 
-        # Connections
-        nextButton.clicked.connect(self.nextCase)
-        previousButton.clicked.connect(self.previousCase)
+      # Add the button layout to the main vertical layout
+      mainLayout.addLayout(buttonLayout)
 
-        # Make the buttons easy-to-access
-        self.nextButton = nextButton
-        self.previousButton = previousButton
+      # Add a text field to display the current case name under the buttons
+      self.currentCaseNameLabel = qt.QLineEdit()
+      self.currentCaseNameLabel.readOnly = True
+      self.currentCaseNameLabel.placeholderText = _("Current case name will appear here")
+      mainLayout.addWidget(self.currentCaseNameLabel)
+      
+      # Make the buttons easy-to-access
+      self.nextButton = nextButton
+      self.previousButton = previousButton
+      
+      # Connections
+      nextButton.clicked.connect(self.nextCase)
+      previousButton.clicked.connect(self.previousCase)
 
-        return groupBox
+      return self.groupBox
 
 
     ## Connected Functions ##
 
     def newUserEntered(self):
-        # TODO: Connect functionality
-        print(f"NEW USER: {self.newUserTextWidget.text}")
+        # New user added 
+        new_user_name = self.newUserTextWidget.text
+        if not new_user_name:
+            return
+          
+        if new_user_name in self.configuration_data["contributors"]:
+            print(f"User '{new_user_name}' already exists.")
+            self.newUserTextWidget.text = ""
+            return
+          
+        self.configuration_data["contributors"].append(new_user_name)
+        with open(CONFIGURATION_FILE_NAME, "w") as cf:
+            json.dump(self.configuration_data, cf, indent=2)
+        print(f"NEW USER: {new_user_name}")
+        
         self.newUserTextWidget.text = ""
+        # Update the prior users dropdown
+        self.priorUsersCollapsibleButton.addItem(new_user_name)
 
         # Show the hidden parts of the GUI if we're ready to proceed
         self.checkIteratorReady()
-
+        
     def userSelected(self):
         index = self.priorUsersCollapsibleButton.currentIndex
         text = self.priorUsersCollapsibleButton.currentText
         print(f"User selected: {text} ({index})")
 
+    def getCohortSelectedFile(self):
+        return self.cohortFileSelectionButton.directory
+
     def onCohortChanged(self):
         """
         Runs when a new cohort CSV is selected.
-
-        Currently only run when the Cohort button finishes selecting
-         a directory
         """
-        # TMP: Print the selected directory to console
-        print(self.cohortFileSelectionButton.currentPath)
-
-        # Show the hidden parts of the GUI if we're ready to proceed
+        self.cohort_csv_path = Path(self.cohortFileSelectionButton.currentPath)
         self.checkIteratorReady()
+        self.DataManagerInstance.set_data_cohort_csv(self.cohort_csv_path)
+        self.DataManagerInstance.load_data(self.cohort_csv_path)
+        # Set queue_length to the number of cases after loading
+        self.DataManagerInstance.queue_length = len(self.DataManagerInstance.raw_data)
+        self.DataManagerInstance._init_queue()
+        self.groupBox.setEnabled(True)
+        # Show the first case immediately
+        if self.DataManagerInstance.raw_data:
+            self.current_case = self.DataManagerInstance.current_item().resources
+            print(self.current_case)
+            self.currentCaseNameLabel.text = str(self.current_case)
 
     def checkIteratorReady(self):
         # If there is a specified user
@@ -309,16 +358,23 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 self.caseIteratorUI.setEnabled(True)
 
     def nextCase(self):
-        # TODO: Implement something here
         print("NEXT CASE!")
-        self.nextButton.setEnabled(False)
-        self.previousButton.setEnabled(True)
+        
+        next_case = self.DataManagerInstance.next_item()
+        self.current_case = next_case
+        print(self.current_case.uid)
+
+        self.currentCaseNameLabel.text = str(self.current_case.resources)
 
     def previousCase(self):
-        # TODO: Implement something here
         print("PREVIOUS CASE!")
-        self.nextButton.setEnabled(True)
-        self.previousButton.setEnabled(False)
+        
+        previous_case = self.DataManagerInstance.next_item()
+        self.current_case = previous_case
+        print(self.current_case.uid)
+
+                
+        self.currentCaseNameLabel.text = str(self.current_case.resources)
 
     ## Management ##
 

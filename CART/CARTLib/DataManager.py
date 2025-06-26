@@ -36,8 +36,8 @@ class DataManager:
 
     def __init__(
         self,
-        config: TaskConfig | None = None,
         queue_length: int = 1,
+        config: TaskConfig | None = None,
     ) -> None:
         """
         Initialize DataManager with optional configuration and window size.
@@ -91,9 +91,10 @@ class DataManager:
         self._validate_columns(rows)
         self._validate_unique_uids(rows)
         self.raw_data = rows
+        #self.queue_length = len(self.raw_data)
         self._init_queue()
         print(f"Loaded {len(rows)} rows from {path}")
-
+    
     def _init_queue(self) -> None:
         """
         Populate the queue with the first `queue_length` DataIO objects
@@ -143,7 +144,14 @@ class DataManager:
         length = len(self.queue)
         if length == 0:
             raise IndexError("Traversal queue is empty")
+          
+        print(self.current_queue_index)
+
+          
         self.current_queue_index = (self.current_queue_index + 1) % length
+        
+        print(self.current_queue_index)
+
         return self.queue[self.current_queue_index]
 
     def previous_item(self) -> DataIO:
@@ -159,7 +167,12 @@ class DataManager:
         length = len(self.queue)
         if length == 0:
             raise IndexError("Traversal queue is empty")
+        
+        print(self.current_queue_index)
+        
         self.current_queue_index = (self.current_queue_index - 1) % length
+        
+        print(self.current_queue_index)
         return self.queue[self.current_queue_index]
 
     def _read_csv(self, csv_path: Path) -> List[Dict[str, str]]:
@@ -190,11 +203,14 @@ class DataManager:
             seen.add(uid)
         if duplicates:
             raise ValueError(f"Duplicate uid values found in file: {duplicates}")
+        else:
+          #self.queue_length = len(seen)
+          pass
 
 
 if __name__ == "__main__":
-    manager = DataManager(queue_length=3)
-    csv_path = Path("/Users/iejohnson/NAMIC/CART/sample_data/example_cohort.csv")
+    manager = DataManager(queue_length=10)
+    csv_path = Path("D:\Coding\Slicer\example_cohort.csv")
     manager.set_data_cohort_csv(csv_path)
     manager.load_data()  # uses configured CSV
     print([item.uid for item in manager.get_queue()])
