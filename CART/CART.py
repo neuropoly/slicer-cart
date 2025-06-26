@@ -158,22 +158,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.cohortUIWidget = self.buildCohortUI()
         self.layout.addWidget(self.cohortUIWidget)
 
-        # TODO: Is this necessary? Some "official" modules (i.e. ScreenCapture)
-        #  don't do this, but the template does.
-        #
-        # Load widget from .ui file (created by Qt Designer).
-        # Additional widgets can be instantiated manually and added to self.layout.
-        # uiWidget = slicer.util.loadUI(self.resourcePath("UI/CART.ui"))
-        # print(type(uiWidget))
-        # self.layout.addWidget(uiWidget)
-        # self.ui = slicer.util.childWidgetVariables(uiWidget)
-        #
-        # Set scene in MRML widgets. Make sure that in Qt designer the top-level qMRMLWidget's
-        # "mrmlSceneChanged(vtkMRMLScene*)" signal in is connected to each MRML widget's.
-        # "setMRMLScene(vtkMRMLScene*)" slot.
-        #
-        # uiWidget.setMRMLScene(slicer.mrmlScene)
-
         # Create logic class. Logic implements all computations that should be possible to run
         # in batch mode, without a graphical user interface.
         self.logic = CARTLogic()
