@@ -1,13 +1,13 @@
 import logging
 import os
 from typing import Annotated, Optional
-from pathlib import Path
+from CARTLib.VolumeOnlyDataIO import VolumeOnlyDataUnit
 
 
 import vtk
 import ctk
 import qt
-
+from pathlib import Path
 import slicer
 from slicer.i18n import tr as _
 from slicer.i18n import translate
@@ -61,12 +61,8 @@ and Steve Pieper, Isomics, Inc. and was partially funded by NIH grant 3P41RR0132
 """)
 
         # Additional initialization step after application startup is complete
-        slicer.app.connect("startupCompleted()", registerSampleData)
 
 
-#
-# Register sample data sets in Sample Data module
-#
 
 
 #
@@ -129,6 +125,27 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # These connections ensure that we update parameter node when scene is closed
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.StartCloseEvent, self.onSceneStartClose)
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.EndCloseEvent, self.onSceneEndClose)
+
+        self.base_path = Path("/Users/iejohnson/NAMIC/CART/sample_data")
+        # Set the base path for data storage
+        hardcoded_dict = {
+            "uid": "TEST_UID",
+            "T2W": self.base_path / "11188/11188_1001211_t2w.nrrd",
+            "HBV": self.base_path /  "11188/11188_1001211_hbv.nrrd",
+            "ADC": self.base_path / "11188/11188_1001211_adc.nrrd",
+        }
+
+        try:
+            du = VolumeOnlyDataUnit(
+                hardcoded_dict
+            )
+            print("YAY! DataUnit created successfully")
+            print(du)
+
+        except Exception as e:
+            logging.error("*" *100)
+            logging.error(e)
+            logging.error("*" *100)
 
     ## GUI builders ##
 

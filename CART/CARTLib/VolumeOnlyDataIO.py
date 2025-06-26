@@ -1,4 +1,7 @@
-from DataUnitBase import DataUnitBase
+from pathlib import Path
+from typing import Any
+
+from .DataUnitBase import DataUnitBase
 import slicer
 from slicer.i18n import tr as _
 from slicer.i18n import translate
@@ -8,27 +11,29 @@ class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):
 
     def __init__(
             self,
-            initial_data: dict,
-            base_path: str,
+            data: dict,
             scene: slicer.vtkMRMLScene | None = None,
     ):
         """
         Initialize the VolumeOnlyDataIO with optional initial data.
 
         Args:
-            initial_data (dict, optional): Initial data to populate the instance.
+            data (dict, optional): Initial data to populate the instance.
         """
+
+        if scene is None:
+            scene = slicer.mrmlScene
         super().__init__(
-            data=initial_data,
+            data=data,
             scene=scene
         )
-        self.initial_data = initial_data if initial_data else {}
+        self.data = data if data else {}
         self.resources = {}
 
-        self.uid = self.initial_data.get("uid", None)
+        self.uid = self.data.get("uid", None)
         self.validated = False
-        if scene is None:
-            scene = slicer.getMRMLScene()
+
+
 
     def _validate(self):
         """
@@ -41,20 +46,21 @@ class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):
             raise ValueError(_("UID is required for VolumeOnlyDataIO."))
 
         key: str
-        value: str
-        for key, value in self.initial_data.items():
+        value: str | Path
+        for key, value in self.data.items():
             if key == "uid":
                 continue
             else:
-                if not isinstance(value, str):
+                if not isinstance(value, Path):
                     raise ValueError(
-                        f"Invalid data for key '{key}': expected string, got {type(value).__name__}"
+                        f"Invalid data for key '{key}': value must be a string or Path."
                     )
-                if value == "":
+                if not value.exists():
                     raise ValueError(
-                        f"Invalid data for key '{key}': value cannot be empty."
+                        f"Invalid data for key '{key}': file does not exist at {value}."
                     )
-                if not value.endswith(".nrrd"):
+
+                if not value.name.endswith(".nrrd"):
                     raise ValueError(
                         f"Invalid data for key '{key}': value must be a .nrrd file."
                     )
@@ -71,7 +77,7 @@ class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):
             raise ValueError(_("Data must be validated before initializing resources."))
 
         # Example of how to initialize resources, assuming the data is a file path
-        for key, value in self.initial_data.items():
+        for key, value in self.data.items():
             if key != "uid":
                 node = slicer.util.loadVolume(value)
                 if node:
@@ -90,5 +96,19 @@ class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):
         """
         pass
 
+    def get_resource(self, key: str) -> Any:
+        """
+        Retrieve a specified resource associated with this VolumeOnlyDataUnit instance.
+
+        Args:
+            key (str): The key for the resource to retrieve.
+
+        Returns:
+            Any: The resource associated with the given key.
+        """
+        if key in self.resources:
+            return self.resources[key]
+        else:
+            raise KeyError(f"Resource '{key}' not found in VolumeOnlyDataUnit.")
 
 
