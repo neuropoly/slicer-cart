@@ -160,7 +160,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         
         self.cohort_csv_path = None    
         self.current_case = None    
-        self.DataManagerInstance = DataManager(4)
+        self.DataManagerInstance = DataManager()
 
     def setup(self) -> None:
         """Called when the user opens the module the first time and the widget is initialized."""
@@ -340,9 +340,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.checkIteratorReady()
         self.DataManagerInstance.set_data_cohort_csv(self.cohort_csv_path)
         self.DataManagerInstance.load_data(self.cohort_csv_path)
-        # Set queue_length to the number of cases after loading
-        self.DataManagerInstance.queue_length = len(self.DataManagerInstance.raw_data)
-        self.DataManagerInstance._init_queue()
         self.groupBox.setEnabled(True)
         # Show the first case immediately
         if self.DataManagerInstance.raw_data:
