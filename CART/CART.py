@@ -26,6 +26,10 @@ from CARTLib.DataManager import DataManager
 
 CURRENT_DIR = Path(__file__).parent
 CONFIGURATION_FILE_NAME = CURRENT_DIR / "configuration.json"
+this_file_path = Path(__file__).parent
+sample_data_path = this_file_path.parent / "sample_data"
+sample_data_cohort_csv = sample_data_path / "example_cohort.csv"
+
 
 #
 # CART
@@ -251,8 +255,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         formLayout.addRow(_("Cohort File:"), cohortFileSelectionButton)
 
         # When the cohort selects a directory, update everything to match
+        default_value = sample_data_cohort_csv.as_posix() if sample_data_cohort_csv.exists() else ""
+        cohortFileSelectionButton.currentPath = default_value
+        # Ensure that the default value is set BEFORE connecting the signal
         cohortFileSelectionButton.currentPathChanged.connect(self.onCohortChanged)
-
         # Make the button easy-to-access
         self.cohortFileSelectionButton = cohortFileSelectionButton
         
@@ -329,14 +335,14 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         text = self.priorUsersCollapsibleButton.currentText
         print(f"User selected: {text} ({index})")
 
-    def getCohortSelectedFile(self):
-        return self.cohortFileSelectionButton.directory
+    def getCohortSelectedFile(self) -> Path:
+        return Path(self.cohortFileSelectionButton.currentPath)
 
     def onCohortChanged(self):
         """
         Runs when a new cohort CSV is selected.
         """
-        self.cohort_csv_path = Path(self.cohortFileSelectionButton.currentPath)
+        self.cohort_csv_path = self.getCohortSelectedFile()
         self.checkIteratorReady()
         self.DataManagerInstance.set_data_cohort_csv(self.cohort_csv_path)
         self.DataManagerInstance.load_data(self.cohort_csv_path)
