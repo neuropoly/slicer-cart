@@ -193,6 +193,11 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         newUserHBox.addWidget(newUserTextWidget)
         formLayout.addRow(_("New User:"), newUserHBox)
 
+        # When the user confirms their entry (with enter), add it to the
+        #  prior users list
+        newUserTextWidget.returnPressed.connect(self.newUserEntered)
+
+        # Make it accessible
         self.newUserTextWidget = newUserTextWidget
 
         # Prior users list
@@ -200,6 +205,12 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # TODO Make this list dynamically loaded from a config/manifest
         priorUsersCollapsibleButton.addItems(["Kalum", "Kuan", "Ivan"])
         formLayout.addRow(_("Prior Users"), priorUsersCollapsibleButton)
+
+        # When the user selects an existing entry, update the program to match
+        priorUsersCollapsibleButton.currentIndexChanged.connect(self.userSelected)
+
+        # Make it accessible
+        self.priorUsersCollapsibleButton = priorUsersCollapsibleButton
 
         return userCollapsibleButton
 
@@ -249,6 +260,16 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
 
     ## Connected Functions ##
+
+    def newUserEntered(self):
+        # TODO: Connect functionality
+        print(f"NEW USER: {self.newUserTextWidget.text}")
+        self.newUserTextWidget.text = ""
+
+    def userSelected(self):
+        index = self.priorUsersCollapsibleButton.currentIndex
+        text = self.priorUsersCollapsibleButton.currentText
+        print(f"User selected: {text} ({index})")
 
     def getCohortSelectedFile(self):
         return self.cohortFileSelectionButton.directory
