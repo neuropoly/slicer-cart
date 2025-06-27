@@ -1,4 +1,5 @@
 from .TaskBaseClass import TaskBaseClass, D
+from .DataUnitBase import DataUnitBase
 from .VolumeOnlyDataIO import VolumeOnlyDataUnit
 from .LayoutLogic import CaseIteratorLayoutLogic
 
@@ -7,6 +8,8 @@ import qt
 import slicer
 import csv
 import time
+
+from pathlib import Path
 
 
 class OrganLabellingDemoTask(TaskBaseClass):
@@ -21,6 +24,8 @@ class OrganLabellingDemoTask(TaskBaseClass):
         self.layoutLogic = CaseIteratorLayoutLogic()  # Layout logic instance
         self.volumeNodes = []  # Store loaded volume nodes
         super().__init__(data_unit)
+
+        self.data_unit: DataUnitBase = None  # The currently managed data unit
 
         self.output_file = None  # Placeholder for output file path
         self.saveButton = None  # Placeholder for save button
@@ -80,11 +85,15 @@ class OrganLabellingDemoTask(TaskBaseClass):
         # Clear existing volumes
         self.volumeNodes = []
 
+        # Track the data unit for later
+        self.data_unit = data_unit
+
         # Load all resources from the data unit
         for key, value in data_unit.data.items():
             if key == "uid":
                 continue
             print(f"Data Unit Key: {key}, Value: {value}")
+            self.uid = value
 
             # Get the volume node for this resource
             volumeNode = data_unit.get_resource(key)
@@ -169,47 +178,68 @@ class OrganLabellingDemoTask(TaskBaseClass):
     def save(self) -> bool:
         print(f"Running {self.__class__} save!")
 
+        # Validate we have an output folder to actually save to
         print(f"Output file: {self.output_file}")
         if not self.output_file:
             print("No output file specified.")
             return False
 
+        # Validate that the user has actually entered an organ
         organText = self.organTextInput.text
         if not organText:
             print("No organ text specified.")
             return False
 
-        TaskReviewer = slicer.app.layoutManager()
-        print(f"TaskReviewer: {TaskReviewer}")
+        # TODO
 
-        output_dict = {
-            "uid": self.data_unit.uid,
-            "organ": organText,
-            "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
-        }
+        # Setup
+        field_names = [
+            "uid",
+            "organ",
+            "Timestamp"
+        ]
+        csv_data = []
 
-        # Check if file exists and has headers
-        overwrite = False
-        try:
-            with open(self.output_file, "r", newline='') as f:
-                reader = csv.DictReader(f)
-                if reader.fieldnames is None:
-                    overwrite = True
-                elif all(field not in reader.fieldnames for field in output_dict.keys()):
-                    overwrite = True
-        except FileNotFoundError:
-            overwrite = True
+        # If the file already exists, update its contents if possible
+        uid = self.data_unit.get_data_uid()
+        if Path(self.output_file).exists():
+            entry_found = False
+            with open(self.output_file, 'r') as fp:
+                csv_reader = csv.DictReader(fp)
+                # if an entry exists, update it
+                for r in csv_reader:
+                    # Track the entry for later
+                    csv_data.append(r)
+                    print(r)
+                    # If we have an entry, update its contents with the current state
+                    if r.get('uid', '') == uid:
+                        r['organ'] = organText
+                        r['Timestamp'] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                        entry_found = True
 
-        mode = "a"
-        if overwrite:
-            print(f"Overwriting {self.output_file}")
-            mode = "w"
+            # Otherwise, create a new entry
+            if not entry_found:
+                new_entry = {
+                    "uid": uid,
+                    "organ": organText,
+                    "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                }
+                csv_data.append(new_entry)
 
-        with open(self.output_file, mode, newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=output_dict.keys())
-            if overwrite:
-                writer.writeheader()
-            writer.writerow(output_dict)
+        # Otherwise, create a new entry and save it instead
+        else:
+            new_entry = {
+                "uid": uid,
+                "organ": organText,
+                "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+            }
+            csv_data.append(new_entry)
+
+        # Overwrite the file with the new data
+        with open(self.output_file, 'w') as fp:
+            csv_writer = csv.DictWriter(fp, field_names)
+            csv_writer.writeheader()
+            csv_writer.writerows(csv_data)
 
         print(f"Saved organ label '{organText}' for UID {self.data_unit.uid}")
         return True
