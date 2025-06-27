@@ -4,15 +4,8 @@ import csv
 from collections import deque
 from typing import Optional, List, Dict
 
-# TODO: Replace Dummy Implementation with actual imports
-class DataIO:
-    """
-    Represents a single data record with a unique identifier and associated resources.
-    """
-
-    def __init__(self, uid: str, resources: Dict[str, str]) -> None:
-        self.uid = uid
-        self.resources = resources
+from .VolumeOnlyDataIO import VolumeOnlyDataUnit
+from .DataUnitBase import DataUnitBase
 
 class TaskConfig:
     """
@@ -62,7 +55,7 @@ class DataManager:
         self._data_cohort_csv: Path | None = None
         self.raw_data: List[Dict[str, str]] = []
         self.queue_length = queue_length
-        self.queue: deque[DataIO] = deque(maxlen=self.queue_length)
+        self.queue: deque[DataUnitBase] = deque(maxlen=self.queue_length)
         self.current_queue_index: int = 0  # For queue_length=1, this is always 0
         self.current_raw_index: int = 0  # Current position in raw_data
 
@@ -121,11 +114,11 @@ class DataManager:
 
         # For queue_length=1, just load the current item
         if self.queue_length == 1:
+            # TODO: make the type of DataUnit selectable/configurable somehow
             row = self.raw_data[self.current_raw_index]
             self.queue.append(
-                DataIO(
-                    uid=row['uid'],
-                    resources={k: v for k, v in row.items() if k != 'uid'}
+                VolumeOnlyDataUnit(
+                    data=row
                 )
             )
             self.current_queue_index = 0
@@ -134,7 +127,7 @@ class DataManager:
             # Would center the queue around current_raw_index
             raise NotImplementedError("Queue lengths > 1 not yet implemented")
 
-    def get_queue(self) -> List[DataIO]:
+    def get_queue(self) -> List[DataUnitBase]:
         """
         Return the current window of DataIO objects.
 
@@ -143,7 +136,7 @@ class DataManager:
         """
         return list(self.queue)
 
-    def current_item(self) -> DataIO:
+    def current_item(self) -> DataUnitBase:
         """
         Return the current DataIO in the queue without changing the index.
 
@@ -154,7 +147,7 @@ class DataManager:
             raise IndexError("Traversal queue is empty")
         return self.queue[self.current_queue_index]
 
-    def next_item(self) -> DataIO:
+    def next_item(self) -> DataUnitBase:
         """
         Advance to the next item in raw_data with wraparound, update queue, and return current item.
 
@@ -175,7 +168,7 @@ class DataManager:
 
         return self.current_item()
 
-    def previous_item(self) -> DataIO:
+    def previous_item(self) -> DataUnitBase:
         """
         Move to the previous item in raw_data with wraparound, update queue, and return current item.
 

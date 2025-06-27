@@ -1,24 +1,16 @@
-import logging
-import os
-from typing import Annotated, Optional
-from CARTLib.VolumeOnlyDataIO import VolumeOnlyDataUnit
-
+from pathlib import Path
 
 import vtk
+
 import ctk
 import qt
-from pathlib import Path
 import slicer
+from CARTLib.DataManager import DataManager
+from slicer import vtkMRMLScalarVolumeNode
+from slicer.ScriptedLoadableModule import *
 from slicer.i18n import tr as _
 from slicer.i18n import translate
-from slicer.ScriptedLoadableModule import *
 from slicer.util import VTKObservationMixin
-from slicer.parameterNodeWrapper import (
-    parameterNodeWrapper,
-    WithinRange,
-)
-
-from slicer import vtkMRMLScalarVolumeNode
 
 import json
 
@@ -125,28 +117,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # These connections ensure that we update parameter node when scene is closed
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.StartCloseEvent, self.onSceneStartClose)
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.EndCloseEvent, self.onSceneEndClose)
-
-        # TODO: Remove this hard-coded data once we're ready to test properly
-        self.base_path = Path("/Users/iejohnson/NAMIC/CART/sample_data")
-        # Set the base path for data storage
-        hardcoded_dict = {
-            "uid": "TEST_UID",
-            "T2W": self.base_path / "11188/11188_1001211_t2w.nrrd",
-            "HBV": self.base_path /  "11188/11188_1001211_hbv.nrrd",
-            "ADC": self.base_path / "11188/11188_1001211_adc.nrrd",
-        }
-
-        try:
-            du = VolumeOnlyDataUnit(
-                hardcoded_dict
-            )
-            print("YAY! DataUnit created successfully")
-            print(du)
-
-        except Exception as e:
-            logging.error("*" *100)
-            logging.error(e)
-            logging.error("*" *100)
 
     ## GUI builders ##
 
@@ -297,7 +267,11 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """
         Runs when a new cohort CSV is selected.
         """
+        # Attempt to create a DataManager from the file
         self.cohort_csv_path = self.getCohortSelectedFile()
+        self.DataManagerInstance.load_data(self.cohort_csv_path )
+
+        # Prepare the iterator for use
         self.checkIteratorReady()
         self.DataManagerInstance.set_data_cohort_csv(self.cohort_csv_path)
         self.DataManagerInstance.load_data(self.cohort_csv_path)

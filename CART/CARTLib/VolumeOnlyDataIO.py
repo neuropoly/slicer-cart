@@ -1,3 +1,4 @@
+from os import sep as os_path_sep
 from pathlib import Path
 from typing import Optional
 
@@ -50,21 +51,23 @@ class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):
             if key == "uid":
                 continue
             else:
-                if not isinstance(value, Path):
-                    raise ValueError(
-                        f"Invalid data for key '{key}': value must be a string or Path."
-                    )
-                if not value.exists():
+                file_path = self._parse_path(value)
+                if not file_path.exists():
                     raise ValueError(
                         f"Invalid data for key '{key}': file does not exist at {value}."
                     )
 
-                if not value.name.endswith(".nrrd"):
+                if not file_path.name.endswith(".nrrd"):
                     raise ValueError(
                         f"Invalid data for key '{key}': value must be a .nrrd file."
                     )
 
         self.validated = True
+
+    def _parse_path(self, path_str: str):
+        # TODO: Make this reference a user-specified value instead
+        ref_path = Path("/mnt/3b07d715-76ab-43f9-861c-9afcf9fc62e6/PyCharm/CART/sample_data/sample_data/")
+        return ref_path / path_str
 
     def _initialize_resources(self):
         """
@@ -78,7 +81,8 @@ class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):
         # Example of how to initialize resources, assuming the data is a file path
         for key, value in self.data.items():
             if key != "uid":
-                node = slicer.util.loadVolume(value)
+                file_path = self._parse_path(value)
+                node = slicer.util.loadVolume(file_path)
                 if node:
                     self.resources[key] = node
                 else:
