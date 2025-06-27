@@ -324,7 +324,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
       # Add them to the layout "backwards" so previous is on the left
       buttonLayout.addWidget(previousButton)
       buttonLayout.addWidget(nextButton)
-
       # Add the button layout to the main vertical layout
       mainLayout.addLayout(buttonLayout)
 
@@ -492,6 +491,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.current_case = next_case
         print(self.current_case.uid)
         self.currentCaseNameLabel.text = str(self.current_case.resources)
+        if self.isReady():
+            self.current_task_instance.setup(self.DataManagerInstance.current_item())
 
 
     def previousCase(self):
@@ -502,6 +503,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         previous_case = self.DataManagerInstance.next_item()
         self.current_case = previous_case
         print(self.current_case.uid)
+        if self.isReady():
+            self.current_task_instance.setup(self.DataManagerInstance.current_item())
 
 
         self.currentCaseNameLabel.text = str(self.current_case.resources)

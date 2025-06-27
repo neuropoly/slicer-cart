@@ -1,6 +1,6 @@
 from .TaskBaseClass import TaskBaseClass, D
 from .VolumeOnlyDataIO import VolumeOnlyDataUnit
-from .LayoutLogic import *
+from .LayoutLogic import CaseIteratorLayoutLogic
 
 import ctk
 import qt
@@ -17,13 +17,16 @@ class OrganLabellingDemoTask(TaskBaseClass):
 
         This initializes the task with a given DataUnitBase instance.
         """
+        self.load_all_volumes = True  # Flag to control volume loading
+        self.layoutLogic = CaseIteratorLayoutLogic()  # Layout logic instance
+        self.volumeNodes = []  # Store loaded volume nodes
         super().__init__(data_unit)
 
         self.output_file = None  # Placeholder for output file path
         self.saveButton = None  # Placeholder for save button
         self.organText = None  # Placeholder for organ label text field
-        self.layoutLogic = CaseIteratorLayoutLogic()  # Layout logic instance
-        self.volumeNodes = []  # Store loaded volume nodes
+
+
 
     def buildGUI(self, container: ctk.ctkCollapsibleButton):
         # Outermost frame
@@ -71,6 +74,8 @@ class OrganLabellingDemoTask(TaskBaseClass):
     def setup(self, data_unit: D):
         print(f"Running {self.__class__} setup!")
         print(f"data_unit: {data_unit}")
+        if data_unit is not None:
+            self.data_unit = data_unit
 
         # Clear existing volumes
         self.volumeNodes = []
@@ -104,10 +109,16 @@ class OrganLabellingDemoTask(TaskBaseClass):
                 fit=True
             )
 
+        if self.load_all_volumes:
+            # Show all volumes in multi-row layout
+            self.showAllVolumes()
+
         print(f"Loaded {len(self.volumeNodes)} volume nodes")
 
     def showAllVolumes(self):
+
         """Display all volumes in separate rows with axial/sagittal/coronal views"""
+        self.load_all_volumes= True  # Enable loading all volumes in multi-row layout
         if not self.volumeNodes:
             print("No volumes loaded")
             return
@@ -135,6 +146,7 @@ class OrganLabellingDemoTask(TaskBaseClass):
     def resetLayout(self):
         """Reset to default slice layout"""
         print("Resetting to default layout")
+        self.load_all_volumes = False  # Disable loading all volumes in multi-row layout
         layoutManager = slicer.app.layoutManager()
         layoutManager.setLayout(slicer.vtkMRMLLayoutNode.SlicerLayoutFourUpView)
 
@@ -212,3 +224,5 @@ class OrganLabellingDemoTask(TaskBaseClass):
             self.output_file = output_path
         else:
             self.output_file = None
+
+
