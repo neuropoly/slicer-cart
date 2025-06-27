@@ -90,19 +90,25 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.cohort_csv_path = None
         self.current_case = None
         self.DataManagerInstance = DataManager()
+        self.base_path = None  # Base path for relative paths in CSV
 
     def setup(self) -> None:
         """Called when the user opens the module the first time and the widget is initialized."""
         ScriptedLoadableModuleWidget.setup(self)
+        # Base Path input UI
+        self.basePathUIWidget = self.buildBasePathUI()
+        self.layout.addWidget(self.basePathUIWidget)
+
+        # Cohort UI
+        self.cohortUIWidget = self.buildCohortUI()
+        self.layout.addWidget(self.cohortUIWidget)
 
         # User UI
         self.userUIWidget = self.buildUserUI()
         # self.userUIWidget.setMRMLScene(slicer.mrmlScene)
         self.layout.addWidget(self.userUIWidget)
 
-        # Cohort UI
-        self.cohortUIWidget = self.buildCohortUI()
-        self.layout.addWidget(self.cohortUIWidget)
+
 
         # Case Iterator UI
         self.caseIteratorUI = self.buildCaseIteratorUI()
@@ -118,8 +124,33 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.StartCloseEvent, self.onSceneStartClose)
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.EndCloseEvent, self.onSceneEndClose)
 
-        self.onCohortChanged()
     ## GUI builders ##
+
+    def buildBasePathUI(self):
+        """
+        Builds the GUI for the base path selection section of the Widget
+        :return:
+        """
+        # Layout management
+        basePathCollapsibleButton = ctk.ctkCollapsibleButton()
+        basePathCollapsibleButton.text = _("Base Path Selection")
+        formLayout = qt.QFormLayout(basePathCollapsibleButton)
+
+        # Base path selection
+        basePathSelectionWidget = ctk.ctkPathLineEdit()
+        basePathSelectionWidget.filters = ctk.ctkPathLineEdit.Dirs
+        basePathSelectionWidget.toolTip = _("Select the base directory path. Leave empty to use None as base path.")
+
+
+        formLayout.addRow(_("Base Path:"), basePathSelectionWidget)
+
+        # Connect the signal to handle base path changes
+        basePathSelectionWidget.currentPathChanged.connect(self.onBasePathChanged)
+
+        # Make it accessible
+        self.basePathSelectionWidget = basePathSelectionWidget
+
+        return basePathCollapsibleButton
 
     def buildUserUI(self):
         """
@@ -180,16 +211,40 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         formLayout.addRow(_("Cohort File:"), cohortFileSelectionButton)
 
-        # When the cohort selects a directory, update everything to match
+        # Set default value but don't auto-load
         default_value = sample_data_cohort_csv.as_posix() if sample_data_cohort_csv.exists() else ""
         cohortFileSelectionButton.currentPath = default_value
-        # Ensure that the default value is set BEFORE connecting the signal
-        cohortFileSelectionButton.currentPathChanged.connect(self.onCohortChanged)
+
         # Make the button easy-to-access
         self.cohortFileSelectionButton = cohortFileSelectionButton
 
+        # Add explicit load button
+        loadCohortButton = qt.QPushButton(_("Load Cohort"))
+        loadCohortButton.toolTip = _("Load the selected cohort CSV file")
+        loadCohortButton.clicked.connect(self.onLoadCohortClicked)
+        formLayout.addRow("", loadCohortButton)
+
+        # Make load button accessible
+        self.loadCohortButton = loadCohortButton
 
         return cohortCollapsibleButton
+
+    def onLoadCohortClicked(self):
+        """
+        Handles the explicit load cohort button click.
+        """
+        cohort_file = self.getCohortSelectedFile()
+
+        if not cohort_file.exists():
+            print(f"Error: Cohort file does not exist: {cohort_file}")
+            return
+
+        if cohort_file.suffix.lower() != ".csv":
+            print(f"Error: Selected file is not a CSV: {cohort_file}")
+            return
+
+        print(f"Loading cohort from: {cohort_file}")
+        self.onCohortChanged()
 
     def buildCaseIteratorUI(self):
       # Layout
@@ -256,6 +311,27 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Show the hidden parts of the GUI if we're ready to proceed
         self.checkIteratorReady()
 
+    def onBasePathChanged(self):
+        """
+        Handles changes to the base path selection.
+        Sets self.base_path to None if empty, otherwise to the Path object.
+        """
+        current_path = self.basePathSelectionWidget.currentPath
+        if current_path.strip():  # If not empty after stripping whitespace
+            self.base_path = Path(current_path)
+            print(f"Base path set to: {self.base_path}")
+        else:
+            self.base_path = None
+            print("Base path set to: None")
+
+    def getBasePath(self):
+        """
+        Returns the current base path (Path object or None)
+        """
+        # TODO Make this match the code style of the rest of the module better dont love this
+        return self.base_path
+
+
     def userSelected(self):
         index = self.priorUsersCollapsibleButton.currentIndex
         text = self.priorUsersCollapsibleButton.currentText
@@ -271,6 +347,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """
         # Attempt to create a DataManager from the file
         self.cohort_csv_path = self.getCohortSelectedFile()
+        self.DataManagerInstance.set_base_path(self.getBasePath())
         self.DataManagerInstance.load_data(self.cohort_csv_path)
 
         # Prepare the iterator for use
