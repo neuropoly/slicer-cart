@@ -6,7 +6,6 @@ import vtk
 import ctk
 import qt
 import slicer
-from CARTLib.DataManager import DataManager
 from slicer import vtkMRMLScalarVolumeNode
 from slicer.ScriptedLoadableModule import *
 from slicer.i18n import tr as _
@@ -16,6 +15,9 @@ from slicer.util import VTKObservationMixin
 import json
 
 from CARTLib.DataManager import DataManager
+from CARTLib.TaskBaseClass import TaskBaseClass
+
+# TODO: Remove this explicit import
 from CARTLib.OrganLabellingDemo import OrganLabellingDemoTask
 
 CURRENT_DIR = Path(__file__).parent
@@ -99,7 +101,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "Organ Labels": OrganLabellingDemoTask,
             "N/A": None  # Placeholder for testing
         }
-        self.current_task = None
+        self.current_task: type(TaskBaseClass) = None
+        self.current_task_instance: TaskBaseClass = None
 
     def setup(self) -> None:
         """Called when the user opens the module the first time and the widget is initialized."""
@@ -133,6 +136,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Case Iterator UI
         self.caseIteratorUI = self.buildCaseIteratorUI()
+
+        # Make the GUI accessible
+        self.mainGUI = mainGUI
 
         # Add the case iterator as a "buffer" between our main and task GUIs
         self.layout.addWidget(self.caseIteratorUI)
@@ -490,8 +496,31 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     ### Task Related ###
 
     def loadTaskWhenReady(self):
-        if self.isReady():
-            print(f"Initializing Task {self.current_task}!")
+        # If we're not ready to load a task, leave everything untouched
+        if not self.isReady():
+            return
+
+        # Initialize an instance of the Task class
+        self.current_task_instance: TaskBaseClass = self.current_task()
+
+        # Initialize its GUI, which adds it to our collapsible Task button
+        self.current_task_instance.buildGUI(self.taskGUI)
+
+        # TODO: Instantiate the DataManager
+
+        # Expand the task GUI and enable it
+        self.taskGUI.collapsed = False
+        self.taskGUI.setEnabled(True)
+
+        # Collapse the main (setup) GUI
+        self.mainGUI.collapsed = True
+
+        # Step through our DataUnits until we find one that is not complete
+        # TODO
+
+        # Update the GUI using the contents of the current DataUnit
+        # TODO
+        self.current_task_instance.setup(self.DataManagerInstance.current_item())
 
 
     ## Management ##

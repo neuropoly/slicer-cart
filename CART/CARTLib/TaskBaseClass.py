@@ -2,6 +2,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any, Generic, Optional, TypeVar
 
+import ctk
 from .DataUnitBase import DataUnitBase
 
 # Generic type hint class for anything which is a subclass of DataUnitBase
@@ -37,16 +38,13 @@ class TaskBaseClass(ABC, Generic[D]):
         # Set the data unit to the one provided in the constructor, if any
         self.data_unit: D = data_unit
 
-        # Build the front-end GUI for this task.
-        self.gui = self.buildGUI()
-
         # If the task was specified, update the GUI with contents
         if self.data_unit:
             # TODO: Validate that the DataUnit has all fields needed for this task.
             self.setup(self.data_unit)
 
     @abstractmethod
-    def buildGUI(self):
+    def buildGUI(self, container: ctk.ctkCollapsibleButton):
         """
         Build the GUI widget for this task.
 
@@ -57,6 +55,9 @@ class TaskBaseClass(ABC, Generic[D]):
 
         You should NOT pull data from the DataUnit at this time; leave that
         to updateGUI to ensure everything stays synchronized.
+
+        The ctkCollapsibleButton is the widget you should build your layout
+        into; for example, `formLayout = qt.QBoxLayout(container)`
         """
 
         raise NotImplementedError("buildGUI must be implemented in subclasses")

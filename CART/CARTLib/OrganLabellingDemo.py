@@ -5,9 +5,9 @@ import qt
 
 
 class OrganLabellingDemoTask(TaskBaseClass):
-    def buildGUI(self) -> qt.QLayout:
+    def buildGUI(self, container: ctk.ctkCollapsibleButton):
         # Outermost frame
-        formLayout = qt.QBoxLayout()
+        formLayout = qt.QFormLayout(container)
 
         # Output file designation
         outputFile = ctk.ctkPathLineEdit()
