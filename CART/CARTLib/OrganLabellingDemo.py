@@ -113,26 +113,24 @@ class OrganLabellingDemoTask(TaskBaseClass):
             return
 
         print("Showing all volumes in multi-row layout")
-        self.layoutLogic.viewersPerVolume(self.volumeNodes, include3D=False)
+        sliceNodesByViewName = self.layoutLogic.viewersPerVolume(self.volumeNodes, include3D=False)
 
-        # Rotate to volume planes and snap to IJK for better alignment
-        if self.volumeNodes:
-            self.layoutLogic.rotateToVolumePlanes(self.volumeNodes[0])
-            self.layoutLogic.snapToIJK()
+        # Rotate each volume to its own planes - don't use volumeNodes[0] for all
+        orientations = ('Axial', 'Sagittal', 'Coronal')
+        for volumeNode in self.volumeNodes:
+            # Get slice nodes for this specific volume
+            volumeSliceNodes = []
+            for orientation in orientations:
+                viewName = volumeNode.GetName() + '-' + orientation
+                if viewName in sliceNodesByViewName:
+                    volumeSliceNodes.append(sliceNodesByViewName[viewName])
 
-    def showAllVolumesWith3D(self):
-        """Display all volumes with 3D views included"""
-        if not self.volumeNodes:
-            print("No volumes loaded")
-            return
+            # Rotate only this volume's slice nodes to this volume's planes
+            if volumeSliceNodes:
+                self.layoutLogic.rotateToVolumePlanes(volumeNode, volumeSliceNodes)
 
-        print("Showing all volumes with 3D views")
-        self.layoutLogic.viewersPerVolume(self.volumeNodes, include3D=True)
-
-        # Rotate to volume planes and snap to IJK for better alignment
-        if self.volumeNodes:
-            self.layoutLogic.rotateToVolumePlanes(self.volumeNodes[0])
-            self.layoutLogic.snapToIJK()
+        # Snap all to IJK for better alignment
+        self.layoutLogic.snapToIJK()
 
     def resetLayout(self):
         """Reset to default slice layout"""
@@ -214,7 +212,3 @@ class OrganLabellingDemoTask(TaskBaseClass):
             self.output_file = output_path
         else:
             self.output_file = None
-
-
-
-
