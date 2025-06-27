@@ -103,28 +103,56 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def setup(self) -> None:
         """Called when the user opens the module the first time and the widget is initialized."""
         ScriptedLoadableModuleWidget.setup(self)
+
+        # Set up the over-arching collapsible container to hold our GUIs in
+        mainGUI = ctk.ctkCollapsibleButton()
+        # Not the best translation, but it'll do...
+        mainGUI.text = "CART" + _("Setup")
+        mainLayout = qt.QFormLayout(mainGUI)
+
         # Base Path input UI
         self.basePathUIWidget = self.buildBasePathUI()
-        self.layout.addWidget(self.basePathUIWidget)
+        mainLayout.addWidget(self.basePathUIWidget)
 
         # Cohort UI
         self.cohortUIWidget = self.buildCohortUI()
-        self.layout.addWidget(self.cohortUIWidget)
+        mainLayout.addWidget(self.cohortUIWidget)
 
         # User UI
         self.userUIWidget = self.buildUserUI()
         # self.userUIWidget.setMRMLScene(slicer.mrmlScene)
-        self.layout.addWidget(self.userUIWidget)
-
-
+        mainLayout.addWidget(self.userUIWidget)
 
         # Task UI
         self.taskUIWidget = self.buildTaskUI()
-        self.layout.addWidget(self.taskUIWidget)
+        mainLayout.addWidget(self.taskUIWidget)
+
+        # Add this "main" widget to our panel
+        self.layout.addWidget(mainGUI)
 
         # Case Iterator UI
         self.caseIteratorUI = self.buildCaseIteratorUI()
+
+        # Add the case iterator as a "buffer" between our main and task GUIs
         self.layout.addWidget(self.caseIteratorUI)
+
+        # Add a (currently empty) collapsable tab, in which the Task GUI will be placed later
+        taskGUI = ctk.ctkCollapsibleButton()
+
+        # As its empty, and meaningless to the user, start it out collapsed
+        #  and disabled; it will be re-enabled (and expanded) when a task
+        #  is selected and the iterator set up.
+        # KO: While the header for the associated CTK class has a `setCollapsed`
+        #  function to match the pattern of every other attribute, it doesn't
+        #  work for some reason, hence use breaking the pattern here.
+        taskGUI.collapsed = True
+        taskGUI.setEnabled(False)
+
+        # Not the best translation, but it'll do...
+        taskGUI.text = _("Task Steps")
+
+        self.layout.addWidget(taskGUI)
+        self.taskGUI = taskGUI
 
         # Create logic class. Logic implements all computations that should be possible to run
         # in batch mode, without a graphical user interface.
