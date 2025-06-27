@@ -16,6 +16,7 @@ class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):
             data: dict,
             # TMP: Until 5.9 (w/ Python 3.10+ support) is released, Optional is needed
             scene: Optional[slicer.vtkMRMLScene] = None,
+            base_path: Optional[Path] = None
     ):
         """
         Initialize the VolumeOnlyDataIO with optional initial data.
@@ -27,6 +28,7 @@ class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):
         if scene is None:
             # Use the default MRML scene if none is provided
             scene = slicer.mrmlScene
+        self.base_path = base_path
         super().__init__(
             data=data,
             scene=scene
@@ -66,8 +68,15 @@ class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):
 
     def _parse_path(self, path_str: str):
         # TODO: Make this reference a user-specified value instead
-        ref_path = Path("/mnt/3b07d715-76ab-43f9-861c-9afcf9fc62e6/PyCharm/CART/sample_data/sample_data/")
-        return ref_path / path_str
+        if self.base_path is None:
+            return Path(path_str)
+        elif not isinstance(self.base_path, Path):
+            raise ValueError(_("Base path must be a Path object."))
+        elif not self.base_path.is_dir() or not self.base_path.exists():
+            raise ValueError(_("Base path is not a valid directory."))
+        else:
+            return self.base_path / path_str
+
 
     def _initialize_resources(self):
         """

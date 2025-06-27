@@ -57,6 +57,8 @@ class DataManager:
         self.queue: deque[DataUnitBase] = deque(maxlen=self.queue_length)
         self.current_queue_index: int = 0  # For queue_length=1, this is always 0
         self.current_raw_index: int = 0  # Current position in raw_data
+        # TODO Implent this with the Python 3.10+ style
+        self.base_path: Optional[Path] = None  # Base path for relative paths in CSV
 
     def set_data_cohort_csv(self, csv_path: Path) -> None:
         """
@@ -100,6 +102,19 @@ class DataManager:
         self._init_queue()
         print(f"Loaded {len(rows)} rows from {path}")
 
+    def set_base_path(self, base_path: Path) -> None:
+        """
+        Set the base path for resolving relative paths in the CSV data.
+
+        Args:
+            base_path: Base directory to resolve relative paths.
+        """
+        if not isinstance(base_path, Path):
+            raise ValueError("base_path must be a Path object")
+        elif not base_path.is_dir() or not base_path.exists():
+            raise ValueError(f"Base path {base_path} is not a valid directory")
+        self.base_path = base_path
+
     def _init_queue(self) -> None:
         """
         Populate the queue with DataIO objects based on current_raw_index
@@ -117,7 +132,8 @@ class DataManager:
             row = self.raw_data[self.current_raw_index]
             self.queue.append(
                 VolumeOnlyDataUnit(
-                    data=row
+                    data=row,
+                    base_path = self.base_path
                 )
             )
             self.current_queue_index = 0
