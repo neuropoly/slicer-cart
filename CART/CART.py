@@ -15,6 +15,7 @@ from slicer.util import VTKObservationMixin
 import json
 
 from CARTLib.DataManager import DataManager
+from CARTLib.OrganLabellingDemo import OrganLabellingDemoTask
 
 CURRENT_DIR = Path(__file__).parent
 CONFIGURATION_FILE_NAME = CURRENT_DIR / "configuration.json"
@@ -91,6 +92,13 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.current_case = None
         self.DataManagerInstance = DataManager()
 
+        # TODO: Dynamically load this dictionary instead
+        self.task_map = {
+            "Organ Labels": OrganLabellingDemoTask,
+            "N/A": None  # Placeholder for testing
+        }
+        self.current_task = None
+
     def setup(self) -> None:
         """Called when the user opens the module the first time and the widget is initialized."""
         ScriptedLoadableModuleWidget.setup(self)
@@ -103,6 +111,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Cohort UI
         self.cohortUIWidget = self.buildCohortUI()
         self.layout.addWidget(self.cohortUIWidget)
+
+        # Task UI
+        self.taskUIWidget = self.buildTaskUI()
+        self.layout.addWidget(self.taskUIWidget)
 
         # Case Iterator UI
         self.caseIteratorUI = self.buildCaseIteratorUI()
@@ -190,6 +202,25 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
 
         return cohortCollapsibleButton
+
+    def buildTaskUI(self):
+        # Layout management
+        taskSelectionCollapsibleButton = ctk.ctkCollapsibleButton()
+        taskSelectionCollapsibleButton.text = _("Task Selection")
+        formLayout = qt.QFormLayout(taskSelectionCollapsibleButton)
+
+        # Prior users list
+        taskOptions = qt.QComboBox()
+        taskOptions.placeholderText = _("[Not Selected]")
+
+        # TODO: Have this pull from configuration instead
+        taskOptions.addItems(list(self.task_map.keys()))
+        formLayout.addRow(_("Task"), taskOptions)
+
+        # When the task is changed, update everything to match
+        taskOptions.currentIndexChanged.connect(self.onTaskChanged)
+
+        return taskSelectionCollapsibleButton
 
     def buildCaseIteratorUI(self):
       # Layout
@@ -284,12 +315,22 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             print(self.current_case)
             self.currentCaseNameLabel.text = str(self.current_case)
 
+    def onTaskChanged(self):
+        # Update the currently selected task
+        task_name = self.priorUsersCollapsibleButton.currentText
+        self.current_task = self.task_map.get(task_name, None)
+
+        # Check if we're now ready to iterate
+        self.checkIteratorReady()
+
     def checkIteratorReady(self):
         # If there is a specified user
         if self.priorUsersCollapsibleButton.currentIndex != -1:
             # If there is a valid cohort
             if self.getCohortSelectedFile().exists() and self.getCohortSelectedFile().suffix == ".csv":
-                self.caseIteratorUI.setEnabled(True)
+                # If we have a selected task
+                if self.current_task:
+                    self.caseIteratorUI.setEnabled(True)
 
     def nextCase(self):
         print("NEXT CASE!")
