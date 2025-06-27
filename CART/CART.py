@@ -512,7 +512,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             return
 
         # Initialize an instance of the Task class
-        self.current_task_instance: TaskBaseClass = self.current_task()
+        print(f"{self.current_task=}")
+
+
+        self.current_task_instance: TaskBaseClass = self.current_task(self.DataManagerInstance.current_item())
 
         # Initialize its GUI, which adds it to our collapsible Task button
         self.current_task_instance.buildGUI(self.taskGUI)

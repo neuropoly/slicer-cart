@@ -93,6 +93,8 @@ class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):
                 file_path = self._parse_path(value)
                 node = slicer.util.loadVolume(file_path)
                 if node:
+                    print(f"Loaded volume from {file_path} into node {node.GetName()} with {node=}")
+                    node.SetName(key)
                     self.resources[key] = node
                 else:
                     raise ValueError(f"Failed to load volume from {value}")
