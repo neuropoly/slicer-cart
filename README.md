@@ -40,3 +40,10 @@ For this project, the first four subjects were selected and the images were conv
 1. Example `sample_data` is adapted from this original data and will be located under `sample_data.zip`.
 2. Unzip the file to a folder of your choice.
 
+
+----
+
+# BUGS
+-[ ] Mix multiScene support and rm the explicit "clearScene" that is currently triggered on the "Next"/"Previous" button.
+-[ ] The input of new raters updates the CODE's configuration.json. This is not the desired behavior, as the configuration should be copied from the original CODE and not modified.
+- 
