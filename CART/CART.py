@@ -118,6 +118,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.StartCloseEvent, self.onSceneStartClose)
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.EndCloseEvent, self.onSceneEndClose)
 
+        self.onCohortChanged()
     ## GUI builders ##
 
     def buildUserUI(self):
@@ -259,6 +260,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         index = self.priorUsersCollapsibleButton.currentIndex
         text = self.priorUsersCollapsibleButton.currentText
         print(f"User selected: {text} ({index})")
+        self.checkIteratorReady()
 
     def getCohortSelectedFile(self) -> Path:
         return Path(self.cohortFileSelectionButton.currentPath)
@@ -269,7 +271,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """
         # Attempt to create a DataManager from the file
         self.cohort_csv_path = self.getCohortSelectedFile()
-        self.DataManagerInstance.load_data(self.cohort_csv_path )
+        self.DataManagerInstance.load_data(self.cohort_csv_path)
 
         # Prepare the iterator for use
         self.checkIteratorReady()
@@ -286,7 +288,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # If there is a specified user
         if self.priorUsersCollapsibleButton.currentIndex != -1:
             # If there is a valid cohort
-            if self.cohortFileSelectionButton.currentPath != "":
+            if self.getCohortSelectedFile().exists() and self.getCohortSelectedFile().suffix == ".csv":
                 self.caseIteratorUI.setEnabled(True)
 
     def nextCase(self):

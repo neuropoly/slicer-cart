@@ -3,9 +3,8 @@ from pathlib import Path
 import csv
 from collections import deque
 from typing import Optional, List, Dict
-
-from .VolumeOnlyDataIO import VolumeOnlyDataUnit
 from .DataUnitBase import DataUnitBase
+from .VolumeOnlyDataIO import VolumeOnlyDataUnit
 
 class TaskConfig:
     """
