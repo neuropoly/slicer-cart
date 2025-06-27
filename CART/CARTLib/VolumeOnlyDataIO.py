@@ -1,18 +1,20 @@
 from pathlib import Path
-from typing import Any
+from typing import Optional
+
+import slicer
+from slicer.ScriptedLoadableModule import *
+from slicer.i18n import tr as _
 
 from .DataUnitBase import DataUnitBase
-import slicer
-from slicer.i18n import tr as _
-from slicer.i18n import translate
-from slicer.ScriptedLoadableModule import *
+
 
 class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):
 
     def __init__(
             self,
             data: dict,
-            scene: slicer.vtkMRMLScene | None = None,
+            # TMP: Until 5.9 (w/ Python 3.10+ support) is released, Optional is needed
+            scene: Optional[slicer.vtkMRMLScene] = None,
     ):
         """
         Initialize the VolumeOnlyDataIO with optional initial data.
