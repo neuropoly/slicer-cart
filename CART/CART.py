@@ -230,6 +230,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Prior users list
         priorUsersCollapsibleButton = qt.QComboBox()
         priorUsersCollapsibleButton.placeholderText = _("[Not Selected]")
+        # Set the name of the button to the "UserSelectionButton"
+        priorUsersCollapsibleButton.toolTip = _("Select a prior user from the list")
+
 
         priorUsersCollapsibleButton.addItems(self.configuration_data["contributors"])
         formLayout.addRow(_("Prior User"), priorUsersCollapsibleButton)

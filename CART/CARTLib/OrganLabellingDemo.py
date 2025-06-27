@@ -4,6 +4,8 @@ from .VolumeOnlyDataIO import VolumeOnlyDataUnit
 import ctk
 import qt
 import slicer
+import csv
+import time
 
 class OrganLabellingDemoTask(TaskBaseClass):
 
@@ -31,13 +33,13 @@ class OrganLabellingDemoTask(TaskBaseClass):
         # Organ Label Field
         organBox = qt.QHBoxLayout()
         saveButton = qt.QPushButton()
-        organText = qt.QLineEdit()
+        self.organTextInput = qt.QLineEdit()
         saveButton.text = "Save Organ"
         saveButton.toolTip = "Save the organ label to the data unit."
         self.saveButton = saveButton
 
-        organText.toolTip = "The name of the organ in this image."
-        organBox.addWidget(organText)
+        self.organTextInput.toolTip = "The name of the organ in this image."
+        organBox.addWidget(self.organTextInput)
         formLayout.addRow("Organ:", organBox)
         organBox.addWidget(saveButton)
         formLayout.addRow("Output File:", self.outputFileInput)
@@ -73,11 +75,30 @@ class OrganLabellingDemoTask(TaskBaseClass):
         if not self.output_file:
             print("No output file specified.")
             return False
-        if not self.organText or not self.organText.text:
-            print("No organ label specified.")
-            return False
-        organ_label = self.organText.text
-        print(f"Saving organ label '{organ_label}' to file '{self.output_file}'")
+        organText = self.organTextInput.text
+        TaskReviewer = slicer.app.layoutManager()
+        print(f"TaskReviewer: {TaskReviewer}")
+
+        output_dict = {
+            "uid": self.data_unit.uid,
+            "organ": organText,
+            "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+        }
+        overwrite = False
+        reader = csv.DictReader(open(self.output_file, "r", newline=''))
+        if reader.fieldnames is None:
+            overwrite = True
+        elif all(field not in reader.fieldnames for field in output_dict.keys()):
+            overwrite = True
+        mode = "a"
+        if overwrite:
+            print(f"Overwriting {self.output_file}")
+            mode = "w"
+        writer = csv.DictWriter(open(self.output_file, mode, newline=''), fieldnames=output_dict.keys())
+        if overwrite:
+            writer.writeheader()
+        writer.writerow(output_dict)
+
 
 
 
