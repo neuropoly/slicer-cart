@@ -480,15 +480,20 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     ### Iterator Widgets ###
 
     def nextCase(self):
+        # HACK REMOVE THIS AND MAKE IT CLEANER WHEN IMPLEMENTING THE MULTI-SCENE LAZY LOADING
+        slicer.mrmlScene.Clear()
+
         print("NEXT CASE!")
 
         next_case = self.DataManagerInstance.next_item()
         self.current_case = next_case
         print(self.current_case.uid)
-
         self.currentCaseNameLabel.text = str(self.current_case.resources)
 
+
     def previousCase(self):
+        # HACK REMOVE THIS AND MAKE IT CLEANER WHEN IMPLEMENTING THE MULTI-SCENE LAZY LOADING
+        slicer.mrmlScene.Clear()
         print("PREVIOUS CASE!")
 
         previous_case = self.DataManagerInstance.next_item()
