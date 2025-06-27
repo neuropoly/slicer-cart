@@ -161,6 +161,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.layout.addWidget(taskGUI)
         self.taskGUI = taskGUI
 
+        # Add a vertical "stretch" at the bottom, forcing everything to the top;
+        #  now it doesn't look like garbage!
+        self.layout.addStretch()
+
         # Create logic class. Logic implements all computations that should be possible to run
         # in batch mode, without a graphical user interface.
         self.logic = CARTLogic()
