@@ -283,6 +283,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         taskOptions.addItems(list(self.task_map.keys()))
         formLayout.addRow(_("Task"), taskOptions)
 
+        # Make it accessible
+        self.taskOptions = taskOptions
+
         # When the task is changed, update everything to match
         taskOptions.currentIndexChanged.connect(self.onTaskChanged)
 
@@ -422,7 +425,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def onTaskChanged(self):
         # Update the currently selected task
-        task_name = self.priorUsersCollapsibleButton.currentText
+        task_name = self.taskOptions.currentText
         self.current_task = self.task_map.get(task_name, None)
 
         # Check if we're now ready to iterate
