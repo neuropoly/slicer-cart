@@ -1,11 +1,13 @@
 from .TaskBaseClass import TaskBaseClass, D
 from .VolumeOnlyDataIO import VolumeOnlyDataUnit
+from .LayoutLogic import *
 
 import ctk
 import qt
 import slicer
 import csv
 import time
+
 
 class OrganLabellingDemoTask(TaskBaseClass):
 
@@ -20,6 +22,8 @@ class OrganLabellingDemoTask(TaskBaseClass):
         self.output_file = None  # Placeholder for output file path
         self.saveButton = None  # Placeholder for save button
         self.organText = None  # Placeholder for organ label text field
+        self.layoutLogic = CaseIteratorLayoutLogic()  # Layout logic instance
+        self.volumeNodes = []  # Store loaded volume nodes
 
     def buildGUI(self, container: ctk.ctkCollapsibleButton):
         # Outermost frame
@@ -28,7 +32,6 @@ class OrganLabellingDemoTask(TaskBaseClass):
         # Output file designation
         self.outputFileInput = ctk.ctkPathLineEdit()
         self.outputFileInput.setToolTip("The file to save the organ label to.")
-
 
         # Organ Label Field
         organBox = qt.QHBoxLayout()
@@ -44,38 +47,128 @@ class OrganLabellingDemoTask(TaskBaseClass):
         organBox.addWidget(saveButton)
         formLayout.addRow("Output File:", self.outputFileInput)
 
-        # Connect the save button to the save method
+        # Add layout controls
+        layoutBox = qt.QHBoxLayout()
+
+        # Button to show all volumes in separate rows
+        self.showAllVolumesButton = qt.QPushButton("Show All Volumes")
+        self.showAllVolumesButton.toolTip = "Display all volumes in separate rows with axial/sagittal/coronal views"
+        layoutBox.addWidget(self.showAllVolumesButton)
+
+        # Button to reset to default layout
+        self.resetLayoutButton = qt.QPushButton("Reset Layout")
+        self.resetLayoutButton.toolTip = "Reset to default slice layout"
+        layoutBox.addWidget(self.resetLayoutButton)
+
+        formLayout.addRow("Layout Controls:", layoutBox)
+
+        # Connect buttons
         saveButton.clicked.connect(lambda: self.save())
         self.outputFileInput.currentPathChanged.connect(self.onOutputFileChanged)
-
-
-
-
-        # TODO: Add connections
+        self.showAllVolumesButton.clicked.connect(self.showAllVolumes)
+        self.resetLayoutButton.clicked.connect(self.resetLayout)
 
     def setup(self, data_unit: D):
-        # TODO
         print(f"Running {self.__class__} setup!")
         print(f"data_unit: {data_unit}")
+
+        # Clear existing volumes
+        self.volumeNodes = []
+
+        # Load all resources from the data unit
         for key, value in data_unit.data.items():
+            if key == "uid":
+                continue
             print(f"Data Unit Key: {key}, Value: {value}")
 
-        # Set up the scene with the provided data unit resources
+            # Get the volume node for this resource
+            volumeNode = data_unit.get_resource(key)
+            if volumeNode:
+                self.volumeNodes.append(volumeNode)
+                print(f"Loaded volume node: {volumeNode.GetName()} for key: {key}")
 
-        slicer.util.setSliceViewerLayers(background=data_unit.get_resource("adc"), foreground=data_unit.get_resource("hbv"), label=None, fit=True)
+        # Set up initial default view
+        if len(self.volumeNodes) >= 2:
+            # Set up with first volume as background, second as foreground
+            slicer.util.setSliceViewerLayers(
+                background=self.volumeNodes[0],
+                foreground=self.volumeNodes[1] if len(self.volumeNodes) > 1 else None,
+                label=None,
+                fit=True
+            )
+        elif len(self.volumeNodes) == 1:
+            slicer.util.setSliceViewerLayers(
+                background=self.volumeNodes[0],
+                foreground=None,
+                label=None,
+                fit=True
+            )
 
+        print(f"Loaded {len(self.volumeNodes)} volume nodes")
 
+    def showAllVolumes(self):
+        """Display all volumes in separate rows with axial/sagittal/coronal views"""
+        if not self.volumeNodes:
+            print("No volumes loaded")
+            return
 
+        print("Showing all volumes in multi-row layout")
+        self.layoutLogic.viewersPerVolume(self.volumeNodes, include3D=False)
+
+        # Rotate to volume planes and snap to IJK for better alignment
+        if self.volumeNodes:
+            self.layoutLogic.rotateToVolumePlanes(self.volumeNodes[0])
+            self.layoutLogic.snapToIJK()
+
+    def showAllVolumesWith3D(self):
+        """Display all volumes with 3D views included"""
+        if not self.volumeNodes:
+            print("No volumes loaded")
+            return
+
+        print("Showing all volumes with 3D views")
+        self.layoutLogic.viewersPerVolume(self.volumeNodes, include3D=True)
+
+        # Rotate to volume planes and snap to IJK for better alignment
+        if self.volumeNodes:
+            self.layoutLogic.rotateToVolumePlanes(self.volumeNodes[0])
+            self.layoutLogic.snapToIJK()
+
+    def resetLayout(self):
+        """Reset to default slice layout"""
+        print("Resetting to default layout")
+        layoutManager = slicer.app.layoutManager()
+        layoutManager.setLayout(slicer.vtkMRMLLayoutNode.SlicerLayoutFourUpView)
+
+        # Reset to show volumes in default viewers
+        if len(self.volumeNodes) >= 2:
+            slicer.util.setSliceViewerLayers(
+                background=self.volumeNodes[0],
+                foreground=self.volumeNodes[1],
+                label=None,
+                fit=True
+            )
+        elif len(self.volumeNodes) == 1:
+            slicer.util.setSliceViewerLayers(
+                background=self.volumeNodes[0],
+                foreground=None,
+                label=None,
+                fit=True
+            )
 
     def save(self) -> bool:
-        # TODO
         print(f"Running {self.__class__} save!")
 
         print(f"Output file: {self.output_file}")
         if not self.output_file:
             print("No output file specified.")
             return False
+
         organText = self.organTextInput.text
+        if not organText:
+            print("No organ text specified.")
+            return False
+
         TaskReviewer = slicer.app.layoutManager()
         print(f"TaskReviewer: {TaskReviewer}")
 
@@ -84,30 +177,36 @@ class OrganLabellingDemoTask(TaskBaseClass):
             "organ": organText,
             "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
         }
+
+        # Check if file exists and has headers
         overwrite = False
-        reader = csv.DictReader(open(self.output_file, "r", newline=''))
-        if reader.fieldnames is None:
+        try:
+            with open(self.output_file, "r", newline='') as f:
+                reader = csv.DictReader(f)
+                if reader.fieldnames is None:
+                    overwrite = True
+                elif all(field not in reader.fieldnames for field in output_dict.keys()):
+                    overwrite = True
+        except FileNotFoundError:
             overwrite = True
-        elif all(field not in reader.fieldnames for field in output_dict.keys()):
-            overwrite = True
+
         mode = "a"
         if overwrite:
             print(f"Overwriting {self.output_file}")
             mode = "w"
-        writer = csv.DictWriter(open(self.output_file, mode, newline=''), fieldnames=output_dict.keys())
-        if overwrite:
-            writer.writeheader()
-        writer.writerow(output_dict)
 
+        with open(self.output_file, mode, newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=output_dict.keys())
+            if overwrite:
+                writer.writeheader()
+            writer.writerow(output_dict)
 
-
+        print(f"Saved organ label '{organText}' for UID {self.data_unit.uid}")
+        return True
 
     def onOutputFileChanged(self):
         """
         Update the output file path.
-
-        Args:
-            file_path (str): The new output file path.
         """
         output_path = self.outputFileInput.currentPath
         print(f"Output file updated to: {output_path}")
@@ -115,7 +214,6 @@ class OrganLabellingDemoTask(TaskBaseClass):
             self.output_file = output_path
         else:
             self.output_file = None
-
 
 
 
