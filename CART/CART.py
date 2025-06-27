@@ -378,6 +378,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.base_path = None
             print("Base path set to: None")
 
+        self.loadTaskWhenReady()
+
     def getBasePath(self):
         """
         Returns the current base path (Path object or None)
@@ -415,9 +417,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             print(self.current_case)
             self.currentCaseNameLabel.text = str(self.current_case)
 
-        # Attempt to load the task, if we're now ready
-        self.loadTaskWhenReady()
-
     def onLoadCohortClicked(self):
         """
         Handles the explicit load cohort button click.
@@ -434,6 +433,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         print(f"Loading cohort from: {cohort_file}")
         self.onCohortChanged()
+
+        # Attempt to load the task, if we're now ready
+        self.loadTaskWhenReady()
 
     def onTaskChanged(self):
         # Update the currently selected task
