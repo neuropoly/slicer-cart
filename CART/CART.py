@@ -1,4 +1,5 @@
 from pathlib import Path
+from textwrap import dedent
 
 import vtk
 
@@ -291,23 +292,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         return taskSelectionCollapsibleButton
 
-    def onLoadCohortClicked(self):
-        """
-        Handles the explicit load cohort button click.
-        """
-        cohort_file = self.getCohortSelectedFile()
-
-        if not cohort_file.exists():
-            print(f"Error: Cohort file does not exist: {cohort_file}")
-            return
-
-        if cohort_file.suffix.lower() != ".csv":
-            print(f"Error: Selected file is not a CSV: {cohort_file}")
-            return
-
-        print(f"Loading cohort from: {cohort_file}")
-        self.onCohortChanged()
-
     def buildCaseIteratorUI(self):
       # Layout
       self.groupBox = qt.QGroupBox("Iteration Manager")
@@ -350,6 +334,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     ## Connected Functions ##
 
+    ### Setup Widgets ###
+
     def newUserEntered(self):
         # New user added
         new_user_name = self.newUserTextWidget.text
@@ -370,8 +356,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Update the prior users dropdown
         self.priorUsersCollapsibleButton.addItem(new_user_name)
 
-        # Show the hidden parts of the GUI if we're ready to proceed
-        self.checkIteratorReady()
+        # Try to load the task, if we're ready
+        self.loadTaskWhenReady()
 
     def onBasePathChanged(self):
         """
@@ -393,12 +379,13 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # TODO Make this match the code style of the rest of the module better dont love this
         return self.base_path
 
-
     def userSelected(self):
         index = self.priorUsersCollapsibleButton.currentIndex
         text = self.priorUsersCollapsibleButton.currentText
         print(f"User selected: {text} ({index})")
-        self.checkIteratorReady()
+
+        # Attempt to load the task, if we're now ready
+        self.loadTaskWhenReady()
 
     def getCohortSelectedFile(self) -> Path:
         return Path(self.cohortFileSelectionButton.currentPath)
@@ -413,7 +400,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.DataManagerInstance.load_data(self.cohort_csv_path)
 
         # Prepare the iterator for use
-        self.checkIteratorReady()
         self.DataManagerInstance.set_data_cohort_csv(self.cohort_csv_path)
         self.DataManagerInstance.load_data(self.cohort_csv_path)
         self.groupBox.setEnabled(True)
@@ -423,22 +409,63 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             print(self.current_case)
             self.currentCaseNameLabel.text = str(self.current_case)
 
+        # Attempt to load the task, if we're now ready
+        self.loadTaskWhenReady()
+
+    def onLoadCohortClicked(self):
+        """
+        Handles the explicit load cohort button click.
+        """
+        cohort_file = self.getCohortSelectedFile()
+
+        if not cohort_file.exists():
+            print(f"Error: Cohort file does not exist: {cohort_file}")
+            return
+
+        if cohort_file.suffix.lower() != ".csv":
+            print(f"Error: Selected file is not a CSV: {cohort_file}")
+            return
+
+        print(f"Loading cohort from: {cohort_file}")
+        self.onCohortChanged()
+
     def onTaskChanged(self):
         # Update the currently selected task
         task_name = self.taskOptions.currentText
         self.current_task = self.task_map.get(task_name, None)
 
         # Check if we're now ready to iterate
-        self.checkIteratorReady()
+        self.loadTaskWhenReady()
 
-    def checkIteratorReady(self):
-        # If there is a specified user
-        if self.priorUsersCollapsibleButton.currentIndex != -1:
-            # If there is a valid cohort
-            if self.getCohortSelectedFile().exists() and self.getCohortSelectedFile().suffix == ".csv":
-                # If we have a selected task
-                if self.current_task:
-                    self.caseIteratorUI.setEnabled(True)
+    def isReady(self) -> bool:
+        # List of things left for the user to do
+        todo_list = []
+
+        # Check if there is a valid user selected
+        if self.priorUsersCollapsibleButton.currentIndex == -1:
+            todo_list.append(
+                _("You need to select who's doing this analysis.")
+            )
+
+        # Check if a cohort CSV has been selected
+        # TODO: Replace this long check with something more elegant
+        if not (self.getCohortSelectedFile().exists() and self.getCohortSelectedFile().suffix == ".csv"):
+            todo_list.append(_("You need to select a cohort file."))
+
+        # Check if a task has been selected
+        if self.current_task is None:
+            todo_list.append(_("You need to select a task to run."))
+
+        # If there are items in the list, print a warning and return false
+        if len(todo_list) > 0:
+            spacer = '\n  * '
+            print(f"Things left to do:{spacer}{spacer.join(todo_list)}")
+            return False
+
+        # Otherwise, return True; we're ready!
+        return True
+
+    ### Iterator Widgets ###
 
     def nextCase(self):
         print("NEXT CASE!")
@@ -458,6 +485,14 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
 
         self.currentCaseNameLabel.text = str(self.current_case.resources)
+
+
+    ### Task Related ###
+
+    def loadTaskWhenReady(self):
+        if self.isReady():
+            print(f"Initializing Task {self.current_task}!")
+
 
     ## Management ##
 
