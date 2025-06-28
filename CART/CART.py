@@ -9,7 +9,7 @@ from slicer import vtkMRMLScalarVolumeNode
 from slicer.ScriptedLoadableModule import *
 from slicer.i18n import tr as _
 from slicer.i18n import translate
-from slicer.util import VTKObservationMixin
+from slicer.util import VTKObservationMixin, messageBox
 
 import json
 
@@ -75,6 +75,13 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     """Uses ScriptedLoadableModuleWidget base class, available at:
     https://github.com/Slicer/Slicer/blob/main/Base/Python/slicer/ScriptedLoadableModule.py
     """
+
+    ## Utils ##
+
+    # The size constraints which should be used for small buttons;
+    #  these match the size of the '...' button in a ctk.ctkPathLineEdit
+    MICRO_BUTTON_WIDTH = 24
+    MICRO_BUTTON_HEIGHT = 25
 
     ## Initialization ##
 
@@ -179,36 +186,55 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         Builds the GUI for the user management section of the Widget
         :return:
         """
-        # User entry
-        newUserHBox = qt.QHBoxLayout()
-        newUserTextWidget = qt.QLineEdit()
-        newUserTextWidget.toolTip = _("Your name, or an equivalent identifier")
-        newUserHBox.addWidget(newUserTextWidget)
-        mainLayout.addRow(_("New User:"), newUserHBox)
+        # HBox to ensure everything is draw horizontally
+        userHBox = qt.QHBoxLayout()
 
-        # When the user confirms their entry (with enter), add it to the
-        #  prior users list
-        newUserTextWidget.returnPressed.connect(self.newUserEntered)
-
-        # Make it accessible
-        self.newUserTextWidget = newUserTextWidget
-
+        # Insert this layout in the "main" GUI
+        mainLayout.addRow(_("User:"), userHBox)
 
         # Prior users list
-        priorUsersCollapsibleButton = qt.QComboBox()
-        priorUsersCollapsibleButton.placeholderText = _("[Not Selected]")
+        userSelectButton = qt.QComboBox()
+        userSelectButton.placeholderText = _("[Not Selected]")
+
         # Set the name of the button to the "UserSelectionButton"
-        priorUsersCollapsibleButton.toolTip = _("Use a previously registered user")
+        userSelectButton.toolTip = _("Select a previous user.")
 
-
-        priorUsersCollapsibleButton.addItems(self.configuration_data["contributors"])
-        mainLayout.addRow(_("Prior User"), priorUsersCollapsibleButton)
+        # By default, load it with the list of contributors in the config file
+        userSelectButton.addItems(self.configuration_data["contributors"])
 
         # When the user selects an existing entry, update the program to match
-        priorUsersCollapsibleButton.currentIndexChanged.connect(self.userSelected)
+        userSelectButton.currentIndexChanged.connect(self.userSelected)
+
+        # Add it to the HBox
+        userHBox.addWidget(userSelectButton)
+
+        # Make the spacing between widgets (the button and dropdown) 0
+        userHBox.spacing = 0
+
+        # New user button
+        newUserButton = qt.QPushButton("+")
+
+        # When the button is pressed, prompt them to fill out a form
+        newUserButton.clicked.connect(self.promptNewUser)
+
+        # Force its size to not change dynamically
+        newUserButton.setSizePolicy(
+            qt.QSizePolicy.Fixed,
+            qt.QSizePolicy.Fixed
+        )
+
+        # Force it to be square
+        # KO: We can't just use "resize" here, because either Slicer or QT
+        #  overrides it later; really appreciate 2 hours of debugging to figure
+        #  that out!
+        newUserButton.setMaximumWidth(CARTWidget.MICRO_BUTTON_WIDTH)
+        newUserButton.setMaximumHeight(CARTWidget.MICRO_BUTTON_HEIGHT)
+
+        # Add it to the layout!
+        userHBox.addWidget(newUserButton)
 
         # Make it accessible
-        self.priorUsersCollapsibleButton = priorUsersCollapsibleButton
+        self.priorUsersCollapsibleButton = userSelectButton
 
     def buildCohortUI(self, mainLayout: qt.QFormLayout):
         # Directory selection button
@@ -316,28 +342,23 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     ### Setup Widgets ###
 
-    def newUserEntered(self):
-        # New user added
-        new_user_name = self.newUserTextWidget.text
-        if not new_user_name:
-            return
+    def promptNewUser(self):
+        """
+        Creates a pop-up, prompting the user to enter their name into a
+        text box to register themselves as a new user.
+        """
+        # Create a new widget
+        new_name = qt.QInputDialog().getText(
+            self.mainGUI,
+            _("Add New User"),
+            _("New User Name:")
+        )
 
-        if new_user_name in self.configuration_data["contributors"]:
-            print(f"User '{new_user_name}' already exists.")
-            self.newUserTextWidget.text = ""
-            return
+        if new_name:
+            self.addNewUser(new_name)
 
-        self.configuration_data["contributors"].append(new_user_name)
-        with open(CONFIGURATION_FILE_NAME, "w") as cf:
-            json.dump(self.configuration_data, cf, indent=2)
-        print(f"NEW USER: {new_user_name}")
-
-        self.newUserTextWidget.text = ""
-        # Update the prior users dropdown
-        self.priorUsersCollapsibleButton.addItem(new_user_name)
-
-        # Try to load the task, if we're ready
-        self.loadTaskWhenReady()
+    def addNewUser(self, user_name):
+        print(user_name)
 
     def onBasePathChanged(self):
         """
