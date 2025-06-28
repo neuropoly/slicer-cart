@@ -174,23 +174,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     ## GUI builders ##
 
-    def buildBasePathUI(self, mainLayout: qt.QFormLayout):
-        """
-        Extends the GUI to add widgets for data directory selection
-        """
-        # Base path selection
-        basePathSelectionWidget = ctk.ctkPathLineEdit()
-        basePathSelectionWidget.filters = ctk.ctkPathLineEdit.Dirs
-        basePathSelectionWidget.toolTip = _("Select the base directory path. Leave empty to use None as base path.")
-
-        mainLayout.addRow(_("Data Path:"), basePathSelectionWidget)
-
-        # Connect the signal to handle base path changes
-        basePathSelectionWidget.currentPathChanged.connect(self.onBasePathChanged)
-
-        # Make it accessible
-        self.basePathSelectionWidget = basePathSelectionWidget
-
     def buildUserUI(self, mainLayout: qt.QFormLayout):
         """
         Builds the GUI for the user management section of the Widget
@@ -257,6 +240,23 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Make load button accessible
         self.loadCohortButton = loadCohortButton
+
+    def buildBasePathUI(self, mainLayout: qt.QFormLayout):
+        """
+        Extends the GUI to add widgets for data directory selection
+        """
+        # Base path selection
+        basePathSelectionWidget = ctk.ctkPathLineEdit()
+        basePathSelectionWidget.filters = ctk.ctkPathLineEdit.Dirs
+        basePathSelectionWidget.toolTip = _("Select the base directory path. Leave empty to use None as base path.")
+
+        mainLayout.addRow(_("Data Path:"), basePathSelectionWidget)
+
+        # Connect the signal to handle base path changes
+        basePathSelectionWidget.currentPathChanged.connect(self.onBasePathChanged)
+
+        # Make it accessible
+        self.basePathSelectionWidget = basePathSelectionWidget
 
     def buildTaskUI(self, mainLayout: qt.QFormLayout):
         # Prior users list
