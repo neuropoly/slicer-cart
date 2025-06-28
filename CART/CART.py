@@ -1,4 +1,5 @@
 from pathlib import Path
+from textwrap import dedent
 
 import vtk
 
@@ -8,8 +9,7 @@ import slicer
 from slicer import vtkMRMLScalarVolumeNode
 from slicer.ScriptedLoadableModule import *
 from slicer.i18n import tr as _
-from slicer.i18n import translate
-from slicer.util import VTKObservationMixin, messageBox
+from slicer.util import VTKObservationMixin
 
 import json
 
@@ -38,24 +38,39 @@ class CART(ScriptedLoadableModule):
 
     def __init__(self, parent):
         ScriptedLoadableModule.__init__(self, parent)
-        self.parent.title = _("CART")  # TODO: make this more human readable by adding spaces
-        # TODO: set categories (folders where the module shows up in the module selector)
-        self.parent.categories = [translate("qSlicerAbstractCoreModule", "Examples")]
-        self.parent.dependencies = []  # TODO: add here list of module names that this module requires
-        self.parent.contributors = ["John Doe (AnyWare Corp.)"]  # TODO: replace with "Firstname Lastname (Organization)"
-        # TODO: update with short description of the module and a link to online module documentation
-        # _() function marks text as translatable to other languages
-        self.parent.helpText = _("""
-This is an example of scripted loadable module bundled in an extension.
-See more information in <a href="https://github.com/organization/projectname#CART">module documentation</a>.
-""")
+        self.parent.title = "CART"  # It's an acronym title, not really translate-able
+        self.parent.categories = ['Utilities']
+        self.parent.dependencies = []  # No dependencies
+        # TODO: Move these metadata contents into a standalone file which can
+        #  be updated automatically as new PRs are made
+        self.parent.contributors = [
+            "Kalum Ost (Montréal Polytechnique)",
+            "Kuan Yi (Montréal Polytechnique)",
+            "Ivan Johnson-Eversoll (University of Iowa)"
+        ]
+        self.parent.helpText = _(dedent("""
+                CART (Collaborative Annotation and Review Tool) provides a set 
+                of abstract base classes for creating streamlined annotation 
+                workflows in 3D Slicer. The framework enables efficient 
+                iteration through medical imaging cohorts with customizable 
+                tasks and flexible data loading strategies.
+                
+                See more information on the 
+                <a href="https://github.com/SomeoneInParticular/CART/tree/main">GitHub repository</a>.
+            """))
         # TODO: replace with organization, grant and thanks
-        self.parent.acknowledgementText = _("""
-This file was originally developed by Jean-Christophe Fillion-Robin, Kitware Inc., Andras Lasso, PerkLab,
-and Steve Pieper, Isomics, Inc. and was partially funded by NIH grant 3P41RR013218-12S1.
-""")
-
-        # Additional initialization step after application startup is complete
+        self.parent.acknowledgementText = _(dedent("""
+                Originally created during Slicer Project Week #43.
+                
+                Special thanks the many members of the Slicer community who
+                contributed to this work, including the many projects which 
+                were used as reference. Of note:
+                <a href="https://github.com/neuropoly/slicercart">SlicerCART</a> (the name and general framework),
+                <a href="https://github.com/JoostJM/SlicerCaseIterator">SlicerCaseIterator</a> (inspired much of our logic),
+                <a href="https://github.com/SlicerUltrasound/SlicerUltrasound">SlicerUltrasound/AnnotateUltrasound</a> (basis for our UI design),
+                and the many other projects discussed during the breakout session (notes 
+                <a href="https://docs.google.com/document/d/12XuYPVuRgy4RTuIabSIjy_sRrYSliewKhcbB1zJgXVI/">here.</a>
+            """))
 
 
 
