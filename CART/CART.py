@@ -111,25 +111,20 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Set up the over-arching collapsible container to hold our GUIs in
         mainGUI = ctk.ctkCollapsibleButton()
         # Not the best translation, but it'll do...
-        mainGUI.text = "CART" + _("Setup")
+        mainGUI.text = "CART " + _("Setup")
         mainLayout = qt.QFormLayout(mainGUI)
 
+        # User selection/registration
+        self.buildUserUI(mainLayout)
+
+        # Cohort Selection
+        self.buildCohortUI(mainLayout)
+
         # Base Path input UI
-        self.basePathUIWidget = self.buildBasePathUI()
-        mainLayout.addWidget(self.basePathUIWidget)
-
-        # Cohort UI
-        self.cohortUIWidget = self.buildCohortUI()
-        mainLayout.addWidget(self.cohortUIWidget)
-
-        # User UI
-        self.userUIWidget = self.buildUserUI()
-        # self.userUIWidget.setMRMLScene(slicer.mrmlScene)
-        mainLayout.addWidget(self.userUIWidget)
+        self.buildBasePathUI(mainLayout)
 
         # Task UI
-        self.taskUIWidget = self.buildTaskUI()
-        mainLayout.addWidget(self.taskUIWidget)
+        self.buildTaskUI(mainLayout)
 
         # Add this "main" widget to our panel
         self.layout.addWidget(mainGUI)
@@ -177,23 +172,16 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     ## GUI builders ##
 
-    def buildBasePathUI(self):
+    def buildBasePathUI(self, mainLayout: qt.QFormLayout):
         """
-        Builds the GUI for the base path selection section of the Widget
-        :return:
+        Extends the GUI to add widgets for data directory selection
         """
-        # Layout management
-        basePathCollapsibleButton = ctk.ctkCollapsibleButton()
-        basePathCollapsibleButton.text = _("Base Path Selection")
-        formLayout = qt.QFormLayout(basePathCollapsibleButton)
-
         # Base path selection
         basePathSelectionWidget = ctk.ctkPathLineEdit()
         basePathSelectionWidget.filters = ctk.ctkPathLineEdit.Dirs
         basePathSelectionWidget.toolTip = _("Select the base directory path. Leave empty to use None as base path.")
 
-
-        formLayout.addRow(_("Base Path:"), basePathSelectionWidget)
+        mainLayout.addRow(_("Data Path:"), basePathSelectionWidget)
 
         # Connect the signal to handle base path changes
         basePathSelectionWidget.currentPathChanged.connect(self.onBasePathChanged)
@@ -201,24 +189,17 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Make it accessible
         self.basePathSelectionWidget = basePathSelectionWidget
 
-        return basePathCollapsibleButton
-
-    def buildUserUI(self):
+    def buildUserUI(self, mainLayout: qt.QFormLayout):
         """
         Builds the GUI for the user management section of the Widget
         :return:
         """
-        # Layout management
-        userCollapsibleButton = ctk.ctkCollapsibleButton()
-        userCollapsibleButton.text = _("User Selection")
-        formLayout = qt.QFormLayout(userCollapsibleButton)
-
         # User entry
         newUserHBox = qt.QHBoxLayout()
         newUserTextWidget = qt.QLineEdit()
         newUserTextWidget.toolTip = _("Your name, or an equivalent identifier")
         newUserHBox.addWidget(newUserTextWidget)
-        formLayout.addRow(_("New User:"), newUserHBox)
+        mainLayout.addRow(_("New User:"), newUserHBox)
 
         # When the user confirms their entry (with enter), add it to the
         #  prior users list
@@ -227,15 +208,16 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Make it accessible
         self.newUserTextWidget = newUserTextWidget
 
+
         # Prior users list
         priorUsersCollapsibleButton = qt.QComboBox()
         priorUsersCollapsibleButton.placeholderText = _("[Not Selected]")
         # Set the name of the button to the "UserSelectionButton"
-        priorUsersCollapsibleButton.toolTip = _("Select a prior user from the list")
+        priorUsersCollapsibleButton.toolTip = _("Use a previously registered user")
 
 
         priorUsersCollapsibleButton.addItems(self.configuration_data["contributors"])
-        formLayout.addRow(_("Prior User"), priorUsersCollapsibleButton)
+        mainLayout.addRow(_("Prior User"), priorUsersCollapsibleButton)
 
         # When the user selects an existing entry, update the program to match
         priorUsersCollapsibleButton.currentIndexChanged.connect(self.userSelected)
@@ -243,14 +225,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Make it accessible
         self.priorUsersCollapsibleButton = priorUsersCollapsibleButton
 
-        return userCollapsibleButton
-
-    def buildCohortUI(self):
-        # Layout management
-        cohortCollapsibleButton = ctk.ctkCollapsibleButton()
-        cohortCollapsibleButton.text = _("Cohort Selection")
-        formLayout = qt.QFormLayout(cohortCollapsibleButton)
-
+    def buildCohortUI(self, mainLayout: qt.QFormLayout):
         # Directory selection button
         cohortFileSelectionButton = ctk.ctkPathLineEdit()
         # TODO Fix/ Ensure this works as expected
@@ -263,7 +238,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Optionally set a default filter
         # TODO
 
-        formLayout.addRow(_("Cohort File:"), cohortFileSelectionButton)
+        mainLayout.addRow(_("Cohort File:"), cohortFileSelectionButton)
 
         # Set default value but don't auto-load
         default_value = sample_data_cohort_csv.as_posix() if sample_data_cohort_csv.exists() else ""
@@ -276,34 +251,26 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         loadCohortButton = qt.QPushButton(_("Load Cohort"))
         loadCohortButton.toolTip = _("Load the selected cohort CSV file")
         loadCohortButton.clicked.connect(self.onLoadCohortClicked)
-        formLayout.addRow("", loadCohortButton)
+        mainLayout.addRow("", loadCohortButton)
 
         # Make load button accessible
         self.loadCohortButton = loadCohortButton
 
-        return cohortCollapsibleButton
 
-    def buildTaskUI(self):
-        # Layout management
-        taskSelectionCollapsibleButton = ctk.ctkCollapsibleButton()
-        taskSelectionCollapsibleButton.text = _("Task Selection")
-        formLayout = qt.QFormLayout(taskSelectionCollapsibleButton)
-
+    def buildTaskUI(self, mainLayout: qt.QFormLayout):
         # Prior users list
         taskOptions = qt.QComboBox()
         taskOptions.placeholderText = _("[Not Selected]")
 
         # TODO: Have this pull from configuration instead
         taskOptions.addItems(list(self.task_map.keys()))
-        formLayout.addRow(_("Task"), taskOptions)
+        mainLayout.addRow(_("Task"), taskOptions)
 
         # Make it accessible
         self.taskOptions = taskOptions
 
         # When the task is changed, update everything to match
         taskOptions.currentIndexChanged.connect(self.onTaskChanged)
-
-        return taskSelectionCollapsibleButton
 
     def buildCaseIteratorUI(self):
       # Layout
@@ -516,10 +483,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # If we're not ready to load a task, leave everything untouched
         if not self.isReady():
             return
-
-        # Initialize an instance of the Task class
-        print(f"{self.current_task=}")
-
 
         self.current_task_instance: TaskBaseClass = self.current_task(self.DataManagerInstance.current_item())
 
