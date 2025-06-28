@@ -13,6 +13,7 @@ from slicer.util import VTKObservationMixin
 
 import json
 
+from CARTLib.Config import Config
 from CARTLib.core.DataManager import DataManager
 from CARTLib.core.TaskBaseClass import TaskBaseClass
 
@@ -72,7 +73,8 @@ class CART(ScriptedLoadableModule):
                 <a href="https://docs.google.com/document/d/12XuYPVuRgy4RTuIabSIjy_sRrYSliewKhcbB1zJgXVI/">here.</a>
             """))
 
-
+        # Load our configuration
+        Config.load()
 
 
 #
@@ -215,7 +217,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         userSelectButton.toolTip = _("Select a previous user.")
 
         # By default, load it with the list of contributors in the config file
-        userSelectButton.addItems(self.configuration_data["contributors"])
+        userSelectButton.addItems(Config.get_users())
 
         # When the user selects an existing entry, update the program to match
         userSelectButton.currentIndexChanged.connect(self.userSelected)

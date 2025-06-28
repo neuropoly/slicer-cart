@@ -1,4 +1,5 @@
 {
+  "users": ["Ivan", "Kalum", "Kuan"],
   "initial_layout": "four-up",
   "modalities": ["CT", "MRI", "PET"],
   "units": "cm",
@@ -21,7 +22,5 @@
   "autosave_frequency": 2,
   "number_of_sessions_kept_in_logs": 10,
   "display_timer": false,
-  "iterator_increment": 1,
-
-  "contributors": ["Ivan", "Kalum", "Kuan"]
+  "iterator_increment": 1
 }
