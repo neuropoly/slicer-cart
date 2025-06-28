@@ -1,4 +1,3 @@
-from os import sep as os_path_sep
 from pathlib import Path
 from typing import Optional
 
@@ -6,7 +5,7 @@ import slicer
 from slicer.ScriptedLoadableModule import *
 from slicer.i18n import tr as _
 
-from .DataUnitBase import DataUnitBase
+from .core.DataUnitBase import DataUnitBase
 
 
 class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):

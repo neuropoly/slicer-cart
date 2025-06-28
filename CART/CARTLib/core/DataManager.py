@@ -3,8 +3,11 @@ from pathlib import Path
 import csv
 from collections import deque
 from typing import Optional, List, Dict
+
 from .DataUnitBase import DataUnitBase
-from .VolumeOnlyDataIO import VolumeOnlyDataUnit
+
+# TODO: Remove this for a configurable method
+from ..VolumeOnlyDataIO import VolumeOnlyDataUnit
 
 class TaskConfig:
     """

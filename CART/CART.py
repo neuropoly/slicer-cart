@@ -1,5 +1,4 @@
 from pathlib import Path
-from textwrap import dedent
 
 import vtk
 
@@ -14,8 +13,8 @@ from slicer.util import VTKObservationMixin
 
 import json
 
-from CARTLib.DataManager import DataManager
-from CARTLib.TaskBaseClass import TaskBaseClass
+from CARTLib.core.DataManager import DataManager
+from CARTLib.core.TaskBaseClass import TaskBaseClass
 
 # TODO: Remove this explicit import
 from CARTLib.OrganLabellingDemo import OrganLabellingDemoTask
@@ -108,7 +107,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """Called when the user opens the module the first time and the widget is initialized."""
         ScriptedLoadableModuleWidget.setup(self)
 
-        # Set up the over-arching collapsible container to hold our GUIs in
+        ## Setup ##
+
+        # The collapsible button to contain everything in
         mainGUI = ctk.ctkCollapsibleButton()
         # Not the best translation, but it'll do...
         mainGUI.text = "CART " + _("Setup")
@@ -129,11 +130,12 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Add this "main" widget to our panel
         self.layout.addWidget(mainGUI)
 
-        # Case Iterator UI
-        self.caseIteratorUI = self.buildCaseIteratorUI()
-
         # Make the GUI accessible
         self.mainGUI = mainGUI
+
+        ## Progress Tracker ##
+        # Case Iterator UI
+        self.caseIteratorUI = self.buildCaseIteratorUI()
 
         # Add the case iterator as a "buffer" between our main and task GUIs
         self.layout.addWidget(self.caseIteratorUI)
@@ -255,7 +257,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Make load button accessible
         self.loadCohortButton = loadCohortButton
-
 
     def buildTaskUI(self, mainLayout: qt.QFormLayout):
         # Prior users list
