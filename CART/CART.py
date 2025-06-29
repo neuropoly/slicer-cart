@@ -106,7 +106,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """Called when the user opens the module the first time and the widget is initialized."""
         ScriptedLoadableModuleWidget.__init__(self, parent)
         VTKObservationMixin.__init__(self)  # needed for parameter node observation
-        self.logic = None
+
+        # Initialize our logic instance
+        self.logic = CARTLogic()
         self._parameterNode = None
         self._parameterNodeGuiTag = None
 
@@ -186,10 +188,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         #  now it doesn't look like garbage!
         self.layout.addStretch()
 
-        # Create logic class. Logic implements all computations that should be possible to run
-        # in batch mode, without a graphical user interface.
-        self.logic = CARTLogic()
-
         # Connections
 
         # These connections ensure that we update parameter node when scene is closed
@@ -216,11 +214,16 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Set the name of the button to the "UserSelectionButton"
         userSelectButton.toolTip = _("Select a previous user.")
 
-        # By default, load it with the list of contributors in the config file
+        # Load it up with the list of users in the configuration file
+        users = Config.get_users()
         userSelectButton.addItems(Config.get_users())
 
+        # If there are users, use the first (most recent) as the default
+        if users:
+            userSelectButton.currentIndex = 0
+
         # When the user selects an existing entry, update the program to match
-        userSelectButton.currentIndexChanged.connect(self.userSelected)
+        userSelectButton.activated.connect(self.userSelected)
 
         # Add it to the HBox
         userHBox.addWidget(userSelectButton)
@@ -250,8 +253,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Add it to the layout!
         userHBox.addWidget(newUserButton)
 
-        # Make it accessible
-        self.priorUsersCollapsibleButton = userSelectButton
+        # Make the user selection button accessible
+        self.userSelectButton = userSelectButton
 
     def buildCohortUI(self, mainLayout: qt.QFormLayout):
         # Directory selection button
@@ -375,7 +378,33 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.addNewUser(new_name)
 
     def addNewUser(self, user_name):
-        print(user_name)
+        # Attempt to add the new user to the Logic
+        success = self.logic.add_new_user(user_name)
+
+        # If we succeeded, update the GUI as well
+        if success:
+            self._refreshUserList()
+        else:
+            # TODO: Add a user prompt
+            print(f"Failed to add user '{user_name}'.")
+
+    def _refreshUserList(self):
+        """
+        Rebuild the list in the GUI from scratch, ensuring everything is
+        maintained in order.
+
+        KO: an insertion policy only applies to insertions made into an
+         editable combo-box; insertions made by us are always inserted
+         last. Therefore, this song and dance is needed
+        """
+        # Clear all entries
+        self.userSelectButton.clear()
+
+        # Rebuild its contents from scratch
+        self.userSelectButton.addItems(self.logic.get_users())
+
+        # Select the first (most recent) entry in the list
+        self.userSelectButton.currentIndex = 0
 
     def onBasePathChanged(self):
         """
@@ -400,9 +429,12 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         return self.base_path
 
     def userSelected(self):
-        index = self.priorUsersCollapsibleButton.currentIndex
-        text = self.priorUsersCollapsibleButton.currentText
-        print(f"User selected: {text} ({index})")
+        # Update the logic with this newly selected user
+        idx = self.userSelectButton.currentIndex
+        self.logic.set_most_recent_user(idx)
+
+        # Rebuild the GUI to match
+        self._refreshUserList()
 
         # Attempt to load the task, if we're now ready
         self.loadTaskWhenReady()
@@ -462,7 +494,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         todo_list = []
 
         # Check if there is a valid user selected
-        if self.priorUsersCollapsibleButton.currentIndex == -1:
+        if self.userSelectButton.currentIndex != 0:
             todo_list.append(
                 _("You need to select who's doing this analysis.")
             )
@@ -579,4 +611,54 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         """Called when the logic class is instantiated. Can be used for initializing member variables."""
         ScriptedLoadableModuleLogic.__init__(self)
 
+    def get_users(self) -> list[str]:
+        # Simple wrapper for our config
+        return Config.get_users()
+
+    def get_current_user(self) -> str:
+        """
+        Gets the currently selected user, if there is one
+        """
+        users = Config.get_users()
+        if users:
+            return users[0]
+        else:
+            return None
+
+    def set_most_recent_user(self, idx: int) -> bool:
+        """
+        Change the most recent user to the one specified
+        """
+        users = Config.get_users()
+
+        # If the index is out of bounds, exit early with a failure
+        if len(users) <= idx or idx < 0:
+            return False
+
+        # Otherwise, move the user to the front of the list
+        selected_user = users[idx]
+        users.pop(idx)
+        users.insert(0, selected_user)
+        return True
+
+    def add_new_user(self, user_name: str) -> bool:
+        """
+        Attempt to add a new user to the list.
+
+        Returns True if this was successful, False otherwise
+        """
+        # Confirm they actually provided a string
+        if not user_name:
+            print("Something must be entered as a name!")
+            return False
+
+        # Check if the user already exists
+        current_users = Config.get_users()
+        if user_name in current_users:
+            print("User name already exists!")
+            return False
+
+        # Add the username to the list at the top
+        current_users.insert(0, user_name)
+        return True
 

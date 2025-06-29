@@ -55,7 +55,6 @@ class Config:
         # Mark that there are no longer any changes between the config and file
         cls._has_changed = False
 
-
     @classmethod
     def get_users(cls) -> list[str]:
         key = "users"
@@ -63,7 +62,7 @@ class Config:
         user_entry = cls._config_dict.get(key, None)
 
         # If it didn't exist, add an empty list instead
-        if not user_entry:
+        if user_entry is None:
             user_entry = []
             print(f"No '{key}' entry existed, setting it to {user_entry}.")
             cls._config_dict[key] = user_entry
