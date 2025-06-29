@@ -433,19 +433,13 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         
         if new_name:
             self.addNewUser(new_name)
-            
-
 
     def addNewUser(self, user_name):
-        # Load Config file
-        Config.load()
-        
         # Attempt to add the new user to the Logic
         success = self.logic.add_new_user(user_name)
         
         # If we succeeded, update the GUI as well
         if success:
-            Config._has_changed = True
             self._refreshUserList()
         else:
             # TODO: Add a user prompt
@@ -717,6 +711,9 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         selected_user = users[idx]
         users.pop(idx)
         users.insert(0, selected_user)
+
+        # Immediately save the Config and return
+        Config.save()
         return True
 
     def add_new_user(self, user_name: str) -> bool:
