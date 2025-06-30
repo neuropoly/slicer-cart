@@ -482,9 +482,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         self.loadTaskWhenReady()
 
-    def getCohortSelectedFile(self) -> Path:
-        return Path(self.cohortFileSelectionButton.currentPath)
-
     def onCohortChanged(self):
         """
         Update our GUI to account for a change in the selected cohort CSV
