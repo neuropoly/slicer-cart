@@ -151,7 +151,7 @@ class DataManager:
         Returns:
             The DataUnit at the new position.
         """
-        self.current_case_index -= 1
+        self.current_case_index += 1
         return self.get_data_unit(self.current_case_index)
 
     def previous_data_unit(self) -> DataUnitBase:
@@ -161,7 +161,7 @@ class DataManager:
         Returns:
             The DataUnit at the new position.
         """
-        self.current_case_index += 1
+        self.current_case_index -= 1
         return self.get_data_unit(self.current_case_index)
 
     @staticmethod
