@@ -48,11 +48,11 @@ class DataManager:
 
         # Dynamically sized cached version of "get_data_unit"
         lru_cache_wrapper = lru_cache(maxsize=cache_size)
-        old_method = self.get_data_source
-        self.get_data_source = lru_cache_wrapper(old_method)
+        old_method = self.get_data_unit
+        self.get_data_unit = lru_cache_wrapper(old_method)
 
     def get_cache_size(self):
-        return self.get_data_source.cache_info().maxsize
+        return self.get_data_unit.cache_info().maxsize
 
     def set_data_cohort_csv(self, csv_path: Path) -> None:
         """
@@ -77,7 +77,7 @@ class DataManager:
         self.data_source = source
 
         # Clear our cache, as its almost certainly no longer valid
-        self.get_data_source.cache_clear()
+        self.get_data_unit.cache_clear()
 
         # Reset to the beginning
         self.current_case_index = 0
@@ -148,18 +148,16 @@ class DataManager:
         """
         Advance to the next case, and get its corresponding DataUnit.
 
-        Returns:
-            The DataUnit at the new position.
+        :return: The previous data unit; None if it doesn't exist/is invalid
         """
         self.current_case_index += 1
         return self.get_data_unit(self.current_case_index)
 
     def previous_data_unit(self) -> DataUnitBase:
         """
-        Return to the previous case, and get its corresponding DataUnit.
+        Advance to the next case, and get its corresponding DataUnit.
 
-        Returns:
-            The DataUnit at the new position.
+        :return: The previous data unit; None if it doesn't exist/is invalid
         """
         self.current_case_index -= 1
         return self.get_data_unit(self.current_case_index)
