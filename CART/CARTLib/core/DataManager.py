@@ -1,29 +1,26 @@
 from __future__ import annotations
 
+import csv
 from functools import lru_cache
 from pathlib import Path
-import csv
-from collections import deque
 from typing import Optional, List, Dict
 
 from .DataUnitBase import DataUnitBase
-
 # TODO: Remove this for a configurable method
 from ..VolumeOnlyDataIO import VolumeOnlyDataUnit
 
+
 class DataManager:
     """
-    Manages a CSV-based cohort and provides a fixed-size window of DataUnit
-    objects for efficient forward/backward traversal.
+    Manages a CSV-based cohort and provides a cache of DataUnit objects for
+      efficient forward/backward traversal.
 
-    # TODO: Implement support for non-1 length queues in the future.
     # TODO: Implement way to indicate if a whole list was traversed.
 
     Attributes:
-        config: Optional TaskConfig for behavior customization.
-        cohort_csv: Path to the cohort CSV file.
+        cohort_csv: Path to the cohort CSV file currently selected.
         case_data: List of row dictionaries loaded from CSV.
-        cache_length: Number of DataIO objects in the traversal window (must be odd).
+        cache_size: Maximum number of Data Unit objects held in memory at once.
     """
 
     def __init__(
@@ -34,14 +31,12 @@ class DataManager:
         """
         Initialize DataManager with optional configuration and window size.
 
-        We employ limited cacheing to help streamline the analysis of
+        We employ limited caching to help streamline the task process; namely,
+          the most recently used Data Units are kept in memory until they fall
+          out of scope, allowing the user to return to them without needing to
+          load their data from file again.
 
-        Args:
-            config: Configuration object for customizing behavior.
-            cache_size: Max number of DataUnit objects that should be loaded
-              into memory simultaneously. Currently only caches previously
-              loaded DataUnits; will be able to "pre-fetch" anticipated
-              ones soon(tm).
+        # TODO Add pre-fetching as well.
         """
         # The cohort data, and the file from which it was pulled
         self.cohort_csv: Path = None
@@ -55,6 +50,9 @@ class DataManager:
         lru_cache_wrapper = lru_cache(maxsize=cache_size)
         old_method = self.get_data_source
         self.get_data_source = lru_cache_wrapper(old_method)
+
+    def get_cache_size(self):
+        return self.get_data_source.cache_info().maxsize
 
     def set_data_cohort_csv(self, csv_path: Path) -> None:
         """
