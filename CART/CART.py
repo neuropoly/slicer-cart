@@ -590,8 +590,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         print("NEXT CASE!")
         return
 
-        # HACK REMOVE THIS AND MAKE IT CLEANER WHEN IMPLEMENTING THE MULTI-SCENE LAZY LOADING
-        slicer.mrmlScene.Clear()
 
         next_case = self.logic.data_manager.next_data_unit()
         self.current_case = next_case
@@ -689,6 +687,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # The data manager currently managing case iteration
         self.data_manager: DataManager = None
 
+    ## Getters/Setters ##
     def get_users(self) -> list[str]:
         # Simple wrapper for our config
         return Config.get_users()
@@ -813,6 +812,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         del self.data_manager
         self.data_manager = new_data_manager
 
+    ## DataUnit Management ##
     def get_current_case(self) -> Optional[DataUnitBase]:
         """
         Get the DataUnit currently indexed by the data manager.
@@ -827,12 +827,28 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # Otherwise, return the data manager's current item
         return self.data_manager.current_data_unit()
 
-    def next_case(self):
+    def next_case(self) -> Optional[DataUnitBase]:
         """
-        Increments the Data Manager to the next case, loading its contents if
-          needed.
+        Try to step into the next case managed by the cohort, pulling it
+          into memory if needed.
+
+        :return: The next valid case. 'None' if no valid case could be found.
         """
-        return self.data_manager.next_data_unit()
+        # Get the next valid case
+        next_case = self.data_manager.next_data_unit()
+
+        # Return it; the data manager is self-managing, no need to do any further checks
+        return next_case
 
     def previous_case(self):
-        return self.data_manager.previous_data_unit()
+        """
+        Try to step into the previous case managed by the cohort, pulling it
+          into memory if needed.
+
+        :return: The previous valid case. 'None' if no valid case could be found.
+        """
+        # Get the previous valid case
+        previous_case = self.data_manager.previous_data_unit()
+
+        # Return it; the data manager is self-managing, no need to do any further checks
+        return previous_case
