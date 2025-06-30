@@ -229,6 +229,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         userHBox.spacing = 0
 
         # New user button
+        # TODO: Make this a QToolButton instead
         newUserButton = qt.QPushButton("+")
 
         # When the button is pressed, prompt them to fill out a form
@@ -425,22 +426,29 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             _("Add New User"),
             _("New User Name:")
         )
-        
-        if new_name:
-            self.addNewUser(new_name)
 
-    def addNewUser(self, user_name):
         # Attempt to add the new user to the Logic
-        success = self.logic.add_new_user(user_name)
-        
-        # If we succeeded, update the GUI as well
+        success = self.logic.add_new_user(new_name)
+
+        # If we succeeded, update the GUI to match
         if success:
             self._refreshUserList()
+            # Check if we're ready to proceed
+            self.loadTaskWhenReady()
         else:
             # TODO: Add a user prompt
-            print(f"Failed to add user '{user_name}'.")
-            
-        Config.save()
+            print(f"Failed to add user '{new_name}'.")
+
+    def userSelected(self):
+        # Update the logic with this newly selected user
+        idx = self.userSelectButton.currentIndex
+        self.logic.set_most_recent_user(idx)
+
+        # Rebuild the GUI to match
+        self._refreshUserList()
+
+        # Attempt to load the task, if we're now ready
+        self.loadTaskWhenReady()
 
     def _refreshUserList(self):
         """
@@ -479,17 +487,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             print("Error: Base path was empty, retaining previous base path.")
             self.basePathSelectionWidget.currentPath = str(self.logic.data_path)
 
-        self.loadTaskWhenReady()
-
-    def userSelected(self):
-        # Update the logic with this newly selected user
-        idx = self.userSelectButton.currentIndex
-        self.logic.set_most_recent_user(idx)
-
-        # Rebuild the GUI to match
-        self._refreshUserList()
-
-        # Attempt to load the task, if we're now ready
         self.loadTaskWhenReady()
 
     def getCohortSelectedFile(self) -> Path:
@@ -752,6 +749,11 @@ class CARTLogic(ScriptedLoadableModuleLogic):
 
         # Add the username to the list at the top
         current_users.insert(0, user_name)
+
+        # Save the configuration
+        Config.save()
+
+        # Return that this has been done successfully
         return True
 
     def set_current_cohort(self, new_path: Path) -> bool:
