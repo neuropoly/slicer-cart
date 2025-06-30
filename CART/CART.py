@@ -114,10 +114,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._parameterNode = None
         self._parameterNodeGuiTag = None
 
-        with open(CONFIGURATION_FILE_NAME, "r") as cf:
-          self.configuration_data = json.load(cf)
-        cf.close()
-
         self.base_path = None  # Base path for relative paths in CSV
 
         # TODO: Dynamically load this dictionary instead
