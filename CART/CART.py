@@ -98,6 +98,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     # The size constraints which should be used for small buttons;
     #  these match the size of the '...' button in a ctk.ctkPathLineEdit
+    # TODO: Remove when we swap the button to be a QToolButton
     MICRO_BUTTON_WIDTH = 24
     MICRO_BUTTON_HEIGHT = 25
 
@@ -117,8 +118,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
           self.configuration_data = json.load(cf)
         cf.close()
 
-        self.cohort_csv_path = None
-        self.current_case = None
         self.base_path = None  # Base path for relative paths in CSV
 
         # TODO: Dynamically load this dictionary instead
@@ -276,8 +275,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.cohortFileSelectionButton = cohortFileSelectionButton
 
         # Add explicit load button
-        loadCohortButton = qt.QPushButton(_("Load Cohort"))
-        loadCohortButton.toolTip = _("Load the selected cohort CSV file")
+        loadCohortButton = qt.QPushButton(_("Read Cohort"))
+        loadCohortButton.toolTip = _("Reads the selected cohort CSV file. This will reset your iteration!")
         loadCohortButton.clicked.connect(self.onLoadCohortClicked)
         mainLayout.addRow("", loadCohortButton)
 
@@ -496,38 +495,34 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """
         Update our GUI to account for a change in the selected cohort CSV
         """
-        # Sanity check we have a data manager, and data within it
-        if not (self.logic.data_manager and self.logic.data_manager.case_data):
-            print("Could not update GUI, no DataManager to pull from!")
+        # Get the currently selected cohort file from the widget
+        new_cohort = Path(self.cohortFileSelectionButton.currentPath)
+
+        # Attempt to update the cohort in our logic instance
+        success = self.logic.set_current_cohort(new_cohort)
+
+        # If we didn't succeed, end here and leave the GUI state untouched
+        if not success:
             return
 
-        # Try and get the first case in the
+        # Update the current case label
         current_case = self.logic.get_current_case()
         if not current_case:
             print("You managed to get a data manager without any cases! Impressive!")
 
-        # If that passed, update the GUI and our tracking of it
-        self.current_case = current_case
-        self.currentCaseNameLabel.text = str(self.current_case.uid)
+        self.currentCaseNameLabel.text = str(self.logic.get_current_case().uid)
 
-        # Update the resource table as well
+        # Update the resources table to match the new cohort's contents
         self.fillResourcesTable()
+
+        # Check if we're ready to proceed with our task
+        self.loadTaskWhenReady()
 
     def onLoadCohortClicked(self):
         """
         Handles the explicit load cohort button click.
         """
-        # Update the logic with the newly selected cohort file
-        cohort_file = self.getCohortSelectedFile()
-        cohort_load_success = self.logic.set_current_cohort(cohort_file)
-        print(f"Cohort loaded? {cohort_load_success}")
-
-        # If the cohort loaded successfully, update the GUI with its contents
-        if cohort_load_success:
-            # Update the content preview table
-            self.onCohortChanged()
-            # Check if we're ready to begin processing tasks
-            self.loadTaskWhenReady()
+        self.onCohortChanged()
 
     def onTaskChanged(self):
         # Update the currently selected task
@@ -576,7 +571,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         return True
       
     def fillResourcesTable(self):
-        for row_index, (key, value) in enumerate(self.current_case.data.items()):
+        for row_index, (key, value) in enumerate(self.logic.get_current_case().data.items()):
             if key == "uid":
                 continue
             self.cohortTable.setItem(row_index, 0, qt.QTableWidgetItem(str(value)))
