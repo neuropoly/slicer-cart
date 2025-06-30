@@ -117,10 +117,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # TODO: Dynamically load this dictionary instead
         self.task_map = {
             "Organ Labels": OrganLabellingDemoTask,
+            "Organ Labels 2; Electric Boogaloo": OrganLabellingDemoTask,
             "N/A": None  # Placeholder for testing
         }
-        self.current_task: type(TaskBaseClass) = None
-        self.current_task_instance: TaskBaseClass = None
 
     def setup(self) -> None:
         """Called when the user opens the module the first time and the widget is initialized."""
@@ -518,48 +517,17 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def onTaskChanged(self):
         # Update the currently selected task
         task_name = self.taskOptions.currentText
-        self.current_task = self.task_map.get(task_name, None)
+        new_task = self.task_map.get(task_name, None)
+        self.logic.set_task_type(new_task)
+
+        # TODO: Remove the previous task's GUI to avoid memory leaks
+
+        # Re-hide the task GUI, as its no longer relevant until the new task GUI is loaded
+        self.taskGUI.collapsed = True
+        self.taskGUI.setEnabled(False)
 
         # Check if we're now ready to iterate
         self.loadTaskWhenReady()
-
-    def isReady(self) -> bool:
-        # List of things left for the user to do
-        todo_list = []
-
-        # Check if there is a valid user selected
-        # TODO: Store the current user in Logic and check there instead
-        if self.userSelectButton.currentIndex != 0:
-            todo_list.append(
-                _("You need to select who's doing this analysis.")
-            )
-
-        # TODO: move the following two checks into Logic, with better validation
-        # Confirm we have a cohort path selected
-        if not self.logic.cohort_path:
-            todo_list.append(
-                _("You need to select a cohort file.")
-            )
-
-        # Confirm we have a data path selected
-        if not self.logic.data_path:
-            todo_list.append(
-                _("You need to select a data path.")
-            )
-
-        # Confirm we have a selected task
-        # TODO: Move this into Logic and check there
-        if self.current_task is None:
-            todo_list.append(_("You need to select a task to run."))
-
-        # If there are items in the list, print a warning and return false
-        if len(todo_list) > 0:
-            spacer = '\n  * '
-            print(f"Things left to do:{spacer}{spacer.join(todo_list)}")
-            return False
-
-        # Otherwise, return True; we're ready!
-        return True
       
     def fillResourcesTable(self):
         for row_index, (key, value) in enumerate(self.logic.get_current_case().data.items()):
@@ -612,27 +580,23 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def loadTaskWhenReady(self):
         # If we're not ready to load a task, leave everything untouched
-        if not self.isReady():
+        if not self.logic.is_ready():
             return
 
-        self.current_task_instance = self.current_task(self.logic.data_manager.current_data_unit())
+        # Initialize the new task
+        self.logic.init_task()
+
+        # TODO: Clear the prior task GUI for the user
 
         # Initialize its GUI, which adds it to our collapsible Task button
-        self.current_task_instance.buildGUI(self.taskGUI)
+        self.logic.current_task_instance.buildGUI(self.taskGUI)
 
-        # Expand the task GUI and enable it
+        # Expand the task GUI and enable it, if it wasn't already
         self.taskGUI.collapsed = False
         self.taskGUI.setEnabled(True)
 
-        # Collapse the main (setup) GUI
+        # Collapse the main (setup) GUI, if it wasn't already
         self.mainGUI.collapsed = True
-
-        # Step through our DataUnits until we find one that is not complete
-        # TODO
-
-        # Update the GUI using the contents of the current DataUnit
-        # TODO
-        self.current_task_instance.setup(self.logic.data_manager.current_data_unit())
 
 
     ## Management ##
@@ -678,7 +642,13 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # The data manager currently managing case iteration
         self.data_manager: DataManager = None
 
-    ## Getters/Setters ##
+        # The currently selected task type
+        self.current_task_type: type(TaskBaseClass) = None
+
+        # The current task instance
+        self.current_task_instance: Optional[TaskBaseClass] = None
+
+    ## User Management ##
     def get_users(self) -> list[str]:
         # Simple wrapper for our config
         return Config.get_users()
@@ -741,6 +711,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # Return that this has been done successfully
         return True
 
+    ## Cohort Path/Data Path Management ##
     def set_current_cohort(self, new_path: Path) -> bool:
         # Confirm the file exists
         if not new_path.exists():
@@ -802,6 +773,53 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # If that succeeded, replace the previous data manager and proceed
         del self.data_manager
         self.data_manager = new_data_manager
+
+    ## Task Management ##
+    def set_task_type(self, task_type: type(TaskBaseClass)):
+        # Set the task type
+        self.current_task_type = task_type
+
+        # If we have a task built already, delete it
+        del self.current_task_instance
+
+    def is_ready(self) -> bool:
+        """
+        Check if we're ready to run a task!
+        :return: True if so, False otherwise.
+        """
+        # We can't proceed if we don't have a selected user
+        if not self.get_current_user():
+            print("Missing a valid user!")
+            return False
+        # We can't proceed if a data path has not been specified
+        elif not self.data_path:
+            print("Missing a valid data path!")
+            return False
+        # We can't proceed if we're missing a cohort path
+        elif not self.cohort_path:
+            print("Missing a valid cohort path!")
+            return False
+        # We can't proceed if we don't have a selected task type
+        elif not self.current_task_type:
+            print("No task has been selected!")
+            return False
+
+        # If all checks passed, we can proceed!
+        return True
+
+    def init_task(self) -> Optional[TaskBaseClass]:
+        """
+        Initialize a new Task instance using current settings.
+
+        :return: The Task instance, None if one cannot be created.
+        """
+        # Safety gate: if we're not ready to start a task, return None
+        if not self.is_ready():
+            return None
+
+        # Create the new task instance and return it.
+        self.current_task_instance = self.current_task_type(self.get_current_case())
+        return self.current_task_instance
 
     ## DataUnit Management ##
     def get_current_case(self) -> Optional[DataUnitBase]:
