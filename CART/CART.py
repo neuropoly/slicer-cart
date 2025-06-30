@@ -1,5 +1,6 @@
 from pathlib import Path
 from textwrap import dedent
+from typing import Optional
 
 import vtk
 
@@ -15,6 +16,7 @@ import json
 
 from CARTLib.Config import Config
 from CARTLib.core.DataManager import DataManager
+from CARTLib.core.DataUnitBase import DataUnitBase
 from CARTLib.core.TaskBaseClass import TaskBaseClass
 
 # TODO: Remove this explicit import
@@ -108,7 +110,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         VTKObservationMixin.__init__(self)  # needed for parameter node observation
 
         # Initialize our logic instance
-        self.logic = CARTLogic()
+        self.logic: CARTLogic = CARTLogic()
         self._parameterNode = None
         self._parameterNodeGuiTag = None
 
@@ -118,7 +120,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         self.cohort_csv_path = None
         self.current_case = None
-        self.DataManagerInstance = DataManager()
         self.base_path = None  # Base path for relative paths in CSV
 
         # TODO: Dynamically load this dictionary instead
@@ -161,10 +162,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         ## Progress Tracker ##
         # Case Iterator UI
-        self.caseIteratorUI = self.buildCaseIteratorUI()
-
-        # Add the case iterator as a "buffer" between our main and task GUIs
-        self.layout.addWidget(self.caseIteratorUI)
+        self.buildCaseIteratorUI(self.layout)
 
         # Add a (currently empty) collapsable tab, in which the Task GUI will be placed later
         taskGUI = ctk.ctkCollapsibleButton()
@@ -259,15 +257,14 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def buildCohortUI(self, mainLayout: qt.QFormLayout):
         # Directory selection button
         cohortFileSelectionButton = ctk.ctkPathLineEdit()
-        # TODO Fix/ Ensure this works as expected
+
         # Set file filters to only show readable file types
         cohortFileSelectionButton.filters = ctk.ctkPathLineEdit.Files
         cohortFileSelectionButton.nameFilters = [
             "CSV files (*.csv)",
         ]
 
-        # Optionally set a default filter
-        # TODO
+        # TODO: Optionally set a default filter
 
         mainLayout.addRow(_("Cohort File:"), cohortFileSelectionButton)
 
@@ -319,48 +316,47 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # When the task is changed, update everything to match
         taskOptions.currentIndexChanged.connect(self.onTaskChanged)
 
-    def buildCaseIteratorUI(self):
-      # Layout
-      self.groupBox = qt.QGroupBox("Iteration Manager")
-      mainLayout = qt.QVBoxLayout(self.groupBox)
+    def buildCaseIteratorUI(self, mainLayout: qt.QFormLayout):
+        # Layout
+        groupBox = qt.QGroupBox("Iteration Manager")
+        mainLayout = qt.QVBoxLayout(groupBox)
 
-      # Hide this by default, only showing it when we're ready to iterate
-      self.groupBox.setVisible(False)
+        # Hide this by default, only showing it when we're ready to iterate
+        groupBox.setVisible(False)
 
-      # Next + previous buttons in a horizontal layout
-      buttonLayout = qt.QHBoxLayout()
-      previousButton = qt.QPushButton(_("Previous"))
-      previousButton.toolTip = _("Return to the previous case.")
+        # Next + previous buttons in a horizontal layout
+        buttonLayout = qt.QHBoxLayout()
+        previousButton = qt.QPushButton(_("Previous"))
+        previousButton.toolTip = _("Return to the previous case.")
 
-      nextButton = qt.QPushButton(_("Next"))
-      nextButton.toolTip = _("Move onto the next case.")
+        nextButton = qt.QPushButton(_("Next"))
+        nextButton.toolTip = _("Move onto the next case.")
 
-      # Add them to the layout "backwards" so previous is on the left
-      buttonLayout.addWidget(previousButton)
-      buttonLayout.addWidget(nextButton)
-      # Add the button layout to the main vertical layout
-      mainLayout.addLayout(buttonLayout)
+        # Add them to the layout "backwards" so previous is on the left
+        buttonLayout.addWidget(previousButton)
+        buttonLayout.addWidget(nextButton)
+        # Add the button layout to the main vertical layout
+        mainLayout.addLayout(buttonLayout)
 
-      # Add a text field to display the current case name under the buttons
-      self.currentCaseNameLabel = qt.QLineEdit()
-      self.currentCaseNameLabel.readOnly = True
-      self.currentCaseNameLabel.placeholderText = _("Current case name will appear here")
-      mainLayout.addWidget(self.currentCaseNameLabel)
-      
-      
-       # Table for displaying cohort resourcesAdd commentMore actions
-      self.cohortTable = qt.QTableWidget()
-      self.cohortTable.setRowCount(10)
-      self.cohortTable.setColumnCount(2)
-      self.cohortTable.setHorizontalHeaderLabels([_("Resource"), _("Resource Type")])
-      self.cohortTable.horizontalHeader().setStretchLastSection(True)
-      self.cohortTable.horizontalHeader().setSectionResizeMode(0, qt.QHeaderView.Stretch)
-      self.cohortTable.horizontalHeader().setSectionResizeMode(1, qt.QHeaderView.ResizeToContents)
-      self.cohortTable.setWordWrap(False)
-      self.cohortTable.setSizePolicy(qt.QSizePolicy.Expanding, qt.QSizePolicy.Expanding)
+        # Add a text field to display the current case name under the buttons
+        self.currentCaseNameLabel = qt.QLineEdit()
+        self.currentCaseNameLabel.readOnly = True
+        self.currentCaseNameLabel.placeholderText = _("Current case name will appear here")
+        mainLayout.addWidget(self.currentCaseNameLabel)
 
-      # Set a subtle contrasting style for dark backgrounds
-      self.cohortTable.setStyleSheet("""
+        # Table for displaying cohort resources
+        self.cohortTable = qt.QTableWidget()
+        self.cohortTable.setRowCount(10)
+        self.cohortTable.setColumnCount(2)
+        self.cohortTable.setHorizontalHeaderLabels([_("Resource"), _("Resource Type")])
+        self.cohortTable.horizontalHeader().setStretchLastSection(True)
+        self.cohortTable.horizontalHeader().setSectionResizeMode(0, qt.QHeaderView.Stretch)
+        self.cohortTable.horizontalHeader().setSectionResizeMode(1, qt.QHeaderView.ResizeToContents)
+        self.cohortTable.setWordWrap(False)
+        self.cohortTable.setSizePolicy(qt.QSizePolicy.Expanding, qt.QSizePolicy.Expanding)
+
+        # Set a subtle contrasting style for dark backgrounds
+        self.cohortTable.setStyleSheet("""
           QTableWidget {
         background-color: #2b2b2b;
         alternate-background-color: #353535;
@@ -377,42 +373,42 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         selection-background-color: #44475a;
         selection-color: #ffffff;
           }
-      """)
+        """)
 
-      for row in range(10):
-          filePathItem = qt.QTableWidgetItem("")
-          filePathItem.setTextAlignment(qt.Qt.AlignLeft | qt.Qt.AlignVCenter)
-          filePathItem.setToolTip(_("Loaded Resource"))
-          # Make item not editable, selectable, or enabled
-          filePathItem.setFlags(qt.Qt.NoItemFlags)
-          self.cohortTable.setItem(row, 0, filePathItem)
+        for row in range(10):
+            filePathItem = qt.QTableWidgetItem("")
+            filePathItem.setTextAlignment(qt.Qt.AlignLeft | qt.Qt.AlignVCenter)
+            filePathItem.setToolTip(_("Loaded Resource"))
+            # Make item not editable, selectable, or enabled
+            filePathItem.setFlags(qt.Qt.NoItemFlags)
+            self.cohortTable.setItem(row, 0, filePathItem)
 
-          resourceTypeItem = qt.QTableWidgetItem("")
-          resourceTypeItem.setTextAlignment(qt.Qt.AlignCenter)
-          resourceTypeItem.setToolTip(_("Resource type"))
-          # Make item not editable, selectable, or enabled
-          resourceTypeItem.setFlags(qt.Qt.NoItemFlags)
-          self.cohortTable.setItem(row, 1, resourceTypeItem)
+            resourceTypeItem = qt.QTableWidgetItem("")
+            resourceTypeItem.setTextAlignment(qt.Qt.AlignCenter)
+            resourceTypeItem.setToolTip(_("Resource type"))
+            # Make item not editable, selectable, or enabled
+            resourceTypeItem.setFlags(qt.Qt.NoItemFlags)
+            self.cohortTable.setItem(row, 1, resourceTypeItem)
 
-      # Make the table itself unselectable and uneditable
-      self.cohortTable.setEditTriggers(qt.QAbstractItemView.NoEditTriggers)
-      self.cohortTable.setSelectionBehavior(qt.QAbstractItemView.SelectRows)
-      self.cohortTable.setSelectionMode(qt.QAbstractItemView.NoSelection)
-      self.cohortTable.setAlternatingRowColors(True)
-      self.cohortTable.setShowGrid(True)
-      self.cohortTable.verticalHeader().setVisible(False)
+        # Make the table itself unselectable and uneditable
+        self.cohortTable.setEditTriggers(qt.QAbstractItemView.NoEditTriggers)
+        self.cohortTable.setSelectionBehavior(qt.QAbstractItemView.SelectRows)
+        self.cohortTable.setSelectionMode(qt.QAbstractItemView.NoSelection)
+        self.cohortTable.setAlternatingRowColors(True)
+        self.cohortTable.setShowGrid(True)
+        self.cohortTable.verticalHeader().setVisible(False)
 
-      mainLayout.addWidget(self.cohortTable)
+        mainLayout.addWidget(self.cohortTable)
 
-      # Make the buttons easy-to-access
-      self.nextButton = nextButton
-      self.previousButton = previousButton
+        # Make the groupbox accessible elsewhere, so it can be made visible later
+        self.taskBox = groupBox
 
-      # Connections
-      nextButton.clicked.connect(self.nextCase)
-      previousButton.clicked.connect(self.previousCase)
+        # Connections
+        nextButton.clicked.connect(self.nextCase)
+        previousButton.clicked.connect(self.previousCase)
 
-      return self.groupBox
+        # Add the widget to
+        self.layout.addWidget(groupBox)
 
 
     ## Connected Functions ##
@@ -468,24 +464,23 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def onBasePathChanged(self):
         """
         Handles changes to the base path selection.
-        Sets self.base_path to None if empty, otherwise to the Path object.
+        Falls back the previous base path if the user specified an empty space.
         """
+        # Get the current path from the GUI
         current_path = self.basePathSelectionWidget.currentPath
-        if current_path.strip():  # If not empty after stripping whitespace
-            self.base_path = Path(current_path)
-            print(f"Base path set to: {self.base_path}")
+
+        # Strip it of leading/trailing whitespace
+        current_path = current_path.strip()
+
+        # If a path still exists, update everything to use it
+        if current_path:
+            self.logic.set_data_path(Path(current_path))
+
         else:
-            self.base_path = None
-            print("Base path set to: None")
+            print("Error: Base path was empty, retaining previous base path.")
+            self.basePathSelectionWidget.currentPath = str(self.logic.data_path)
 
         self.loadTaskWhenReady()
-
-    def getBasePath(self):
-        """
-        Returns the current base path (Path object or None)
-        """
-        # TODO Make this match the code style of the rest of the module better dont love this
-        return self.base_path
 
     def userSelected(self):
         # Update the logic with this newly selected user
@@ -503,46 +498,40 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def onCohortChanged(self):
         """
-        Runs when a new cohort CSV is selected.
+        Update our GUI to account for a change in the selected cohort CSV
         """
-        # Attempt to create a DataManager from the file
-        self.cohort_csv_path = self.getCohortSelectedFile()
-        self.DataManagerInstance.set_base_path(self.getBasePath())
-        self.DataManagerInstance.load_data(self.cohort_csv_path)
+        # Sanity check we have a data manager, and data within it
+        if not (self.logic.data_manager and self.logic.data_manager.case_data):
+            print("Could not update GUI, no DataManager to pull from!")
+            return
 
-        # Prepare the iterator for use
-        self.DataManagerInstance.set_data_cohort_csv(self.cohort_csv_path)
-        self.DataManagerInstance.load_data(self.cohort_csv_path)
-        self.groupBox.setVisible(True)
-        
-        # Show the first case imediately
-        
-        if self.DataManagerInstance.raw_data:
-            self.current_case = self.DataManagerInstance.current_item()
-            self.currentCaseNameLabel.text = str(self.current_case.uid)
-            self.fillResourcesTable()
-                
-        local_raw_data = self.DataManagerInstance.raw_data
+        # Try and get the first case in the
+        current_case = self.logic.get_current_case()
+        if not current_case:
+            print("You managed to get a data manager without any cases! Impressive!")
+
+        # If that passed, update the GUI and our tracking of it
+        self.current_case = current_case
+        self.currentCaseNameLabel.text = str(self.current_case.uid)
+
+        # Update the resource table as well
+        self.fillResourcesTable()
 
     def onLoadCohortClicked(self):
         """
         Handles the explicit load cohort button click.
         """
+        # Update the logic with the newly selected cohort file
         cohort_file = self.getCohortSelectedFile()
+        cohort_load_success = self.logic.set_current_cohort(cohort_file)
+        print(f"Cohort loaded? {cohort_load_success}")
 
-        if not cohort_file.exists():
-            print(f"Error: Cohort file does not exist: {cohort_file}")
-            return
-
-        if cohort_file.suffix.lower() != ".csv":
-            print(f"Error: Selected file is not a CSV: {cohort_file}")
-            return
-
-        print(f"Loading cohort from: {cohort_file}")
-        self.onCohortChanged()
-
-        # Attempt to load the task, if we're now ready
-        self.loadTaskWhenReady()
+        # If the cohort loaded successfully, update the GUI with its contents
+        if cohort_load_success:
+            # Update the content preview table
+            self.onCohortChanged()
+            # Check if we're ready to begin processing tasks
+            self.loadTaskWhenReady()
 
     def onTaskChanged(self):
         # Update the currently selected task
@@ -557,17 +546,27 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         todo_list = []
 
         # Check if there is a valid user selected
+        # TODO: Store the current user in Logic and check there instead
         if self.userSelectButton.currentIndex != 0:
             todo_list.append(
                 _("You need to select who's doing this analysis.")
             )
 
-        # Check if a cohort CSV has been selected
-        # TODO: Replace this long check with something more elegant
-        if not (self.getCohortSelectedFile().exists() and self.getCohortSelectedFile().suffix == ".csv"):
-            todo_list.append(_("You need to select a cohort file."))
+        # TODO: move the following two checks into Logic, with better validation
+        # Confirm we have a cohort path selected
+        if not self.logic.cohort_path:
+            todo_list.append(
+                _("You need to select a cohort file.")
+            )
 
-        # Check if a task has been selected
+        # Confirm we have a data path selected
+        if not self.logic.data_path:
+            todo_list.append(
+                _("You need to select a data path.")
+            )
+
+        # Confirm we have a selected task
+        # TODO: Move this into Logic and check there
         if self.current_task is None:
             todo_list.append(_("You need to select a task to run."))
 
@@ -581,44 +580,53 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         return True
       
     def fillResourcesTable(self):
-      for row_index, (key, value) in enumerate(self.current_case.data.items()):
-          if key == "uid":
-              continue
-          self.cohortTable.setItem(row_index, 0, qt.QTableWidgetItem(str(value)))
-          self.cohortTable.setItem(row_index, 1, qt.QTableWidgetItem(str(key) + " : Placholder Type"))
-      
+        for row_index, (key, value) in enumerate(self.current_case.data.items()):
+            if key == "uid":
+                continue
+            self.cohortTable.setItem(row_index, 0, qt.QTableWidgetItem(str(value)))
+            self.cohortTable.setItem(row_index, 1, qt.QTableWidgetItem(str(key) + " : Placholder Type"))
+
+        # Make the task box visible, if it was not already.
+        # TODO: Separate the cohort table from the task iterator, so one can be
+        #  view/hidden without the other
+        self.taskBox.setVisible(True)
+
 
     ### Iterator Widgets ###
 
     def nextCase(self):
+        # TODO: Actually implement this
+        print("NEXT CASE!")
+        return
+
         # HACK REMOVE THIS AND MAKE IT CLEANER WHEN IMPLEMENTING THE MULTI-SCENE LAZY LOADING
         slicer.mrmlScene.Clear()
 
-        print("NEXT CASE!")
-
-        next_case = self.DataManagerInstance.next_item()
+        next_case = self.logic.data_manager.next_data_unit()
         self.current_case = next_case
         print(self.current_case.uid)
         
         if self.isReady():
             self.currentCaseNameLabel.text = "Data Unit " + str(self.current_case.uid)
             self.fillResourcesTable()
-            self.current_task_instance.setup(self.DataManagerInstance.current_item())
-
+            self.current_task_instance.setup(self.logic.data_manager.current_data_unit())
 
     def previousCase(self):
+        # TODO: Actually implement this
+        print("PREVIOUS CASE!")
+        return
+
         # HACK REMOVE THIS AND MAKE IT CLEANER WHEN IMPLEMENTING THE MULTI-SCENE LAZY LOADING
         slicer.mrmlScene.Clear()
-        print("PREVIOUS CASE!")
 
-        previous_case = self.DataManagerInstance.next_item()
+        previous_case = self.logic.data_manager.previous_data_unit()
         self.current_case = previous_case
         print(self.current_case.uid)
         
         if self.isReady():
             self.currentCaseNameLabel.text = "Data Unit " + str(self.current_case.uid)
             self.fillResourcesTable()
-            self.current_task_instance.setup(self.DataManagerInstance.current_item())
+            self.current_task_instance.setup(self.logic.data_manager.current_data_unit())
 
     ### Task Related ###
 
@@ -627,12 +635,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if not self.isReady():
             return
 
-        self.current_task_instance: TaskBaseClass = self.current_task(self.DataManagerInstance.current_item())
+        self.current_task_instance = self.current_task(self.logic.data_manager.current_data_unit())
 
         # Initialize its GUI, which adds it to our collapsible Task button
         self.current_task_instance.buildGUI(self.taskGUI)
-
-        # TODO: Instantiate the DataManager
 
         # Expand the task GUI and enable it
         self.taskGUI.collapsed = False
@@ -646,7 +652,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Update the GUI using the contents of the current DataUnit
         # TODO
-        self.current_task_instance.setup(self.DataManagerInstance.current_item())
+        self.current_task_instance.setup(self.logic.data_manager.current_data_unit())
 
 
     ## Management ##
@@ -682,6 +688,15 @@ class CARTLogic(ScriptedLoadableModuleLogic):
     def __init__(self) -> None:
         """Called when the logic class is instantiated. Can be used for initializing member variables."""
         ScriptedLoadableModuleLogic.__init__(self)
+
+        # Path to the cohort file currently in use
+        self.cohort_path: Path = None
+
+        # Path to where the user specified their data is located
+        self.data_path: Path = None
+
+        # The data manager currently managing case iteration
+        self.data_manager: DataManager = None
 
     def get_users(self) -> list[str]:
         # Simple wrapper for our config
@@ -737,3 +752,88 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         current_users.insert(0, user_name)
         return True
 
+    def set_current_cohort(self, new_path: Path) -> bool:
+        # Confirm the file exists
+        if not new_path.exists():
+            print(f"Error: Cohort file does not exist: {new_path}")
+            return False
+
+        # Confirm it is a CSV
+        if new_path.suffix.lower() != ".csv":
+            print(f"Error: Selected file is not a CSV: {new_path}")
+            return False
+
+        # Warn the user if they're reloading the same file
+        if (
+            self.cohort_path is not None and
+            str(new_path.resolve()) == str(self.cohort_path.resolve())
+        ):
+            print(f"Warning: Reloaded the same cohort file!")
+
+        # If all checks pass, load the new cohort
+        self.cohort_path = new_path
+        self._load_cohort()
+
+        return True
+
+    def set_data_path(self, new_path: Path) -> bool:
+        # Confirm the directory exists
+        if not new_path.exists():
+            print(f"Error: Data path does not exist: {new_path}")
+            return False
+
+        # Confirm that it is a directory
+        if not new_path.is_dir():
+            print(f"Error: Data path was not a directory: {new_path}")
+            return False
+
+        # Update our data path
+        self.data_path = new_path
+        print(f"Data path set to: {self.data_path}")
+
+        # If we have a DataManager, update it as well
+        if self.data_manager:
+            self.data_manager.set_data_source(new_path)
+        return True
+
+    def _load_cohort(self):
+        """
+        Load the contents of the currently selected cohort file into memory
+        """
+        # Initialize a new data manager; held out until everything is run, as
+        #  to not break anything down the pipe
+        new_data_manager = DataManager()
+
+        # Attempt to read data from the cohort file into the data manager
+        new_data_manager.load_cases(self.cohort_path)
+
+        # Attempt to set the new manager's data source
+        new_data_manager.set_data_source(self.data_path)
+
+        # If that succeeded, replace the previous data manager and proceed
+        del self.data_manager
+        self.data_manager = new_data_manager
+
+    def get_current_case(self) -> Optional[DataUnitBase]:
+        """
+        Get the DataUnit currently indexed by the data manager.
+
+        Returns None if a DataManager has not been initialized, or if its
+          empty (somehow)
+        """
+        # If we don't have a data manager yet, return none
+        if not self.data_manager:
+            return None
+
+        # Otherwise, return the data manager's current item
+        return self.data_manager.current_data_unit()
+
+    def next_case(self):
+        """
+        Increments the Data Manager to the next case, loading its contents if
+          needed.
+        """
+        return self.data_manager.next_data_unit()
+
+    def previous_case(self):
+        return self.data_manager.previous_data_unit()

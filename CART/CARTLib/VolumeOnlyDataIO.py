@@ -13,9 +13,9 @@ class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):
     def __init__(
             self,
             data: dict,
+            data_path: Path,
             # TMP: Until 5.9 (w/ Python 3.10+ support) is released, Optional is needed
-            scene: Optional[slicer.vtkMRMLScene] = None,
-            base_path: Optional[Path] = None
+            scene: Optional[slicer.vtkMRMLScene] = None
     ):
         """
         Initialize the VolumeOnlyDataIO with optional initial data.
@@ -27,13 +27,13 @@ class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):
         if scene is None:
             # Use the default MRML scene if none is provided
             scene = slicer.mrmlScene
-        self.base_path = base_path
+        self.base_path = data_path
+        print(data_path)
         super().__init__(
             data=data,
-            scene=scene
+            data_path=data_path
         )
         self._initialize_resources()
-
 
 
     def _validate(self):

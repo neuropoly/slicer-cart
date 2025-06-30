@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+from functools import lru_cache
 from pathlib import Path
 import csv
 from collections import deque
@@ -9,15 +11,9 @@ from .DataUnitBase import DataUnitBase
 # TODO: Remove this for a configurable method
 from ..VolumeOnlyDataIO import VolumeOnlyDataUnit
 
-class TaskConfig:
-    """
-    Placeholder for future configuration settings.
-    """
-    pass
-
 class DataManager:
     """
-    Manages a CSV-based cohort and provides a fixed-size window of DataIO
+    Manages a CSV-based cohort and provides a fixed-size window of DataUnit
     objects for efficient forward/backward traversal.
 
     # TODO: Implement support for non-1 length queues in the future.
@@ -25,43 +21,40 @@ class DataManager:
 
     Attributes:
         config: Optional TaskConfig for behavior customization.
-        _data_cohort_csv: Path to the cohort CSV file.
-        raw_data: List of row dictionaries loaded from CSV.
-        queue_length: Number of DataIO objects in the traversal window (must be odd).
-        queue: Deque holding the current window of DataIO objects.
-        current_queue_index: Position within the queue for traversal (always center for odd lengths).
-        current_raw_index: Current position in the raw_data list.
+        cohort_csv: Path to the cohort CSV file.
+        case_data: List of row dictionaries loaded from CSV.
+        cache_length: Number of DataIO objects in the traversal window (must be odd).
     """
 
     def __init__(
         self,
-        config: TaskConfig | None = None,
-        queue_length: int = 1,
-    ) -> None:
+        data_source: Optional[Path] = None,
+        cache_size: int = 2,
+    ):
         """
         Initialize DataManager with optional configuration and window size.
 
+        We employ limited cacheing to help streamline the analysis of
+
         Args:
             config: Configuration object for customizing behavior.
-            queue_length: Max number of DataIO objects in the window (must be odd, currently only 1 supported).
-
-        Raises:
-            ValueError: If queue_length is not odd or not supported.
+            cache_size: Max number of DataUnit objects that should be loaded
+              into memory simultaneously. Currently only caches previously
+              loaded DataUnits; will be able to "pre-fetch" anticipated
+              ones soon(tm).
         """
-        if queue_length % 2 == 0:
-            raise ValueError("Queue length must be odd")
-        if queue_length != 1:
-            raise ValueError("Currently only queue_length=1 is supported")
+        # The cohort data, and the file from which it was pulled
+        self.cohort_csv: Path = None
+        self.case_data: List[Dict[str, str]] = []
+        self.data_source: Path = data_source
 
-        self.config = config
-        self._data_cohort_csv: Path | None = None
-        self.raw_data: List[Dict[str, str]] = []
-        self.queue_length = queue_length
-        self.queue: deque[DataUnitBase] = deque(maxlen=self.queue_length)
-        self.current_queue_index: int = 0  # For queue_length=1, this is always 0
-        self.current_raw_index: int = 0  # Current position in raw_data
-        # TODO Implent this with the Python 3.10+ style
-        self.base_path: Optional[Path] = None  # Base path for relative paths in CSV
+        # Current index in the
+        self.current_case_index: int = 0
+
+        # Dynamically sized cached version of "get_data_unit"
+        lru_cache_wrapper = lru_cache(maxsize=cache_size)
+        old_method = self.get_data_source
+        self.get_data_source = lru_cache_wrapper(old_method)
 
     def set_data_cohort_csv(self, csv_path: Path) -> None:
         """
@@ -70,7 +63,7 @@ class DataManager:
         Args:
             csv_path: Path to the cohort CSV file.
         """
-        self._data_cohort_csv = csv_path
+        self.cohort_csv = csv_path
 
     def get_data_cohort_csv(self) -> Optional[Path]:
         """
@@ -79,165 +72,113 @@ class DataManager:
         Returns:
             Path to the cohort CSV, or None if not set.
         """
-        return self._data_cohort_csv
+        return self.cohort_csv
 
-    def load_data(self, csv_path: Path | None = None) -> None:
+    def set_data_source(self, source: Path):
+        # TODO: Validate the input before running
+        self.data_source = source
+
+        # Clear our cache, as its almost certainly no longer valid
+        self.get_data_source.cache_clear()
+
+        # Reset to the beginning
+        self.current_case_index = 0
+
+        # Re-pull the current data unit
+        self.current_data_unit()
+
+        # Begin re-building the pre-fetch cache
+        self._pre_fetch_elements()
+
+        # TODO: Notify the Task that this has been updated as well somehow.
+
+    def get_data_source(self):
+        return self.data_source
+
+    def load_cases(self, csv_path: Optional[Path]) -> None:
         """
-        Load CSV into raw_data, validate it, and initialize the traversal window.
-        Uses either the provided csv_path or the one previously configured.
+        Load the cases designated in a cohort CSV into memory, ready to be used
+          to generate DataUnit instances.
 
         Args:
-            csv_path: Optional Path to CSV file. If omitted, uses the configured data_cohort_csv.
+            csv_path: A Path to the cohort CSV file. If one is not provided,
+              attempts to use the previous CSV file instead.
 
         Raises:
             ValueError: If no path is provided/configured, or if CSV is invalid.
         """
-        path = csv_path or self._data_cohort_csv
-        if not self._data_cohort_csv:
-            self._data_cohort_csv = path
-        if path is None:
-            raise ValueError("No CSV path provided or configured for loading data")
-        rows = self._read_csv(path)
-        self._validate_columns(rows)
-        self._validate_unique_uids(rows)
-        self.raw_data = rows
-        self.current_raw_index = 0  # Start at beginning
-        self._init_queue()
-        print(f"Loaded {len(rows)} rows from {path}")
+        # Notify the user we're loading data
+        print(f"Loading cohort from '{self.cohort_csv}'")
 
-    def set_base_path(self, base_path: Path) -> None:
+        # Use the prior CSV if no new one was provided
+        csv_path = csv_path or self.cohort_csv
+
+        # If no path is present, raise an error
+        if csv_path is None:
+            raise ValueError("No CSV has been given to load data from.")
+
+        # Try to read the data
+        rows = DataManager._read_csv(csv_path)
+        print(rows)
+
+        # If we succeeded, update everything to match and reset the queue
+        self.cohort_csv = csv_path
+        self.case_data = rows
+        self.current_case_index = 0  # Start at beginning
+        print(f"Loaded {len(rows)} rows from {csv_path}")
+
+    def get_data_unit(self, idx: int):
         """
-        Set the base path for resolving relative paths in the CSV data.
+        Gets the current DataUnit at our index.
 
-        Args:
-            base_path: Base directory to resolve relative paths.
+        Note that, while the decorator
         """
-        if not isinstance(base_path, Path):
-            raise ValueError("base_path must be a Path object")
-        elif not base_path.is_dir() or not base_path.exists():
-            raise ValueError(f"Base path {base_path} is not a valid directory")
-        self.base_path = base_path
+        current_case_data = self.case_data[idx]
+        # TODO: replace this with a user-selectable data unit type
+        return VolumeOnlyDataUnit(
+            data=current_case_data,
+            data_path=self.data_source
+        )
 
-    def _init_queue(self) -> None:
-        """
-        Populate the queue with DataIO objects based on current_raw_index
-        and reset the queue traversal index.
-        """
-        if not self.raw_data:
-            self.queue.clear()
-            return
-
-        self.queue.clear()
-
-        # For queue_length=1, just load the current item
-        if self.queue_length == 1:
-            # TODO: make the type of DataUnit selectable/configurable somehow
-            row = self.raw_data[self.current_raw_index]
-            self.queue.append(
-                VolumeOnlyDataUnit(
-                    data=row,
-                    base_path = self.base_path
-                )
-            )
-            self.current_queue_index = 0
-        else:
-            # Future implementation for larger odd queue lengths
-            # Would center the queue around current_raw_index
-            raise NotImplementedError("Queue lengths > 1 not yet implemented")
-
-    def get_queue(self) -> List[DataUnitBase]:
-        """
-        Return the current window of DataIO objects.
-
-        Returns:
-            List of DataIO in current window order.
-        """
-        return list(self.queue)
-
-    def current_item(self) -> DataUnitBase:
+    def current_data_unit(self) -> DataUnitBase:
         """
         Return the current DataIO in the queue without changing the index.
-
-        Raises:
-            IndexError: If the queue is empty or raw_data is empty.
         """
-        if not self.queue or not self.raw_data:
-            raise IndexError("Traversal queue is empty")
-        return self.queue[self.current_queue_index]
+        return self.get_data_unit(self.current_case_index)
 
-    def next_item(self) -> DataUnitBase:
+    def next_data_unit(self) -> DataUnitBase:
         """
-        Advance to the next item in raw_data with wraparound, update queue, and return current item.
+        Advance to the next case, and get its corresponding DataUnit.
 
         Returns:
-            The DataIO at the new position.
-
-        Raises:
-            IndexError: If the queue is empty or raw_data is empty.
+            The DataUnit at the new position.
         """
-        if not self.raw_data:
-            raise IndexError("No data loaded")
+        self.current_case_index -= 1
+        return self.get_data_unit(self.current_case_index)
 
-        # Move to next position in raw_data with wraparound
-        self.current_raw_index = (self.current_raw_index + 1) % len(self.raw_data)
-
-        # Update queue to reflect new position
-        self._init_queue()
-
-        return self.current_item()
-
-    def previous_item(self) -> DataUnitBase:
+    def previous_data_unit(self) -> DataUnitBase:
         """
-        Move to the previous item in raw_data with wraparound, update queue, and return current item.
+        Return to the previous case, and get its corresponding DataUnit.
 
         Returns:
-            The DataIO at the new position.
-
-        Raises:
-            IndexError: If the queue is empty or raw_data is empty.
+            The DataUnit at the new position.
         """
-        if not self.raw_data:
-            raise IndexError("No data loaded")
+        self.current_case_index += 1
+        return self.get_data_unit(self.current_case_index)
 
-        # Move to previous position in raw_data with wraparound
-        self.current_raw_index = (self.current_raw_index - 1) % len(self.raw_data)
-
-        # Update queue to reflect new position
-        self._init_queue()
-
-        return self.current_item()
-
-    def get_current_position(self) -> tuple[int, int]:
+    @staticmethod
+    def _read_csv(csv_path: Path) -> List[Dict[str, str]]:
         """
-        Get current positions in both queue and raw data.
-
-        Returns:
-            Tuple of (current_queue_index, current_raw_index)
+        Reads the contents of the CSV into a list of str->str dictionaries
         """
-        return (self.current_queue_index, self.current_raw_index)
-
-    def get_position_info(self) -> Dict[str, int]:
-        """
-        Get detailed position information.
-
-        Returns:
-            Dictionary with position details including total count.
-        """
-        return {
-            'queue_index': self.current_queue_index,
-            'raw_index': self.current_raw_index,
-            'total_items': len(self.raw_data),
-            'queue_length': self.queue_length
-        }
-
-    def _read_csv(self, csv_path: Path) -> List[Dict[str, str]]:
         with csv_path.open(newline='') as csvfile:
             reader = csv.DictReader(csvfile)
             if reader.fieldnames is None:
                 raise ValueError("CSV file has no header row")
             return list(reader)
 
-    def _validate_columns(self, rows: List[Dict[str, str]]) -> None:
+    @staticmethod
+    def _validate_columns(rows: List[Dict[str, str]]) -> None:
         if not rows:
             raise ValueError("CSV file contains no data rows")
         cols = rows[0].keys()
@@ -248,7 +189,8 @@ class DataManager:
                 "CSV must contain at least one resource column besides 'uid'"
             )
 
-    def _validate_unique_uids(self, rows: List[Dict[str, str]]) -> None:
+    @staticmethod
+    def _validate_unique_uids(rows: List[Dict[str, str]]) -> None:
         seen: set[str] = set()
         duplicates: set[str] = set()
         for row in rows:
@@ -259,25 +201,12 @@ class DataManager:
         if duplicates:
             raise ValueError(f"Duplicate uid values found in file: {duplicates}")
 
+    def _pre_fetch_elements(self):
+        """
+        Rebuild the cache of pre-fetched DataUnits.
 
-if __name__ == "__main__":
-    # Example usage with queue_length=1
-    manager = DataManager(queue_length=1)
-    csv_path = Path("/Users/iejohnson/NAMIC/CART/sample_data/example_cohort.csv")
-    manager.set_data_cohort_csv(csv_path)
-    manager.load_data()  # uses configured CSV
-
-    print("Initial state:")
-    print(f"Queue: {[item.uid for item in manager.get_queue()]}")
-    print(f"Current item: {manager.current_item().uid}")
-    print(f"Position: {manager.get_position_info()}")
-
-    print("\nAfter next:")
-    next_item = manager.next_item()
-    print(f"Next item: {next_item.uid}")
-    print(f"Position: {manager.get_position_info()}")
-
-    print("\nAfter previous:")
-    prev_item = manager.previous_item()
-    print(f"Previous item: {prev_item.uid}")
-    print(f"Position: {manager.get_position_info()}")
+        Run via `async` in the background, allowing the user to continue
+          completing their tasks while pre-fetching is run.
+        """
+        # TODO
+        pass

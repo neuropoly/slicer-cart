@@ -1,24 +1,30 @@
 from abc import abstractmethod, ABC
-from typing import Any
+from pathlib import Path
+from typing import Any, Optional
 
 import slicer
 
+
 class DataUnitBase(ABC):
 
-    def __init__(self, data: dict, scene: slicer.vtkMRMLScene):
+    def __init__(
+            self, data: dict[str, str],
+            data_path: Path,
+            scene: Optional[slicer.vtkMRMLScene] = None
+    ):
         """
-        Initialize the DataUnit instance.
+        Initialize a new data unit; you may want to add additional processing in 
+          subclasses.
 
-        This constructor is intended to be called by subclasses to set up any necessary state.
-
-        # Inputs:
-            - Dict from data manager with the following keys
-                - uid: Unique identifier for the data.
-                - * : Any additional keys that are relevant to the data and dictate a DataUnit Representation.
-            - MRML Scene: The MRML scene to which this data will be added.
-        # Outputs:
-            - Updated DataUnit Representation AFTER the Task is complete/ user hit "next" button.
+        :param data: The contents of the cohort file for this specific case.
+          Will always contain an "uid" entry; everything else is free-form
+        :param data_path: A data path. Should be treated as the "working"
+          directory for anything that needs to read from files on the disk.
+        :param scene: A MRML scene, where nodes should be inserted into and
+          managed within.
+          
         """
+        self.data_path = data_path
         self.data = data
         self.scene = scene
         self.resources = {}
