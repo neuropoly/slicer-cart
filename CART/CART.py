@@ -282,17 +282,17 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         Extends the GUI to add widgets for data directory selection
         """
         # Base path selection
-        basePathSelectionWidget = ctk.ctkPathLineEdit()
-        basePathSelectionWidget.filters = ctk.ctkPathLineEdit.Dirs
-        basePathSelectionWidget.toolTip = _("Select the base directory path. Leave empty to use None as base path.")
+        dataPathSelectionWidget = ctk.ctkPathLineEdit()
+        dataPathSelectionWidget.filters = ctk.ctkPathLineEdit.Dirs
+        dataPathSelectionWidget.toolTip = _("Select the base directory path. Leave empty to use None as base path.")
 
-        mainLayout.addRow(_("Data Path:"), basePathSelectionWidget)
+        mainLayout.addRow(_("Data Path:"), dataPathSelectionWidget)
 
         # Connect the signal to handle base path changes
-        basePathSelectionWidget.currentPathChanged.connect(self.onBasePathChanged)
+        dataPathSelectionWidget.currentPathChanged.connect(self.onDataPathChanged)
 
         # Make it accessible
-        self.basePathSelectionWidget = basePathSelectionWidget
+        self.dataPathSelectionWidget = dataPathSelectionWidget
 
     def buildTaskUI(self, mainLayout: qt.QFormLayout):
         # Prior users list
@@ -461,13 +461,13 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Select the first (most recent) entry in the list
         self.userSelectButton.currentIndex = 0
 
-    def onBasePathChanged(self):
+    def onDataPathChanged(self):
         """
         Handles changes to the base path selection.
         Falls back the previous base path if the user specified an empty space.
         """
         # Get the current path from the GUI
-        current_path = self.basePathSelectionWidget.currentPath
+        current_path = self.dataPathSelectionWidget.currentPath
 
         # Strip it of leading/trailing whitespace
         current_path = current_path.strip()
@@ -478,7 +478,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         else:
             print("Error: Base path was empty, retaining previous base path.")
-            self.basePathSelectionWidget.currentPath = str(self.logic.data_path)
+            self.dataPathSelectionWidget.currentPath = str(self.logic.data_path)
 
         self.loadTaskWhenReady()
 
