@@ -1,5 +1,4 @@
 from pathlib import Path
-from textwrap import dedent
 from typing import Optional
 
 import vtk
@@ -51,7 +50,7 @@ class CART(ScriptedLoadableModule):
             "Kuan Yi (Montréal Polytechnique)",
             "Ivan Johnson-Eversoll (University of Iowa)"
         ]
-        self.parent.helpText = _(dedent("""
+        self.parent.helpText = _("""
                 CART (Collaborative Annotation and Review Tool) provides a set 
                 of abstract base classes for creating streamlined annotation 
                 workflows in 3D Slicer. The framework enables efficient 
@@ -60,9 +59,9 @@ class CART(ScriptedLoadableModule):
                 
                 See more information on the 
                 <a href="https://github.com/SomeoneInParticular/CART/tree/main">GitHub repository</a>.
-            """))
+            """)
         # TODO: replace with organization, grant and thanks
-        self.parent.acknowledgementText = _(dedent("""
+        self.parent.acknowledgementText = _("""
                 Originally created during Slicer Project Week #43.
                 
                 Special thanks the many members of the Slicer community who
@@ -72,8 +71,8 @@ class CART(ScriptedLoadableModule):
                 <a href="https://github.com/JoostJM/SlicerCaseIterator">SlicerCaseIterator</a> (inspired much of our logic),
                 <a href="https://github.com/SlicerUltrasound/SlicerUltrasound">SlicerUltrasound/AnnotateUltrasound</a> (basis for our UI design),
                 and the many other projects discussed during the breakout session (notes 
-                <a href="https://docs.google.com/document/d/12XuYPVuRgy4RTuIabSIjy_sRrYSliewKhcbB1zJgXVI/">here.</a>
-            """))
+                <a href="https://docs.google.com/document/d/12XuYPVuRgy4RTuIabSIjy_sRrYSliewKhcbB1zJgXVI/">here.</a>)
+            """)
 
         # Load our configuration
         Config.load()
@@ -318,11 +317,14 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def buildCaseIteratorUI(self, mainLayout: qt.QFormLayout):
         # Layout
-        groupBox = qt.QGroupBox("Iteration Manager")
-        mainLayout = qt.QVBoxLayout(groupBox)
+        taskWidget = qt.QWidget()
+        taskLayout = qt.QVBoxLayout(taskWidget)
+
+        # Add the task "widget" (just a frame to hold everything in) to the global layout
+        mainLayout.addWidget(taskWidget)
 
         # Hide this by default, only showing it when we're ready to iterate
-        groupBox.setVisible(False)
+        taskWidget.setVisible(False)
 
         # Next + previous buttons in a horizontal layout
         buttonLayout = qt.QHBoxLayout()
@@ -336,13 +338,13 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         buttonLayout.addWidget(previousButton)
         buttonLayout.addWidget(nextButton)
         # Add the button layout to the main vertical layout
-        mainLayout.addLayout(buttonLayout)
+        taskLayout.addLayout(buttonLayout)
 
         # Add a text field to display the current case name under the buttons
         self.currentCaseNameLabel = qt.QLineEdit()
         self.currentCaseNameLabel.readOnly = True
         self.currentCaseNameLabel.placeholderText = _("Current case name will appear here")
-        mainLayout.addWidget(self.currentCaseNameLabel)
+        taskLayout.addWidget(self.currentCaseNameLabel)
 
         # Table for displaying cohort resources
         self.cohortTable = qt.QTableWidget()
@@ -398,17 +400,14 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.cohortTable.setShowGrid(True)
         self.cohortTable.verticalHeader().setVisible(False)
 
-        mainLayout.addWidget(self.cohortTable)
+        taskLayout.addWidget(self.cohortTable)
 
         # Make the groupbox accessible elsewhere, so it can be made visible later
-        self.taskBox = groupBox
+        self.taskWidget = taskWidget
 
         # Connections
         nextButton.clicked.connect(self.nextCase)
         previousButton.clicked.connect(self.previousCase)
-
-        # Add the widget to
-        self.layout.addWidget(groupBox)
 
 
     ## Connected Functions ##
@@ -589,7 +588,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Make the task box visible, if it was not already.
         # TODO: Separate the cohort table from the task iterator, so one can be
         #  view/hidden without the other
-        self.taskBox.setVisible(True)
+        self.taskWidget.setVisible(True)
 
 
     ### Iterator Widgets ###
@@ -737,7 +736,10 @@ class CARTLogic(ScriptedLoadableModuleLogic):
 
         Returns True if this was successful, False otherwise
         """
-        # Confirm they actually provided a string
+        # Strip leading and trailing whitespace in the username
+        user_name = user_name.strip()
+
+        # Confirm they actually provided a (non-whitespace only) string
         if not user_name:
             print("Something must be entered as a name!")
             return False
