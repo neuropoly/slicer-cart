@@ -549,7 +549,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     else:
                         item.setToolTip(_("Resource"))
                         
-                    self.cohortTable.setItem(row, col, item)
+                    self.cohortTable.setItem(row - 1, col, item)
                     
                     # Make the table itself unselectable and uneditable
             self.cohortTable.setEditTriggers(qt.QAbstractItemView.NoEditTriggers)
