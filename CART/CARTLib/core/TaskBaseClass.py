@@ -2,7 +2,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Generic, Optional, TypeVar
 
-import ctk
+import qt
 from .DataUnitBase import DataUnitBase
 
 # Generic type hint class for anything which is a subclass of DataUnitBase
@@ -41,38 +41,38 @@ class TaskBaseClass(ABC, Generic[D]):
         # If the task was specified, update the GUI with contents
         if self.data_unit:
             # TODO: Validate that the DataUnit has all fields needed for this task.
-            self.setup(self.data_unit)
+            self.recieve(self.data_unit)
 
     @abstractmethod
-    def buildGUI(self, container: ctk.ctkCollapsibleButton):
+    def setup(self, container: qt.QWidget):
         """
-        Build the GUI widget for this task.
+        Build a GUI for this task. Very similar to
+          `ScriptedLoadableModuleWidget.setup`, except you are placing
+          everything into the passed "container" widget (rather than
+          self.layout)
 
-        It will be rendered underneath the "main" iterator GUI.
+        The "container" widget is what will actually be rendered; it
+          does not have a layout yet, so you will need to provide it yourself
+          (using a QLayout subclass of your choice). Anything placed within
+          the widget will be contained within the "Task Steps" dropdown.
 
-        If you have "subtasks", we recommend using a collapsible frame
-        (ctk.ctkCollapsibleFrame) to contain the relevant widgets.
-
-        You should NOT pull data from the DataUnit at this time; leave that
-        to updateGUI to ensure everything stays synchronized.
-
-        The ctkCollapsibleButton is the widget you should build your layout
-        into; for example, `formLayout = qt.QBoxLayout(container)`
+        You should NOT pull data from a DataUnit at this time; just build the
+          "default" version of the GUI here to avoid redundant calls. You should
+          populate the GUI within the `setup` function below instead.
         """
 
         raise NotImplementedError("buildGUI must be implemented in subclasses")
 
     @abstractmethod
-    def setup(self, data_unit: D):
+    def recieve(self, data_unit: D):
         """
-        Update the contents of the GUI using the contents of a DataUnit.
+        Receive a new DataUnit instance.
 
-        What elements of the DataUnit, how they should be displayed, and how
-        you want to update Slicer's view should be dictated here.
+        You should update your parameters here, be they managed by a
+        ParameterNode or otherwise.
 
-        This is called when the DataManager requests this Task to load a new
-        case; instead of re-drawing the GUI every time, update its existing
-        widgets instead.
+        This is run every time the case is changed, with the "new"
+        case's contents being provided through `data_unit`.
         """
 
         raise NotImplementedError("setup must be implemented in subclasses")
@@ -83,11 +83,10 @@ class TaskBaseClass(ABC, Generic[D]):
         Run when the user requests the current data in the case be saved.
 
         Does what it says on the tin. This function should pull anything you
-        need out of the GUI, format it, and save it where you like (including,
-        potentially, the original Cohort).
+        need (i.e from an active GUI), format it, and save it where you like
+        (including, potentially, the original cohort file).
 
-        By default, this is also AUTOMATICALLY RUN when you swap cases (click
-        either the 'next' or 'previous' buttons).
+        By default, this is also AUTOMATICALLY RUN when a new case is loaded.
         """
 
         raise NotImplementedError("save must be implemented in subclasses")
@@ -96,20 +95,25 @@ class TaskBaseClass(ABC, Generic[D]):
         """
         Checks whether a DataUnit has been completed or not. How you choose to
         determine this is up to you (probably based on whether appropriate
-        output exists). This is used to allow the user to "resume" where they
-        left off, should they only complete the task for some of the cases in
-        the cohort, but not all.
+        output exists).
 
-        If all tasks are complete, it starts at the beggining again.
+        This is used for a number of functions, namely:
+          * TODO: Starting at the first case the user has yet to complete
+          * TODO: Skipping over already completed cases
+          * TODO: Deciding whether to cache a case the user just moved past
         """
         return False
 
     def cleanup(self):
         """
-        Called when the task is destroyed (Slicer was closed).
+        Called when the task is destroyed (Slicer was closed, a new task was loaded, etc.).
 
-        Override to add any functionality you need to run to avoid memory leaks,
-        close open I/O streams, etc.
+        Override to add any functionality you need to run to avoid memory leaks.
+
+        Common things to do include:
+          * Closing open I/O streams (i.e. files)
+          * Removing objects from the Slicer MRML scene (i.e. a loaded segmentation)
+          * Deleting large objects explicitly (i.e. large segmentations)
         """
         pass
 
@@ -120,8 +124,6 @@ class TaskBaseClass(ABC, Generic[D]):
         for a segmentation-like task; if the DataUnit does not have this in
         its contents, the task will not load it, skipping over it with a prompt
         instead.
-
-        TODO: Implement said prompt.
         """
         return None
 

@@ -31,11 +31,10 @@ class OrganLabellingDemoTask(TaskBaseClass):
         self.saveButton = None  # Placeholder for save button
         self.organText = None  # Placeholder for organ label text field
 
-
-
-    def buildGUI(self, container: ctk.ctkCollapsibleButton):
+    def setup(self, container: qt.QWidget):
         # Outermost frame
-        formLayout = qt.QFormLayout(container)
+        formLayout = qt.QFormLayout()
+        container.setLayout(formLayout)
 
         # Output file designation
         self.outputFileInput = ctk.ctkPathLineEdit()
@@ -76,7 +75,7 @@ class OrganLabellingDemoTask(TaskBaseClass):
         self.showAllVolumesButton.clicked.connect(self.showAllVolumes)
         self.resetLayoutButton.clicked.connect(self.resetLayout)
 
-    def setup(self, data_unit: D):
+    def recieve(self, data_unit: D):
         print(f"Running {self.__class__} setup!")
         print(f"data_unit: {data_unit}")
         if data_unit is not None:

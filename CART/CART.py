@@ -11,8 +11,6 @@ from slicer.ScriptedLoadableModule import *
 from slicer.i18n import tr as _
 from slicer.util import VTKObservationMixin
 
-import json
-
 from CARTLib.Config import Config
 from CARTLib.core.DataManager import DataManager
 from CARTLib.core.DataUnitBase import DataUnitBase
@@ -114,10 +112,12 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._parameterNode = None
         self._parameterNodeGuiTag = None
 
+        # A "dummy" widget, which holds the TaskGUI. Allows us to swap tasks on the fly.
+        self.dummyTaskWidget: qt.QWidget = None
+
         # TODO: Dynamically load this dictionary instead
         self.task_map = {
             "Organ Labels": OrganLabellingDemoTask,
-            "Organ Labels 2; Electric Boogaloo": OrganLabellingDemoTask,
             "N/A": None  # Placeholder for testing
         }
 
@@ -169,6 +169,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Not the best translation, but it'll do...
         taskGUI.text = _("Task Steps")
+
+        # Using a stacked layout, in preparation for future multitask setups
+        qt.QStackedLayout(taskGUI)
 
         self.layout.addWidget(taskGUI)
         self.taskGUI = taskGUI
@@ -520,7 +523,12 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         new_task = self.task_map.get(task_name, None)
         self.logic.set_task_type(new_task)
 
-        # TODO: Remove the previous task's GUI to avoid memory leaks
+        # Purge the current task widget, and replace it with a new one
+        if self.dummyTaskWidget:
+            # Disconnect the widget, and all of its children, from the GUI
+            self.dummyTaskWidget.setParent(None)
+            # Delete our reference to it as well
+            self.dummyTaskWidget = None
 
         # Re-hide the task GUI, as its no longer relevant until the new task GUI is loaded
         self.taskGUI.collapsed = True
@@ -586,10 +594,12 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Initialize the new task
         self.logic.init_task()
 
-        # TODO: Clear the prior task GUI for the user
-
-        # Initialize its GUI, which adds it to our collapsible Task button
-        self.logic.current_task_instance.buildGUI(self.taskGUI)
+        # Create a "dummy" widget that the task can fill
+        self.dummyTaskWidget = qt.QWidget()
+        # Build the Task GUI, using the prior widget as a foundation
+        self.logic.current_task_instance.setup(self.dummyTaskWidget)
+        # Add the widget to our layout
+        self.taskGUI.layout().addWidget(self.dummyTaskWidget)
 
         # Expand the task GUI and enable it, if it wasn't already
         self.taskGUI.collapsed = False
@@ -780,7 +790,9 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         self.current_task_type = task_type
 
         # If we have a task built already, delete it
-        del self.current_task_instance
+        if self.current_task_instance:
+            self.current_task_instance.cleanup()
+            self.current_task_instance = None
 
     def is_ready(self) -> bool:
         """
