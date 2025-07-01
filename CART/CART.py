@@ -253,6 +253,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.userSelectButton = userSelectButton
 
     def buildCohortUI(self, mainLayout: qt.QFormLayout):
+        
+        self.successful_cohort_change = True
+        self.successful_data_path_change = True
+        
         # Directory selection button
         cohortFileSelectionButton = ctk.ctkPathLineEdit()
 
@@ -319,9 +323,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         
         # A button to preview the cohort, without starting on a task
         previewButton = qt.QPushButton(_("Preview"))
-        previewButton.toolTip = _("""
+        previewButton.setToolTip(_("""
         Reads the contents of the cohort.csv for review, without starting the task
-        """)
+        """))
 
         # On click, attempt to load the cohort file and its contents into the GUI
         previewButton.clicked.connect(self.onPreviewCohortClicked)
@@ -454,10 +458,18 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Strip it of leading/trailing whitespace
         current_path = current_path.strip()
 
-        # If a path still exists, update everything to use it
+        is_data_path_changed = False
+        
+        # If a path still exists, update everything to use it   
         if current_path:
             self.logic.set_data_path(Path(current_path))
-
+            if self.logic.data_manager:
+                if self.logic.data_manager.data_source != current_path:
+                    is_data_path_changed = current_path != None
+                
+                if is_data_path_changed:
+                    self.successful_data_path_change = True
+                    self.validateReloadCohortAndData()
         else:
             print("Error: Base path was empty, retaining previous base path.")
             self.dataPathSelectionWidget.currentPath = str(self.logic.data_path)
@@ -472,15 +484,27 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Attempt to update the cohort in our logic instance
         success = self.logic.set_current_cohort(new_cohort)
 
+        is_cohort_changed = False
         # If we succeeded, update our state to match
         if success:
+            # Determine if the cohort was changed after the initial session cohort
+            if self.logic.data_manager:
+                if self.logic.data_manager.cohort_csv != new_cohort:
+                    is_cohort_changed = new_cohort != None
+                
+                if is_cohort_changed:
+                    self.successful_cohort_change = True
+                    self.validateReloadCohortAndData()
             self.updateButtons()
 
     def onPreviewCohortClicked(self):
         """
         Load the cohort explicitly, so it can be reviewed.
         """
-        # set preview mode state to True
+        # Check if the user is in the middle of changing cohorts and data path doesn't match the cohort yet
+        self.validateDataPathAndCohortMatch()
+        
+        # Update preview mode state 
         self.isPreviewMode = not self.isPreviewMode
         
         if self.isPreviewMode:
@@ -519,57 +543,81 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Update our button panel to match the new state
         self.updateButtons()
-      
+    
+    def buildCohortTable(self):
+        csv_data_raw = self.logic.data_manager.case_data
+        
+        self.headers =  list(csv_data_raw[0].keys())
+        csv_data_list = [[row[key] for key in self.headers] for row in csv_data_raw]
+        self.rowCount = len(csv_data_list)        
+        self.colCount = len(self.headers)
+        
+        self.cohortTable = qt.QTableWidget()
+        
+        self.cohortTable.setSizePolicy(
+            qt.QSizePolicy.Expanding,
+            qt.QSizePolicy.Expanding
+        )
+
+        self.cohortTable.setRowCount(self.rowCount)
+        self.cohortTable.setColumnCount(self.colCount)
+        self.cohortTable.setHorizontalHeaderLabels(
+            [_(h) for h in self.headers]
+        )
+        self.cohortTable.horizontalHeader().setSectionResizeMode(qt.QHeaderView.ResizeToContents)
+        
+        self.cohortTable.setHorizontalScrollBarPolicy(qt.Qt.ScrollBarAsNeeded)
+        
+        for row in range(self.rowCount):
+            for col in range(self.colCount):
+                item = qt.QTableWidgetItem(csv_data_list[row][col])
+                item.setTextAlignment(qt.Qt.AlignLeft | qt.Qt.AlignVCenter)
+                if col == 0:
+                    item.setToolTip(_("Data Unit"))
+                else:
+                    item.setToolTip(_("Resource of : " + str(csv_data_list[row][0])))
+                    
+                self.cohortTable.setItem(row, col, item)
+                
+        self.cohortTable.setAlternatingRowColors(True)
+        self.cohortTable.setShowGrid(True)
+        self.cohortTable.verticalHeader().setVisible(False)
+        
+        self.taskLayout.addWidget(self.cohortTable)
+    
+        self.iteratorWidget.setVisible(True)
+    
+    def destroyCohortTable(self):
+        self.taskLayout.removeWidget(self.cohortTable)
+        self.iteratorWidget.setVisible(False)
+        
     def updateCohortTable(self):
         
         self.nextButton.setEnabled(not self.isPreviewMode)
         self.previousButton.setEnabled(not self.isPreviewMode)
         
-        if self.isPreviewMode or self.isTaskMode:
-            csv_data_list = self.logic.data_manager.csv_data_list
-            
-            self.headers = csv_data_list[0]
-            self.rowCount = len(csv_data_list)        
-            self.colCount = len(self.headers)
-            
-            self.cohortTable = qt.QTableWidget()
-            
-            self.cohortTable.setSizePolicy(
-                qt.QSizePolicy.Expanding,
-                qt.QSizePolicy.Expanding
-            )
-
-            self.cohortTable.setRowCount(self.rowCount)
-            self.cohortTable.setColumnCount(self.colCount)
-            self.cohortTable.setHorizontalHeaderLabels(
-                [_(h) for h in self.headers]
-            )
-            self.cohortTable.horizontalHeader().setSectionResizeMode(qt.QHeaderView.ResizeToContents)
-            
-            self.cohortTable.setHorizontalScrollBarPolicy(qt.Qt.ScrollBarAsNeeded)
-            
-            for row in range(1, self.rowCount):
-                for col in range(self.colCount):
-                    item = qt.QTableWidgetItem(csv_data_list[row][col])
-                    item.setTextAlignment(qt.Qt.AlignLeft | qt.Qt.AlignVCenter)
-                    if col == 0:
-                        item.setToolTip(_("Data Unit"))
-                    else:
-                        item.setToolTip(_("Resource of : " + str(csv_data_list[row][0])))
-                        
-                    self.cohortTable.setItem(row - 1, col, item)
-                    
-            self.cohortTable.setAlternatingRowColors(True)
-            self.cohortTable.setShowGrid(True)
-            self.cohortTable.verticalHeader().setVisible(False)
-            
-            self.taskLayout.addWidget(self.cohortTable)
+        # If preview then confirm were clicked
+        if self.isPreviewMode and self.isTaskMode:
+            # TODO Is this necessary? Can we just confirm and use the same table, so just load the volumes without touching the table?
+            self.destroyCohortTable()
+            self.buildCohortTable()
+            return
         
-            self.iteratorWidget.setVisible(True)
+        # If preview gets toggled on
+        if self.isPreviewMode and not self.isTaskMode:
+            self.buildCohortTable()
+            return
+        
+        # If straight to confirm
+        if not self.isPreviewMode and self.isTaskMode:
+            self.buildCohortTable()
+            return 
+        
+        # If preview gets toggled off
+        if not self.isPreviewMode and not self.isTaskMode:
+            self.destroyCohortTable()
+            return
 
-        else:
-            self.taskLayout.removeWidget(self.cohortTable)
-            self.iteratorWidget.setVisible(False)
 
 
     ### Iterator Widgets ###
@@ -617,12 +665,16 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.confirmButton.setEnabled(True)
 
     def loadTaskWhenReady(self):
+        """
+        Called when the confirm button is clicked to load volumes and build the cohort table
+        """
+        
         # If we're not ready to load a task, leave everything untouched
         if not self.logic.is_ready():
             return
-
-        # Set preview mode to false if there was preview mode earlier
-        self.isPreviewMode = False
+        
+        # Check if the user is in the middle of changing cohorts and data path doesn't match the cohort yet
+        self.validateDataPathAndCohortMatch()
         
         # Disable preview and confirm buttons if task has started
         self.previewButton.setEnabled(False)
@@ -672,7 +724,28 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """Called just after the scene is closed."""
         pass
 
+    def validateReloadCohortAndData(self) -> None:
+        """
+        
+        Called when a new cohort and, necessarily, data path are selected during the session; NOT called when the first cohort and data path are selected
+        """
+        print("COHORT CHANGE: ", str(self.successful_cohort_change))
+        print("DATA PATH CHANGE: ", str(self.successful_data_path_change))
 
+        if self.successful_cohort_change and self.successful_data_path_change:
+            if self.cohortTable:
+                self.destroyCohortTable()
+                self.previewButton.setEnabled(True)
+                self.confirmButton.setEnabled(True)
+    
+    def validateDataPathAndCohortMatch(self) -> None:
+        if not (self.successful_cohort_change and self.successful_data_path_change):
+            msg = qt.QMessageBox()
+            msg.setWindowTitle('Warning')
+            msg.setText(
+                "Please match your data path and your cohort.")
+            msg.exec()
+        
 #
 # CARTLogic
 #
