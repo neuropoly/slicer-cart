@@ -555,7 +555,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     if col == 0:
                         item.setToolTip(_("Data Unit"))
                     else:
-                        item.setToolTip(_("Resource"))
+                        item.setToolTip(_("Resource of : " + str(csv_data_list[row][0])))
                         
                     self.cohortTable.setItem(row - 1, col, item)
                     
