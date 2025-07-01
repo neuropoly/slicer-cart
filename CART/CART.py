@@ -593,6 +593,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         Request the iterator step into the next case
         """
         print("NEXT CASE!")
+
+        # Disable the GUI until the next case has loaded
+        self.promptLoadingStarted()
+
         # Confirm we have a next case to step into first
         if not self.logic.has_next_case():
             print("You somehow requested the next case, despite there being none!")
@@ -603,6 +607,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Update our GUI to match the new state
         self.updateIteratorGUI()
+
+        # Re-enable the GUI for use
+        self.promptLoadingComplete()
 
     def previousCase(self):
         print("PREVIOUS CASE!")
@@ -632,6 +639,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if not self.logic.is_ready():
             return
 
+        # Disable the GUI, as to avoid de-synchronization
+        self.promptLoadingStarted()
+
         # Initialize the new task
         self.logic.init_task()
 
@@ -655,8 +665,41 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Collapse the main (setup) GUI, if it wasn't already
         self.mainGUI.collapsed = True
 
+        # Re-enable the GUI
+        self.promptLoadingComplete()
+
 
     ## Management ##
+    def promptLoadingStarted(self):
+        """
+        Disable our entire GUI.
+
+        Usually only needed when a new DataUnit is in the process of being
+          loaded, to ensure the GUI doesn't de-synchronize from the Logic.
+        """
+        # Disable everything immediately
+        self.mainGUI.setEnabled(False)
+        self.taskGUI.setEnabled(False)
+
+        # Create a "Loading..." dialog to let the user know something is being run
+        # TODO: Replace this with a proper prompt
+        print("Loading...")
+
+
+    def promptLoadingComplete(self):
+        """
+        Enable our entire GUI.
+
+        Usually used to restore user access to the GUI state after a DataUnit
+          finishes loading.
+        """
+
+        self.mainGUI.setEnabled(True)
+        self.taskGUI.setEnabled(True)
+
+        # Terminate the "Loading..." dialog, if it exists
+        # TODO: Replace this with a proper prompt
+        print("Finished Loading!")
 
     def cleanup(self) -> None:
         """Called when the application closes and the module widget is destroyed."""
