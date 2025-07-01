@@ -435,6 +435,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         nextButton.clicked.connect(self.nextCase)
         previousButton.clicked.connect(self.previousCase)
 
+        # Make the buttons accessible
+        self.nextButton = nextButton
+        self.previewButton = previousButton
+
 
     ## Connected Functions ##
 
@@ -573,38 +577,45 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
 
     ### Iterator Widgets ###
+    def updateIteratorGUI(self):
+        # Update the current UID label
+        new_label = f"Data Unit {self.logic.current_uid()}"
+        self.currentCaseNameLabel.text = new_label
+
+        # Check if we have a next case, and enable/disable the button accordingly
+        self.nextButton.setEnabled(self.logic.has_next_case())
+
+        # Check if we have a previous case, and enable/disable the button accordingly
+        self.previewButton.setEnabled(self.logic.has_previous_case())
 
     def nextCase(self):
-        # TODO: Actually implement this
+        """
+        Request the iterator step into the next case
+        """
         print("NEXT CASE!")
-        return
+        # Confirm we have a next case to step into first
+        if not self.logic.has_next_case():
+            print("You somehow requested the next case, despite there being none!")
+            return
 
+        # Step into the next case
+        self.logic.next_case()
 
-        next_case = self.logic.data_manager.next_data_unit()
-        self.current_case = next_case
-        print(self.current_case.uid)
-        
-        if self.isReady():
-            self.currentCaseNameLabel.text = "Data Unit " + str(self.current_case.uid)
-            self.fillResourcesTable()
-            self.current_task_instance.setup(self.logic.data_manager.current_data_unit())
+        # Update our GUI to match the new state
+        self.updateIteratorGUI()
 
     def previousCase(self):
-        # TODO: Actually implement this
         print("PREVIOUS CASE!")
-        return
+        # Confirm we have a next case to step into first
+        if not self.logic.has_previous_case():
+            print("You somehow requested the previous case, despite there being none!")
+            return
 
-        # HACK REMOVE THIS AND MAKE IT CLEANER WHEN IMPLEMENTING THE MULTI-SCENE LAZY LOADING
-        slicer.mrmlScene.Clear()
+        # Step into the next case
+        self.logic.previous_case()
 
-        previous_case = self.logic.data_manager.previous_data_unit()
-        self.current_case = previous_case
-        print(self.current_case.uid)
-        
-        if self.isReady():
-            self.currentCaseNameLabel.text = "Data Unit " + str(self.current_case.uid)
-            self.fillResourcesTable()
-            self.current_task_instance.setup(self.logic.data_manager.current_data_unit())
+        # Update our GUI to match the new state
+        self.updateIteratorGUI()
 
     ### Task Related ###
     def updateButtons(self):
@@ -639,7 +650,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.iteratorWidget.setVisible(True)
 
         # Update the current UID in the iterator
-        self.currentCaseNameLabel.text = str(self.logic.current_uid())
+        self.updateIteratorGUI()
 
         # Collapse the main (setup) GUI, if it wasn't already
         self.mainGUI.collapsed = True
@@ -874,6 +885,18 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # In the off chance where we don't have cases loaded, return none
         else:
             return ""
+
+    def has_next_case(self):
+        if self.data_manager:
+            return self.data_manager.has_next_case()
+        else:
+            return False
+
+    def has_previous_case(self):
+        if self.data_manager:
+            return self.data_manager.has_previous_case()
+        else:
+            return False
 
     def get_current_case(self) -> Optional[DataUnitBase]:
         """
