@@ -46,6 +46,9 @@ class DataManager:
 
         # Current index in the
         self.current_case_index: int = 0
+        
+        # Make csv data accessible as 2D list
+        self.csv_data_list = self.get_csv_by_row(self.cohort_csv)
 
         # Dynamically sized cached version of "get_data_unit"
         lru_cache_wrapper = lru_cache(maxsize=cache_size)
@@ -136,7 +139,13 @@ class DataManager:
         """
         self.current_case_index -= 1
         return self.get_data_unit(self.current_case_index)
-
+    
+    def get_csv_by_row(self, csv_path: Path) -> List[List[str]]:
+        with csv_path.open(newline='') as csvfile:
+            reader = csv.reader(csvfile)
+            return [row for row in reader]
+      
+    
     @staticmethod
     def _read_csv(csv_path: Path) -> List[Dict[str, str]]:
         """
@@ -148,6 +157,7 @@ class DataManager:
                 raise ValueError("CSV file has no header row")
             return list(reader)
 
+    # TODO Change rows to rows and define row typing at the definition of rows
     @staticmethod
     def _validate_columns(rows: List[Dict[str, str]]) -> None:
         if not rows:

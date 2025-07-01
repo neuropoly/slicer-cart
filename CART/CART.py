@@ -311,6 +311,12 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         taskOptions.currentIndexChanged.connect(self.onTaskChanged)
 
     def buildButtonPanel(self, mainLayout: qt.QFormLayout):
+        # Add a state to track whether cohort is in preview mode
+        self.isPreviewMode = False
+        
+        # Add a state to track whether cohort is in task mode (confirm clicked)
+        self.isTaskMode = False
+        
         # A button to preview the cohort, without starting on a task
         previewButton = qt.QPushButton(_("Preview"))
         previewButton.toolTip = _("""
@@ -341,10 +347,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.previewButton = previewButton
         self.confirmButton = confirmButton
 
-    def buildCaseIteratorUI(self, mainLayout: qt.QFormLayout):
+    def buildCaseIteratorUI(self, mainLayout: qt.QFormLayout):        
         # Layout
         iteratorWidget = qt.QWidget()
-        taskLayout = qt.QVBoxLayout(iteratorWidget)
+        self.taskLayout = qt.QVBoxLayout(iteratorWidget)
 
         # Add the task "widget" (just a frame to hold everything in) to the global layout
         mainLayout.addWidget(iteratorWidget)
@@ -354,86 +360,30 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Next + previous buttons in a horizontal layout
         buttonLayout = qt.QHBoxLayout()
-        previousButton = qt.QPushButton(_("Previous"))
-        previousButton.toolTip = _("Return to the previous case.")
+        self.previousButton = qt.QPushButton(_("Previous"))
+        self.previousButton.toolTip = _("Return to the previous case.")
 
-        nextButton = qt.QPushButton(_("Next"))
-        nextButton.toolTip = _("Move onto the next case.")
+        self.nextButton = qt.QPushButton(_("Next"))
+        self.nextButton.toolTip = _("Move onto the next case.")
 
         # Add them to the layout "backwards" so previous is on the left
-        buttonLayout.addWidget(previousButton)
-        buttonLayout.addWidget(nextButton)
+        buttonLayout.addWidget(self.previousButton)
+        buttonLayout.addWidget(self.nextButton)
         # Add the button layout to the main vertical layout
-        taskLayout.addLayout(buttonLayout)
+        self.taskLayout.addLayout(buttonLayout)
 
         # Add a text field to display the current case name under the buttons
         self.currentCaseNameLabel = qt.QLineEdit()
         self.currentCaseNameLabel.readOnly = True
         self.currentCaseNameLabel.placeholderText = _("Current case name will appear here")
-        taskLayout.addWidget(self.currentCaseNameLabel)
-
-        # Table for displaying cohort resources
-        self.cohortTable = qt.QTableWidget()
-        self.cohortTable.setRowCount(10)
-        self.cohortTable.setColumnCount(2)
-        self.cohortTable.setHorizontalHeaderLabels([_("Resource"), _("Resource Type")])
-        self.cohortTable.horizontalHeader().setStretchLastSection(True)
-        self.cohortTable.horizontalHeader().setSectionResizeMode(0, qt.QHeaderView.Stretch)
-        self.cohortTable.horizontalHeader().setSectionResizeMode(1, qt.QHeaderView.ResizeToContents)
-        self.cohortTable.setWordWrap(False)
-        self.cohortTable.setSizePolicy(qt.QSizePolicy.Expanding, qt.QSizePolicy.Expanding)
-
-        # Set a subtle contrasting style for dark backgrounds
-        self.cohortTable.setStyleSheet("""
-          QTableWidget {
-        background-color: #2b2b2b;
-        alternate-background-color: #353535;
-        color: #e0e0e0;
-        border: 1px solid #444;
-        gridline-color: #444;
-          }
-          QHeaderView::section {
-        background-color: #393939;
-        color: #e0e0e0;
-        border: 1px solid #444;
-          }
-          QTableWidget::item {
-        selection-background-color: #44475a;
-        selection-color: #ffffff;
-          }
-        """)
-
-        for row in range(10):
-            filePathItem = qt.QTableWidgetItem("")
-            filePathItem.setTextAlignment(qt.Qt.AlignLeft | qt.Qt.AlignVCenter)
-            filePathItem.setToolTip(_("Loaded Resource"))
-            # Make item not editable, selectable, or enabled
-            filePathItem.setFlags(qt.Qt.NoItemFlags)
-            self.cohortTable.setItem(row, 0, filePathItem)
-
-            resourceTypeItem = qt.QTableWidgetItem("")
-            resourceTypeItem.setTextAlignment(qt.Qt.AlignCenter)
-            resourceTypeItem.setToolTip(_("Resource type"))
-            # Make item not editable, selectable, or enabled
-            resourceTypeItem.setFlags(qt.Qt.NoItemFlags)
-            self.cohortTable.setItem(row, 1, resourceTypeItem)
-
-        # Make the table itself unselectable and uneditable
-        self.cohortTable.setEditTriggers(qt.QAbstractItemView.NoEditTriggers)
-        self.cohortTable.setSelectionBehavior(qt.QAbstractItemView.SelectRows)
-        self.cohortTable.setSelectionMode(qt.QAbstractItemView.NoSelection)
-        self.cohortTable.setAlternatingRowColors(True)
-        self.cohortTable.setShowGrid(True)
-        self.cohortTable.verticalHeader().setVisible(False)
-
-        taskLayout.addWidget(self.cohortTable)
+        self.taskLayout.addWidget(self.currentCaseNameLabel)
 
         # Make the groupbox accessible elsewhere, so it can be made visible later
         self.iteratorWidget = iteratorWidget
 
         # Connections
-        nextButton.clicked.connect(self.nextCase)
-        previousButton.clicked.connect(self.previousCase)
+        self.nextButton.clicked.connect(self.nextCase)
+        self.previousButton.clicked.connect(self.previousCase)
 
 
     ## Connected Functions ##
@@ -530,12 +480,26 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """
         Load the cohort explicitly, so it can be reviewed.
         """
-        # Load the file's cases into memory
-        self.logic.load_cohort()
+        # set preview mode state to True
+        self.isPreviewMode = not self.isPreviewMode
+        
+        if self.isPreviewMode:
+            # Change the color of the preview button to indicate preview mode
+            self.previewButton.setStyleSheet("background-color: #777eb4; color: #777eb4;")
+                        # Load the file's cases into memory
+            self.logic.load_cohort()
 
+        else:
+            # Reset preview button
+            self.previewButton.setStyleSheet("")
+            
         # Update the resources table to match the new cohort's contents
-        self.fillResourcesTable()
-
+        self.updateCohortTable()
+        
+        # Disable previous and next buttons if in preview mode
+        self.nextButton.setEnabled(not self.nextButton.isEnabled())
+        self.previousButton.setEnabled(not self.previousButton.isEnabled())
+        
     def onTaskChanged(self):
         # Update the currently selected task
         task_name = self.taskOptions.currentText
@@ -556,20 +520,52 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Update our button panel to match the new state
         self.updateButtons()
       
-    def fillResourcesTable(self):
-        return
+    def updateCohortTable(self):
+        
+        self.nextButton.setEnabled(not self.isPreviewMode)
+        self.previousButton.setEnabled(not self.isPreviewMode)
+        
+        if self.isPreviewMode or self.isTaskMode:
+            csv_data_list = self.logic.data_manager.csv_data_list
+            
+            self.headers = csv_data_list[0]
+            self.rowCount = len(csv_data_list)        
+            self.colCount = len(self.headers)
+            
+            self.cohortTable = qt.QTableWidget()
 
-        # TODO: Replace this so that it previews the cohort data instead
-        for row_index, (key, value) in enumerate(self.logic.get_current_case().data.items()):
-            if key == "uid":
-                continue
-            self.cohortTable.setItem(row_index, 0, qt.QTableWidgetItem(str(value)))
-            self.cohortTable.setItem(row_index, 1, qt.QTableWidgetItem(str(key) + " : Placholder Type"))
+            self.cohortTable.setRowCount(self.rowCount)
+            self.cohortTable.setColumnCount(self.colCount)
+            self.cohortTable.setHorizontalHeaderLabels(
+                [_(h) for h in self.headers]
+            )
+            
+            for row in range(1, self.rowCount):
+                for col in range(self.colCount):
+                    item = qt.QTableWidgetItem(csv_data_list[row][col])
+                    item.setTextAlignment(qt.Qt.AlignLeft | qt.Qt.AlignVCenter)
+                    if col == 0:
+                        item.setToolTip(_("Data Unit"))
+                    else:
+                        item.setToolTip(_("Resource"))
+                        
+                    self.cohortTable.setItem(row, col, item)
+                    
+                    # Make the table itself unselectable and uneditable
+            self.cohortTable.setEditTriggers(qt.QAbstractItemView.NoEditTriggers)
+            self.cohortTable.setSelectionBehavior(qt.QAbstractItemView.SelectRows)
+            self.cohortTable.setSelectionMode(qt.QAbstractItemView.NoSelection)
+            self.cohortTable.setAlternatingRowColors(True)
+            self.cohortTable.setShowGrid(True)
+            self.cohortTable.verticalHeader().setVisible(False)
+            
+            self.taskLayout.addWidget(self.cohortTable)
+        
+            self.iteratorWidget.setVisible(True)
 
-        # Make the task box visible, if it was not already.
-        # TODO: Separate the cohort table from the task iterator, so one can be
-        #  view/hidden without the other
-        self.iteratorWidget.setVisible(True)
+        else:
+            self.taskLayout.removeWidget(self.cohortTable)
+            self.iteratorWidget.setVisible(False)
 
 
     ### Iterator Widgets ###
@@ -586,7 +582,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         
         if self.isReady():
             self.currentCaseNameLabel.text = "Data Unit " + str(self.current_case.uid)
-            self.fillResourcesTable()
+            self.updateCohortTable()
             self.current_task_instance.setup(self.logic.data_manager.current_data_unit())
 
     def previousCase(self):
@@ -603,7 +599,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         
         if self.isReady():
             self.currentCaseNameLabel.text = "Data Unit " + str(self.current_case.uid)
-            self.fillResourcesTable()
+            self.updateCohortTable()
             self.current_task_instance.setup(self.logic.data_manager.current_data_unit())
 
     ### Task Related ###
@@ -621,6 +617,16 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if not self.logic.is_ready():
             return
 
+        # Set preview mode to false if there was preview mode earlier
+        self.isPreviewMode = False
+        
+        # Disable preview and confirm buttons if task has started
+        self.previewButton.setEnabled(False)
+        self.confirmButton.setEnabled(False)
+        
+        # Set task mode to true; session started
+        self.isTaskMode = True
+        
         # Initialize the new task
         self.logic.init_task()
 
@@ -634,6 +640,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Expand the task GUI and enable it, if it wasn't already
         self.taskGUI.collapsed = False
         self.taskGUI.setEnabled(True)
+        
+        # Load the cohort csv data into the table
+        self.updateCohortTable()
 
         # Reveal the iterator GUI, if it wasn't already
         self.iteratorWidget.setVisible(True)
