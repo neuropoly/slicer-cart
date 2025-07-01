@@ -145,6 +145,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Task UI
         self.buildTaskUI(mainLayout)
 
+        # Button panel
+        self.buildButtonPanel(mainLayout)
+
         # Add this "main" widget to our panel
         self.layout.addWidget(mainGUI)
 
@@ -259,8 +262,13 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "CSV files (*.csv)",
         ]
 
+        # When the cohort is changed, update accordingly
+        cohortFileSelectionButton.connect.parameterNames
+        cohortFileSelectionButton.currentPathChanged.connect(self.onCohortChanged)
+
         # TODO: Optionally set a default filter
 
+        # Add it to our layout
         mainLayout.addRow(_("Cohort File:"), cohortFileSelectionButton)
 
         # Set default value but don't auto-load
@@ -269,15 +277,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Make the button easy-to-access
         self.cohortFileSelectionButton = cohortFileSelectionButton
-
-        # Add explicit load button
-        loadCohortButton = qt.QPushButton(_("Read Cohort"))
-        loadCohortButton.toolTip = _("Reads the selected cohort CSV file. This will reset your iteration!")
-        loadCohortButton.clicked.connect(self.onLoadCohortClicked)
-        mainLayout.addRow("", loadCohortButton)
-
-        # Make load button accessible
-        self.loadCohortButton = loadCohortButton
 
     def buildBasePathUI(self, mainLayout: qt.QFormLayout):
         """
@@ -311,16 +310,47 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # When the task is changed, update everything to match
         taskOptions.currentIndexChanged.connect(self.onTaskChanged)
 
+    def buildButtonPanel(self, mainLayout: qt.QFormLayout):
+        # A button to preview the cohort, without starting on a task
+        previewButton = qt.QPushButton(_("Preview"))
+        previewButton.toolTip = _("""
+        Reads the contents of the cohort.csv for review, without starting the task
+        """)
+
+        # On click, attempt to load the cohort file and its contents into the GUI
+        previewButton.clicked.connect(self.onPreviewCohortClicked)
+
+        # Disable the button by default; we need a valid cohort first!
+        previewButton.setEnabled(False)
+
+        # A button which confirms the current settings and attempts to start
+        #  task iteration!
+        confirmButton = qt.QPushButton(_("Confirm"))
+        confirmButton.toolTip = _("Begin doing this task on your cases.")
+
+        # Disable the button by default; the user needs to fill out everything first!
+        confirmButton.setEnabled(False)
+
+        # Attempt to load the task, assuming everything is ready
+        confirmButton.clicked.connect(self.loadTaskWhenReady)
+
+        # Add them to our layout
+        mainLayout.addRow(previewButton, confirmButton)
+
+        # Make them accessible
+        self.previewButton = previewButton
+        self.confirmButton = confirmButton
+
     def buildCaseIteratorUI(self, mainLayout: qt.QFormLayout):
         # Layout
-        taskWidget = qt.QWidget()
-        taskLayout = qt.QVBoxLayout(taskWidget)
+        iteratorWidget = qt.QWidget()
+        taskLayout = qt.QVBoxLayout(iteratorWidget)
 
         # Add the task "widget" (just a frame to hold everything in) to the global layout
-        mainLayout.addWidget(taskWidget)
+        mainLayout.addWidget(iteratorWidget)
 
         # Hide this by default, only showing it when we're ready to iterate
-        taskWidget.setVisible(False)
+        iteratorWidget.setVisible(False)
 
         # Next + previous buttons in a horizontal layout
         buttonLayout = qt.QHBoxLayout()
@@ -399,7 +429,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         taskLayout.addWidget(self.cohortTable)
 
         # Make the groupbox accessible elsewhere, so it can be made visible later
-        self.taskWidget = taskWidget
+        self.iteratorWidget = iteratorWidget
 
         # Connections
         nextButton.clicked.connect(self.nextCase)
@@ -429,7 +459,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if success:
             self._refreshUserList()
             # Check if we're ready to proceed
-            self.loadTaskWhenReady()
+            self.updateButtons()
         else:
             # TODO: Add a user prompt
             print(f"Failed to add user '{new_name}'.")
@@ -442,8 +472,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Rebuild the GUI to match
         self._refreshUserList()
 
-        # Attempt to load the task, if we're now ready
-        self.loadTaskWhenReady()
+        # Update the button states to match our current state
+        self.updateButtons()
 
     def _refreshUserList(self):
         """
@@ -482,40 +512,29 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             print("Error: Base path was empty, retaining previous base path.")
             self.dataPathSelectionWidget.currentPath = str(self.logic.data_path)
 
-        self.loadTaskWhenReady()
+        # Update the state of our buttons to match
+        self.updateButtons()
 
     def onCohortChanged(self):
-        """
-        Update our GUI to account for a change in the selected cohort CSV
-        """
         # Get the currently selected cohort file from the widget
         new_cohort = Path(self.cohortFileSelectionButton.currentPath)
 
         # Attempt to update the cohort in our logic instance
         success = self.logic.set_current_cohort(new_cohort)
 
-        # If we didn't succeed, end here and leave the GUI state untouched
-        if not success:
-            return
+        # If we succeeded, update our state to match
+        if success:
+            self.updateButtons()
 
-        # Update the current case label
-        current_case = self.logic.get_current_case()
-        if not current_case:
-            print("You managed to get a data manager without any cases! Impressive!")
-
-        self.currentCaseNameLabel.text = str(self.logic.get_current_case().uid)
+    def onPreviewCohortClicked(self):
+        """
+        Load the cohort explicitly, so it can be reviewed.
+        """
+        # Load the file's cases into memory
+        self.logic.load_cohort()
 
         # Update the resources table to match the new cohort's contents
         self.fillResourcesTable()
-
-        # Check if we're ready to proceed with our task
-        self.loadTaskWhenReady()
-
-    def onLoadCohortClicked(self):
-        """
-        Handles the explicit load cohort button click.
-        """
-        self.onCohortChanged()
 
     def onTaskChanged(self):
         # Update the currently selected task
@@ -534,10 +553,13 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.taskGUI.collapsed = True
         self.taskGUI.setEnabled(False)
 
-        # Check if we're now ready to iterate
-        self.loadTaskWhenReady()
+        # Update our button panel to match the new state
+        self.updateButtons()
       
     def fillResourcesTable(self):
+        return
+
+        # TODO: Replace this so that it previews the cohort data instead
         for row_index, (key, value) in enumerate(self.logic.get_current_case().data.items()):
             if key == "uid":
                 continue
@@ -547,7 +569,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Make the task box visible, if it was not already.
         # TODO: Separate the cohort table from the task iterator, so one can be
         #  view/hidden without the other
-        self.taskWidget.setVisible(True)
+        self.iteratorWidget.setVisible(True)
 
 
     ### Iterator Widgets ###
@@ -585,6 +607,14 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.current_task_instance.setup(self.logic.data_manager.current_data_unit())
 
     ### Task Related ###
+    def updateButtons(self):
+        # If we have a cohort file, it can be previewed
+        if self.logic.cohort_path:
+            self.previewButton.setEnabled(True)
+
+        # If the logic says we're ready to start, we can start
+        if self.logic.is_ready():
+            self.confirmButton.setEnabled(True)
 
     def loadTaskWhenReady(self):
         # If we're not ready to load a task, leave everything untouched
@@ -604,6 +634,12 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Expand the task GUI and enable it, if it wasn't already
         self.taskGUI.collapsed = False
         self.taskGUI.setEnabled(True)
+
+        # Reveal the iterator GUI, if it wasn't already
+        self.iteratorWidget.setVisible(True)
+
+        # Update the current UID in the iterator
+        self.currentCaseNameLabel.text = str(self.logic.current_uid())
 
         # Collapse the main (setup) GUI, if it wasn't already
         self.mainGUI.collapsed = True
@@ -740,10 +776,12 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         ):
             print(f"Warning: Reloaded the same cohort file!")
 
-        # If all checks pass, load the new cohort
+        # If all checks pass, update our state
         self.cohort_path = new_path
-        self._load_cohort()
-
+        self.data_manager = DataManager(
+            cohort_file=self.cohort_path,
+            data_source=self.data_path,
+        )
         return True
 
     def set_data_path(self, new_path: Path) -> bool:
@@ -757,32 +795,24 @@ class CARTLogic(ScriptedLoadableModuleLogic):
             print(f"Error: Data path was not a directory: {new_path}")
             return False
 
-        # Update our data path
+        # If that all ran, update our data path to the new data path
         self.data_path = new_path
         print(f"Data path set to: {self.data_path}")
 
-        # If we have a DataManager, update it as well
-        if self.data_manager:
-            self.data_manager.set_data_source(new_path)
+        # and replace the previous data manager
+        del self.data_manager
+        self.data_manager = DataManager(
+            cohort_file=self.cohort_path,
+            data_source=self.data_path,
+        )
+
         return True
 
-    def _load_cohort(self):
+    def load_cohort(self):
         """
         Load the contents of the currently selected cohort file into memory
         """
-        # Initialize a new data manager; held out until everything is run, as
-        #  to not break anything down the pipe
-        new_data_manager = DataManager()
-
-        # Attempt to read data from the cohort file into the data manager
-        new_data_manager.load_cases(self.cohort_path)
-
-        # Attempt to set the new manager's data source
-        new_data_manager.set_data_source(self.data_path)
-
-        # If that succeeded, replace the previous data manager and proceed
-        del self.data_manager
-        self.data_manager = new_data_manager
+        self.data_manager.load_cases()
 
     ## Task Management ##
     def set_task_type(self, task_type: type(TaskBaseClass)):
@@ -829,11 +859,22 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         if not self.is_ready():
             return None
 
+        # Load the cohort file into memory again, as it may not already be so
+        #  (or the user made edits to it after a preview)
+        self.load_cohort()
+
         # Create the new task instance and return it.
         self.current_task_instance = self.current_task_type(self.get_current_case())
         return self.current_task_instance
 
     ## DataUnit Management ##
+    def current_uid(self):
+        if self.data_manager:
+            return self.data_manager.current_uid()
+        # In the off chance where we don't have cases loaded, return none
+        else:
+            return ""
+
     def get_current_case(self) -> Optional[DataUnitBase]:
         """
         Get the DataUnit currently indexed by the data manager.

@@ -25,8 +25,9 @@ class DataManager:
 
     def __init__(
         self,
+        cohort_file: Optional[Path] = None,
         data_source: Optional[Path] = None,
-        cache_size: int = 2,
+        cache_size: int = 2
     ):
         """
         Initialize DataManager with optional configuration and window size.
@@ -39,9 +40,9 @@ class DataManager:
         # TODO Add pre-fetching as well.
         """
         # The cohort data, and the file from which it was pulled
-        self.cohort_csv: Path = None
-        self.case_data: List[Dict[str, str]] = []
+        self.cohort_csv: Path = cohort_file
         self.data_source: Path = data_source
+        self.case_data: List[Dict[str, str]] = []
 
         # Current index in the
         self.current_case_index: int = 0
@@ -54,24 +55,6 @@ class DataManager:
     def get_cache_size(self):
         return self.get_data_unit.cache_info().maxsize
 
-    def set_data_cohort_csv(self, csv_path: Path) -> None:
-        """
-        Configure the cohort CSV file to use for data loading.
-
-        Args:
-            csv_path: Path to the cohort CSV file.
-        """
-        self.cohort_csv = csv_path
-
-    def get_data_cohort_csv(self) -> Optional[Path]:
-        """
-        Retrieve the configured cohort CSV file path.
-
-        Returns:
-            Path to the cohort CSV, or None if not set.
-        """
-        return self.cohort_csv
-
     def set_data_source(self, source: Path):
         # TODO: Validate the input before running
         self.data_source = source
@@ -79,13 +62,10 @@ class DataManager:
         # Clear our cache, as its almost certainly no longer valid
         self.get_data_unit.cache_clear()
 
-        # Reset to the beginning
+        # Reset to the beginning, as everything is
         self.current_case_index = 0
 
-        # Re-pull the current data unit
-        self.current_data_unit()
-
-        # Begin re-building the pre-fetch cache
+        # Begin re-building the pre-fetch cache, if it exists
         self._pre_fetch_elements()
 
         # TODO: Notify the Task that this has been updated as well somehow.
@@ -93,14 +73,10 @@ class DataManager:
     def get_data_source(self):
         return self.data_source
 
-    def load_cases(self, csv_path: Optional[Path]) -> None:
+    def load_cases(self) -> None:
         """
         Load the cases designated in a cohort CSV into memory, ready to be used
           to generate DataUnit instances.
-
-        Args:
-            csv_path: A Path to the cohort CSV file. If one is not provided,
-              attempts to use the previous CSV file instead.
 
         Raises:
             ValueError: If no path is provided/configured, or if CSV is invalid.
@@ -108,28 +84,24 @@ class DataManager:
         # Notify the user we're loading data
         print(f"Loading cohort from '{self.cohort_csv}'")
 
-        # Use the prior CSV if no new one was provided
-        csv_path = csv_path or self.cohort_csv
-
         # If no path is present, raise an error
-        if csv_path is None:
+        if self.cohort_csv is None:
             raise ValueError("No CSV has been given to load data from.")
 
         # Try to read the data
-        rows = DataManager._read_csv(csv_path)
-        print(rows)
+        rows = DataManager._read_csv(self.cohort_csv)
 
         # If we succeeded, update everything to match and reset the queue
-        self.cohort_csv = csv_path
         self.case_data = rows
         self.current_case_index = 0  # Start at beginning
-        print(f"Loaded {len(rows)} rows from {csv_path}")
+        print(f"Loaded {len(rows)} rows!")
 
     def get_data_unit(self, idx: int):
         """
         Gets the current DataUnit at our index.
 
-        Note that, while the decorator
+        Note that this is cached using LRU; it won't reconstruct a data unit
+        if we recently created it, instead using the cached version instead.
         """
         current_case_data = self.case_data[idx]
         # TODO: replace this with a user-selectable data unit type
@@ -138,9 +110,12 @@ class DataManager:
             data_path=self.data_source
         )
 
+    def current_uid(self):
+        return self.case_data[self.current_case_index]['uid']
+
     def current_data_unit(self) -> DataUnitBase:
         """
-        Return the current DataIO in the queue without changing the index.
+        Return the current DataUnit in the queue without changing the index.
         """
         return self.get_data_unit(self.current_case_index)
 
