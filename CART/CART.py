@@ -533,12 +533,20 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.colCount = len(self.headers)
             
             self.cohortTable = qt.QTableWidget()
+            
+            self.cohortTable.setSizePolicy(
+                qt.QSizePolicy.Expanding,
+                qt.QSizePolicy.Expanding
+            )
 
             self.cohortTable.setRowCount(self.rowCount)
             self.cohortTable.setColumnCount(self.colCount)
             self.cohortTable.setHorizontalHeaderLabels(
                 [_(h) for h in self.headers]
             )
+            self.cohortTable.horizontalHeader().setSectionResizeMode(qt.QHeaderView.ResizeToContents)
+            
+            self.cohortTable.setHorizontalScrollBarPolicy(qt.Qt.ScrollBarAsNeeded)
             
             for row in range(1, self.rowCount):
                 for col in range(self.colCount):
@@ -551,10 +559,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                         
                     self.cohortTable.setItem(row - 1, col, item)
                     
-                    # Make the table itself unselectable and uneditable
-            self.cohortTable.setEditTriggers(qt.QAbstractItemView.NoEditTriggers)
-            self.cohortTable.setSelectionBehavior(qt.QAbstractItemView.SelectRows)
-            self.cohortTable.setSelectionMode(qt.QAbstractItemView.NoSelection)
             self.cohortTable.setAlternatingRowColors(True)
             self.cohortTable.setShowGrid(True)
             self.cohortTable.verticalHeader().setVisible(False)
