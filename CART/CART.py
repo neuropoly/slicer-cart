@@ -617,37 +617,43 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Disable the GUI until the next case has loaded
         self.disableGUIWhileLoading()
 
-        # Confirm we have a next case to step into first
-        if not self.logic.has_next_case():
-            print("You somehow requested the next case, despite there being none!")
-            return
+        try:
+            # Confirm we have a next case to step into first
+            if not self.logic.has_next_case():
+                print("You somehow requested the next case, despite there being none!")
+                return
 
-        # Step into the next case
-        self.logic.next_case()
+            # Step into the next case
+            self.logic.next_case()
 
-        # Update our GUI to match the new state
-        self.updateIteratorGUI()
-
-        # Re-enable the GUI for use
-        self.enableGUIAfterLoad()
+            # Update our GUI to match the new state
+            self.updateIteratorGUI()
+        except Exception as e:
+            self.pythonExceptionPrompt(e)
+        finally:
+            # Re-enable the GUI
+            self.enableGUIAfterLoad()
 
     def previousCase(self):
         # Disable the GUI until the previous case has loaded
         self.disableGUIWhileLoading()
 
-        # Confirm we have a next case to step into first
-        if not self.logic.has_previous_case():
-            print("You somehow requested the previous case, despite there being none!")
-            return
+        try:
+            # Confirm we have a next case to step into first
+            if not self.logic.has_previous_case():
+                print("You somehow requested the previous case, despite there being none!")
+                return
 
-        # Step into the next case
-        self.logic.previous_case()
+            # Step into the next case
+            self.logic.previous_case()
 
-        # Update our GUI to match the new state
-        self.updateIteratorGUI()
-
-        # Re-enable the GUI for use
-        self.enableGUIAfterLoad()
+            # Update our GUI to match the new state
+            self.updateIteratorGUI()
+        except Exception as e:
+            self.pythonExceptionPrompt(e)
+        finally:
+            # Re-enable the GUI
+            self.enableGUIAfterLoad()
 
     ### Task Related ###
     def updateButtons(self):
@@ -667,38 +673,52 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Disable the GUI, as to avoid de-synchronization
         self.disableGUIWhileLoading()
 
-        # Set task mode to true; session started
-        self.isTaskMode = True
+        try:
+            # Set task mode to true; session started
+            self.isTaskMode = True
 
-        # Initialize the new task
-        self.logic.init_task()
+            # Initialize the new task
+            self.logic.init_task()
 
-        # Create a "dummy" widget that the task can fill
-        self.dummyTaskWidget = qt.QWidget()
-        # Build the Task GUI, using the prior widget as a foundation
-        self.logic.current_task_instance.setup(self.dummyTaskWidget)
-        # Add the widget to our layout
-        self.taskGUI.layout().addWidget(self.dummyTaskWidget)
+            # Create a "dummy" widget that the task can fill
+            self.dummyTaskWidget = qt.QWidget()
+            # Build the Task GUI, using the prior widget as a foundation
+            self.logic.current_task_instance.setup(self.dummyTaskWidget)
+            # Add the widget to our layout
+            self.taskGUI.layout().addWidget(self.dummyTaskWidget)
 
-        # Expand the task GUI and enable it, if it wasn't already
-        self.taskGUI.collapsed = False
-        self.taskGUI.setEnabled(True)
+            # Expand the task GUI and enable it, if it wasn't already
+            self.taskGUI.collapsed = False
+            self.taskGUI.setEnabled(True)
 
-        # Load the cohort csv data into the table, if it wasn't already
-        self.updateCohortTable()
+            # Load the cohort csv data into the table, if it wasn't already
+            self.updateCohortTable()
 
-        # Reveal the iterator GUI, if it wasn't already
-        self.iteratorWidget.setVisible(True)
+            # Reveal the iterator GUI, if it wasn't already
+            self.iteratorWidget.setVisible(True)
 
-        # Update the current UID in the iterator
-        self.updateIteratorGUI()
+            # Update the current UID in the iterator
+            self.updateIteratorGUI()
 
-        # Collapse the main (setup) GUI, if it wasn't already
-        self.mainGUI.collapsed = True
+            # Collapse the main (setup) GUI, if it wasn't already
+            self.mainGUI.collapsed = True
 
-        # Re-enable the GUI
-        self.promptLoadingComplete()
+        except Exception as e:
+            self.pythonExceptionPrompt(e)
+        finally:
+            # Re-enable the GUI
+            self.enableGUIAfterLoad()
 
+    def pythonExceptionPrompt(self, e):
+        # Display an error message notifying the user
+        errorPrompt = qt.QErrorMessage()
+        errorPrompt.showMessage(e)
+        errorPrompt.exec_()
+        # Disable the continue button, as the current setup didn't work
+        self.confirmButton.setEnabled(False)
+        # Disable and collapse the Task GUI
+        self.taskGUI.collapsed = True
+        self.taskGUI.setEnabled(False)
 
     ## Management ##
     def disableGUIWhileLoading(self):
@@ -726,7 +746,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """
 
         self.mainGUI.setEnabled(True)
-        self.taskGUI.setEnabled(True)
+        if self.logic.current_task_instance:
+            self.taskGUI.setEnabled(True)
 
         # Terminate the "Loading..." dialog, if it exists
         # TODO: Replace this with a proper prompt
