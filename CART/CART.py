@@ -476,6 +476,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if success:
             self.isTaskMode = False
             self.isPreviewMode = False
+            self.previewButton.setStyleSheet("")
             self.updateCohortTable()
             self.updateButtons()
 
