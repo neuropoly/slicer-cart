@@ -477,6 +477,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # If we succeeded, update our state to match
         if success:
+            self.isTaskMode = False
+            self.isPreviewMode = False
+            self.updateCohortTable()
             self.updateButtons()
 
     def onPreviewCohortClicked(self):
