@@ -714,8 +714,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.enableGUIAfterLoad()
 
     def pythonExceptionPrompt(self, e):
-        # Print the error to console
-        # print(e.stacktrace())
         # Display an error message notifying the user
         errorPrompt = qt.QErrorMessage()
         errorPrompt.showMessage(e)
