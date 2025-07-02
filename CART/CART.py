@@ -608,7 +608,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.nextButton.setEnabled(self.logic.has_next_case())
 
         # Check if we have a previous case, and enable/disable the button accordingly
-        self.previewButton.setEnabled(self.logic.has_previous_case())
+        self.previousButton.setEnabled(self.logic.has_previous_case())
 
     def nextCase(self):
         """
