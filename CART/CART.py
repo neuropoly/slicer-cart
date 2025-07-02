@@ -528,14 +528,14 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     
     def buildCohortTable(self):
         csv_data_raw = self.logic.data_manager.case_data
-        
-        self.headers =  list(csv_data_raw[0].keys())
+
+        self.headers = list(csv_data_raw[0].keys())
         csv_data_list = [[row[key] for key in self.headers] for row in csv_data_raw]
-        self.rowCount = len(csv_data_list)        
+        self.rowCount = len(csv_data_list)
         self.colCount = len(self.headers)
-        
+
         self.cohortTable = qt.QTableWidget()
-        
+
         self.cohortTable.setSizePolicy(
             qt.QSizePolicy.Expanding,
             qt.QSizePolicy.Expanding
@@ -547,30 +547,36 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             [_(h) for h in self.headers]
         )
         self.cohortTable.horizontalHeader().setSectionResizeMode(qt.QHeaderView.ResizeToContents)
-        
+
         self.cohortTable.setHorizontalScrollBarPolicy(qt.Qt.ScrollBarAsNeeded)
-        
+
+        # Define a special color for the first column, including the header
+        first_col_brush = qt.QBrush(qt.QColor("#8f6ae7"))
+        self.cohortTable.horizontalHeaderItem(0).setBackground(first_col_brush)
+
         for row in range(self.rowCount):
             for col in range(self.colCount):
                 item = qt.QTableWidgetItem(csv_data_list[row][col])
                 item.setTextAlignment(qt.Qt.AlignLeft | qt.Qt.AlignVCenter)
                 if col == 0:
                     item.setToolTip(_("Data Unit"))
+                    item.setBackground(first_col_brush)
                 else:
                     item.setToolTip(_("Resource of : " + str(csv_data_list[row][0])))
-                    
+
                 self.cohortTable.setItem(row, col, item)
-                
+
         self.cohortTable.setAlternatingRowColors(True)
         self.cohortTable.setShowGrid(True)
         self.cohortTable.verticalHeader().setVisible(False)
-        
+
         self.taskLayout.addWidget(self.cohortTable)
-    
+
         self.iteratorWidget.setVisible(True)
     
     def destroyCohortTable(self):
-        self.taskLayout.removeWidget(self.cohortTable)
+        if hasattr(self, "cohortTable"):
+            self.taskLayout.removeWidget(self.cohortTable)
         self.iteratorWidget.setVisible(False)
         
     def updateCohortTable(self):
