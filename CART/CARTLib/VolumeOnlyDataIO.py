@@ -53,7 +53,6 @@ class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):
                 continue
             else:
                 file_path = self._parse_path(value)
-                print("Data path: ", self.base_path)
                 if not file_path.exists():
                     raise ValueError(
                         f"Invalid data for key '{key}': file does not exist at {value}."

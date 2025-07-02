@@ -254,9 +254,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def buildCohortUI(self, mainLayout: qt.QFormLayout):
         
-        self.successful_cohort_change = True
-        self.successful_data_path_change = True
-        
         # Directory selection button
         cohortFileSelectionButton = ctk.ctkPathLineEdit()
 
@@ -502,7 +499,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             # Reset preview button
             self.previewButton.setStyleSheet("")
             
-        # Update the resources table to match the new cohort's contents
+        # Update the cohort table
         self.updateCohortTable()
         
         # Disable previous and next buttons if in preview mode
@@ -708,28 +705,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def onSceneEndClose(self, caller, event) -> None:
         """Called just after the scene is closed."""
         pass
-
-    # def validateReloadCohortAndData(self) -> None:
-    #     """
-        
-    #     Called when a new cohort and, necessarily, data path are selected during the session; NOT called when the first cohort and data path are selected
-    #     """
-    #     print("COHORT CHANGE: ", str(self.successful_cohort_change))
-    #     print("DATA PATH CHANGE: ", str(self.successful_data_path_change))
-
-    #     if self.successful_cohort_change and self.successful_data_path_change:
-    #         if self.cohortTable:
-    #             self.destroyCohortTable()
-    #             self.previewButton.setEnabled(True)
-    #             self.confirmButton.setEnabled(True)
-    
-    # def validateDataPathAndCohortMatch(self) -> None:
-    #     if not (self.successful_cohort_change and self.successful_data_path_change):
-    #         msg = qt.QMessageBox()
-    #         msg.setWindowTitle('Warning')
-    #         msg.setText(
-    #             "Please match your data path and your cohort.")
-    #         msg.exec()
         
 #
 # CARTLogic
