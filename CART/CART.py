@@ -457,19 +457,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Strip it of leading/trailing whitespace
         current_path = current_path.strip()
-
-        is_data_path_changed = False
         
         # If a path still exists, update everything to use it   
         if current_path:
             self.logic.set_data_path(Path(current_path))
-            if self.logic.data_manager:
-                if self.logic.data_manager.data_source != current_path:
-                    is_data_path_changed = current_path != None
-                
-                if is_data_path_changed:
-                    self.successful_data_path_change = True
-                    self.validateReloadCohortAndData()
         else:
             print("Error: Base path was empty, retaining previous base path.")
             self.dataPathSelectionWidget.currentPath = str(self.logic.data_path)
@@ -484,17 +475,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Attempt to update the cohort in our logic instance
         success = self.logic.set_current_cohort(new_cohort)
 
-        is_cohort_changed = False
         # If we succeeded, update our state to match
         if success:
-            # Determine if the cohort was changed after the initial session cohort
-            if self.logic.data_manager:
-                if self.logic.data_manager.cohort_csv != new_cohort:
-                    is_cohort_changed = new_cohort != None
-                
-                if is_cohort_changed:
-                    self.successful_cohort_change = True
-                    self.validateReloadCohortAndData()
             self.updateButtons()
 
     def onPreviewCohortClicked(self):
@@ -502,7 +484,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         Load the cohort explicitly, so it can be reviewed.
         """
         # Check if the user is in the middle of changing cohorts and data path doesn't match the cohort yet
-        self.validateDataPathAndCohortMatch()
+        # self.validateDataPathAndCohortMatch()
         
         # Update preview mode state 
         self.isPreviewMode = not self.isPreviewMode
@@ -593,8 +575,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         
     def updateCohortTable(self):
         
-        self.nextButton.setEnabled(not self.isPreviewMode)
-        self.previousButton.setEnabled(not self.isPreviewMode)
+        self.nextButton.setEnabled(self.isTaskMode)
+        self.previousButton.setEnabled(self.isTaskMode)
         
         # If preview then confirm were clicked
         if self.isPreviewMode and self.isTaskMode:
@@ -674,7 +656,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             return
         
         # Check if the user is in the middle of changing cohorts and data path doesn't match the cohort yet
-        self.validateDataPathAndCohortMatch()
+        # self.validateDataPathAndCohortMatch()
         
         # Disable preview and confirm buttons if task has started
         self.previewButton.setEnabled(False)
@@ -724,27 +706,27 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """Called just after the scene is closed."""
         pass
 
-    def validateReloadCohortAndData(self) -> None:
-        """
+    # def validateReloadCohortAndData(self) -> None:
+    #     """
         
-        Called when a new cohort and, necessarily, data path are selected during the session; NOT called when the first cohort and data path are selected
-        """
-        print("COHORT CHANGE: ", str(self.successful_cohort_change))
-        print("DATA PATH CHANGE: ", str(self.successful_data_path_change))
+    #     Called when a new cohort and, necessarily, data path are selected during the session; NOT called when the first cohort and data path are selected
+    #     """
+    #     print("COHORT CHANGE: ", str(self.successful_cohort_change))
+    #     print("DATA PATH CHANGE: ", str(self.successful_data_path_change))
 
-        if self.successful_cohort_change and self.successful_data_path_change:
-            if self.cohortTable:
-                self.destroyCohortTable()
-                self.previewButton.setEnabled(True)
-                self.confirmButton.setEnabled(True)
+    #     if self.successful_cohort_change and self.successful_data_path_change:
+    #         if self.cohortTable:
+    #             self.destroyCohortTable()
+    #             self.previewButton.setEnabled(True)
+    #             self.confirmButton.setEnabled(True)
     
-    def validateDataPathAndCohortMatch(self) -> None:
-        if not (self.successful_cohort_change and self.successful_data_path_change):
-            msg = qt.QMessageBox()
-            msg.setWindowTitle('Warning')
-            msg.setText(
-                "Please match your data path and your cohort.")
-            msg.exec()
+    # def validateDataPathAndCohortMatch(self) -> None:
+    #     if not (self.successful_cohort_change and self.successful_data_path_change):
+    #         msg = qt.QMessageBox()
+    #         msg.setWindowTitle('Warning')
+    #         msg.setText(
+    #             "Please match your data path and your cohort.")
+    #         msg.exec()
         
 #
 # CARTLogic
