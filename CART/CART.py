@@ -702,7 +702,11 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
             # Collapse the main (setup) GUI, if it wasn't already
             self.mainGUI.collapsed = True
-
+            
+            # Disable preview and confirm buttons, as task has started
+            self.previewButton.setEnabled(False)
+            self.confirmButton.setEnabled(False)  
+            
         except Exception as e:
             self.pythonExceptionPrompt(e)
         finally:
@@ -710,6 +714,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.enableGUIAfterLoad()
 
     def pythonExceptionPrompt(self, e):
+        # Print the error to console
+        # print(e.stacktrace())
         # Display an error message notifying the user
         errorPrompt = qt.QErrorMessage()
         errorPrompt.showMessage(e)
