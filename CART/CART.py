@@ -614,10 +614,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """
         Request the iterator step into the next case
         """
-        print("NEXT CASE!")
-
         # Disable the GUI until the next case has loaded
-        self.promptLoadingStarted()
+        self.disableGUIWhileLoading()
 
         # Confirm we have a next case to step into first
         if not self.logic.has_next_case():
@@ -631,10 +629,12 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.updateIteratorGUI()
 
         # Re-enable the GUI for use
-        self.promptLoadingComplete()
+        self.enableGUIAfterLoad()
 
     def previousCase(self):
-        print("PREVIOUS CASE!")
+        # Disable the GUI until the previous case has loaded
+        self.disableGUIWhileLoading()
+
         # Confirm we have a next case to step into first
         if not self.logic.has_previous_case():
             print("You somehow requested the previous case, despite there being none!")
@@ -645,6 +645,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Update our GUI to match the new state
         self.updateIteratorGUI()
+
+        # Re-enable the GUI for use
+        self.enableGUIAfterLoad()
 
     ### Task Related ###
     def updateButtons(self):
@@ -662,7 +665,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             return
 
         # Disable the GUI, as to avoid de-synchronization
-        self.promptLoadingStarted()
+        self.disableGUIWhileLoading()
 
         # Set task mode to true; session started
         self.isTaskMode = True
@@ -698,7 +701,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
 
     ## Management ##
-    def promptLoadingStarted(self):
+    def disableGUIWhileLoading(self):
         """
         Disable our entire GUI.
 
@@ -714,7 +717,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         print("Loading...")
 
 
-    def promptLoadingComplete(self):
+    def enableGUIAfterLoad(self):
         """
         Enable our entire GUI.
 
