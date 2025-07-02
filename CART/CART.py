@@ -502,10 +502,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Update the cohort table
         self.updateCohortTable()
 
-        # Disable previous and next buttons if in preview mode
-        self.nextButton.setEnabled(not self.nextButton.isEnabled())
-        self.previousButton.setEnabled(not self.previousButton.isEnabled())
-
     def onTaskChanged(self):
         # Update the currently selected task
         task_name = self.taskOptions.currentText
@@ -580,10 +576,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.iteratorWidget.setVisible(False)
 
     def updateCohortTable(self):
-
-        self.nextButton.setEnabled(self.isTaskMode)
-        self.previousButton.setEnabled(self.isTaskMode)
-
         # If preview then confirm were clicked
         if self.isPreviewMode and self.isTaskMode:
             # TODO Is this necessary? Can we just confirm and use the same table, so just load the volumes without touching the table?
@@ -605,8 +597,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if not self.isPreviewMode and not self.isTaskMode:
             self.destroyCohortTable()
             return
-
-
 
     ### Iterator Widgets ###
     def updateIteratorGUI(self):
