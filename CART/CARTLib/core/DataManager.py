@@ -119,6 +119,12 @@ class DataManager:
         """
         return self.get_data_unit(self.current_case_index)
 
+    def has_next_case(self) -> bool:
+        return self.current_case_index+1 < len(self.case_data)
+
+    def has_previous_case(self) -> bool:
+        return self.current_case_index > 0
+
     def next_data_unit(self) -> DataUnitBase:
         """
         Advance to the next case, and get its corresponding DataUnit.

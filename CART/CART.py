@@ -253,7 +253,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.userSelectButton = userSelectButton
 
     def buildCohortUI(self, mainLayout: qt.QFormLayout):
-        
         # Directory selection button
         cohortFileSelectionButton = ctk.ctkPathLineEdit()
 
@@ -314,10 +313,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def buildButtonPanel(self, mainLayout: qt.QFormLayout):
         # Add a state to track whether cohort is in preview mode
         self.isPreviewMode = False
-        
+
         # Add a state to track whether cohort is in task mode (confirm clicked)
         self.isTaskMode = False
-        
+
         # A button to preview the cohort, without starting on a task
         previewButton = qt.QPushButton(_("Preview"))
         previewButton.setToolTip(_("""
@@ -348,7 +347,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.previewButton = previewButton
         self.confirmButton = confirmButton
 
-    def buildCaseIteratorUI(self, mainLayout: qt.QFormLayout):        
+    def buildCaseIteratorUI(self, mainLayout: qt.QFormLayout):
         # Layout
         iteratorWidget = qt.QWidget()
         self.taskLayout = qt.QVBoxLayout(iteratorWidget)
@@ -454,8 +453,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Strip it of leading/trailing whitespace
         current_path = current_path.strip()
-        
-        # If a path still exists, update everything to use it   
+
+        # If a path still exists, update everything to use it
         if current_path:
             self.logic.set_data_path(Path(current_path))
         else:
@@ -486,10 +485,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """
         # Check if the user is in the middle of changing cohorts and data path doesn't match the cohort yet
         # self.validateDataPathAndCohortMatch()
-        
-        # Update preview mode state 
+
+        # Update preview mode state
         self.isPreviewMode = not self.isPreviewMode
-        
+
         if self.isPreviewMode:
             # Change the color of the preview button to indicate preview mode
             self.previewButton.setStyleSheet("background-color: #777eb4; color: #777eb4;")
@@ -499,14 +498,14 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         else:
             # Reset preview button
             self.previewButton.setStyleSheet("")
-            
+
         # Update the cohort table
         self.updateCohortTable()
-        
+
         # Disable previous and next buttons if in preview mode
         self.nextButton.setEnabled(not self.nextButton.isEnabled())
         self.previousButton.setEnabled(not self.previousButton.isEnabled())
-        
+
     def onTaskChanged(self):
         # Update the currently selected task
         task_name = self.taskOptions.currentText
@@ -526,7 +525,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Update our button panel to match the new state
         self.updateButtons()
-    
+
     def buildCohortTable(self):
         csv_data_raw = self.logic.data_manager.case_data
 
@@ -574,34 +573,34 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.taskLayout.addWidget(self.cohortTable)
 
         self.iteratorWidget.setVisible(True)
-    
+
     def destroyCohortTable(self):
         if hasattr(self, "cohortTable"):
             self.taskLayout.removeWidget(self.cohortTable)
         self.iteratorWidget.setVisible(False)
-        
+
     def updateCohortTable(self):
-        
+
         self.nextButton.setEnabled(self.isTaskMode)
         self.previousButton.setEnabled(self.isTaskMode)
-        
+
         # If preview then confirm were clicked
         if self.isPreviewMode and self.isTaskMode:
             # TODO Is this necessary? Can we just confirm and use the same table, so just load the volumes without touching the table?
             self.destroyCohortTable()
             self.buildCohortTable()
             return
-        
+
         # If preview gets toggled on
         if self.isPreviewMode and not self.isTaskMode:
             self.buildCohortTable()
             return
-        
+
         # If straight to confirm
         if not self.isPreviewMode and self.isTaskMode:
             self.buildCohortTable()
-            return 
-        
+            return
+
         # If preview gets toggled off
         if not self.isPreviewMode and not self.isTaskMode:
             self.destroyCohortTable()
@@ -610,38 +609,52 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
 
     ### Iterator Widgets ###
+    def updateIteratorGUI(self):
+        # Update the current UID label
+        new_label = f"Data Unit {self.logic.current_uid()}"
+        self.currentCaseNameLabel.text = new_label
+
+        # Check if we have a next case, and enable/disable the button accordingly
+        self.nextButton.setEnabled(self.logic.has_next_case())
+
+        # Check if we have a previous case, and enable/disable the button accordingly
+        self.previewButton.setEnabled(self.logic.has_previous_case())
 
     def nextCase(self):
-        # TODO: Actually implement this
+        """
+        Request the iterator step into the next case
+        """
         print("NEXT CASE!")
-        return
 
+        # Disable the GUI until the next case has loaded
+        self.promptLoadingStarted()
 
-        next_case = self.logic.data_manager.next_data_unit()
-        self.current_case = next_case
-        print(self.current_case.uid)
-        
-        if self.isReady():
-            self.currentCaseNameLabel.text = "Data Unit " + str(self.current_case.uid)
-            self.updateCohortTable()
-            self.current_task_instance.setup(self.logic.data_manager.current_data_unit())
+        # Confirm we have a next case to step into first
+        if not self.logic.has_next_case():
+            print("You somehow requested the next case, despite there being none!")
+            return
+
+        # Step into the next case
+        self.logic.next_case()
+
+        # Update our GUI to match the new state
+        self.updateIteratorGUI()
+
+        # Re-enable the GUI for use
+        self.promptLoadingComplete()
 
     def previousCase(self):
-        # TODO: Actually implement this
         print("PREVIOUS CASE!")
-        return
+        # Confirm we have a next case to step into first
+        if not self.logic.has_previous_case():
+            print("You somehow requested the previous case, despite there being none!")
+            return
 
-        # HACK REMOVE THIS AND MAKE IT CLEANER WHEN IMPLEMENTING THE MULTI-SCENE LAZY LOADING
-        slicer.mrmlScene.Clear()
+        # Step into the next case
+        self.logic.previous_case()
 
-        previous_case = self.logic.data_manager.previous_data_unit()
-        self.current_case = previous_case
-        print(self.current_case.uid)
-        
-        if self.isReady():
-            self.currentCaseNameLabel.text = "Data Unit " + str(self.current_case.uid)
-            self.updateCohortTable()
-            self.current_task_instance.setup(self.logic.data_manager.current_data_unit())
+        # Update our GUI to match the new state
+        self.updateIteratorGUI()
 
     ### Task Related ###
     def updateButtons(self):
@@ -654,24 +667,16 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.confirmButton.setEnabled(True)
 
     def loadTaskWhenReady(self):
-        """
-        Called when the confirm button is clicked to load volumes and build the cohort table
-        """
-        
         # If we're not ready to load a task, leave everything untouched
         if not self.logic.is_ready():
             return
-        
-        # Check if the user is in the middle of changing cohorts and data path doesn't match the cohort yet
-        # self.validateDataPathAndCohortMatch()
-        
-        # Disable preview and confirm buttons if task has started
-        self.previewButton.setEnabled(False)
-        self.confirmButton.setEnabled(False)
-        
+
+        # Disable the GUI, as to avoid de-synchronization
+        self.promptLoadingStarted()
+
         # Set task mode to true; session started
         self.isTaskMode = True
-        
+
         # Initialize the new task
         self.logic.init_task()
 
@@ -685,21 +690,54 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Expand the task GUI and enable it, if it wasn't already
         self.taskGUI.collapsed = False
         self.taskGUI.setEnabled(True)
-        
-        # Load the cohort csv data into the table
+
+        # Load the cohort csv data into the table, if it wasn't already
         self.updateCohortTable()
 
         # Reveal the iterator GUI, if it wasn't already
         self.iteratorWidget.setVisible(True)
 
         # Update the current UID in the iterator
-        self.currentCaseNameLabel.text = str(self.logic.current_uid())
+        self.updateIteratorGUI()
 
         # Collapse the main (setup) GUI, if it wasn't already
         self.mainGUI.collapsed = True
 
+        # Re-enable the GUI
+        self.promptLoadingComplete()
+
 
     ## Management ##
+    def promptLoadingStarted(self):
+        """
+        Disable our entire GUI.
+
+        Usually only needed when a new DataUnit is in the process of being
+          loaded, to ensure the GUI doesn't de-synchronize from the Logic.
+        """
+        # Disable everything immediately
+        self.mainGUI.setEnabled(False)
+        self.taskGUI.setEnabled(False)
+
+        # Create a "Loading..." dialog to let the user know something is being run
+        # TODO: Replace this with a proper prompt
+        print("Loading...")
+
+
+    def promptLoadingComplete(self):
+        """
+        Enable our entire GUI.
+
+        Usually used to restore user access to the GUI state after a DataUnit
+          finishes loading.
+        """
+
+        self.mainGUI.setEnabled(True)
+        self.taskGUI.setEnabled(True)
+
+        # Terminate the "Loading..." dialog, if it exists
+        # TODO: Replace this with a proper prompt
+        print("Finished Loading!")
 
     def cleanup(self) -> None:
         """Called when the application closes and the module widget is destroyed."""
@@ -712,7 +750,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def onSceneEndClose(self, caller, event) -> None:
         """Called just after the scene is closed."""
         pass
-        
+
 #
 # CARTLogic
 #
@@ -927,6 +965,18 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # In the off chance where we don't have cases loaded, return none
         else:
             return ""
+
+    def has_next_case(self):
+        if self.data_manager:
+            return self.data_manager.has_next_case()
+        else:
+            return False
+
+    def has_previous_case(self):
+        if self.data_manager:
+            return self.data_manager.has_previous_case()
+        else:
+            return False
 
     def get_current_case(self) -> Optional[DataUnitBase]:
         """
