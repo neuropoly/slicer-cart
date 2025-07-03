@@ -1,3 +1,4 @@
+import traceback
 from pathlib import Path
 from typing import Optional
 
@@ -709,11 +710,30 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             # Re-enable the GUI
             self.enableGUIAfterLoad()
 
-    def pythonExceptionPrompt(self, e):
+    def pythonExceptionPrompt(self, exc: Exception):
+        """
+
+        Prompts the user with the contents of an exception. Also logs the
+         stack-trace to console for debugging purposes
+
+        Should be used to catch exceptions cause by the GUI, so the user can
+         respond appropriately.
+
+        :param exc: The exception that should be handled
+        """
+        # Print out the exception to the Python log, with traceback.
+        print(traceback.format_exc())
+
         # Display an error message notifying the user
         errorPrompt = qt.QErrorMessage()
-        errorPrompt.showMessage(e)
+
+        # Add some details on what's happening for the user
+        errorPrompt.setWindowTitle("PYTHON ERROR!")
+
+        # Show the message
+        errorPrompt.showMessage(exc)
         errorPrompt.exec_()
+
         # Disable the continue button, as the current setup didn't work
         self.confirmButton.setEnabled(False)
         # Disable and collapse the Task GUI
