@@ -106,16 +106,10 @@ class DataManager:
         current_case_data = self.case_data[idx]
         # TODO: replace this with a user-selectable data unit type
         
-        new_unit_initialized = VolumeOnlyDataUnit(
+        return VolumeOnlyDataUnit(
             data=current_case_data,
-            data_path=self.data_source
-        )
+            data_path=self.data_source)
         
-        if new_unit_initialized._initialize_resources:
-            return new_unit_initialized
-        
-        else:
-            pass
 
     def current_uid(self):
         return self.case_data[self.current_case_index]['uid']
