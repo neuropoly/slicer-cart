@@ -584,6 +584,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # If preview then confirm were clicked
         if self.isPreviewMode and self.isTaskMode:
             # TODO Is this necessary? Can we just confirm and use the same table, so just load the volumes without touching the table?
+            self.previewButton.setEnabled(False)
+            self.confirmButton.setEnabled(False)
             self.destroyCohortTable()
             self.buildCohortTable()
             return
@@ -595,6 +597,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # If straight to confirm
         if not self.isPreviewMode and self.isTaskMode:
+            self.previewButton.setEnabled(False)
+            self.confirmButton.setEnabled(False)
             self.buildCohortTable()
             return
 
