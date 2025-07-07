@@ -567,12 +567,13 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.cohortTable.verticalHeader().setVisible(False)
         
         self.cohortTable.setEditTriggers(qt.QAbstractItemView.NoEditTriggers)
-        self.cohortTable.setSelectionMode(qt.QAbstractItemView.SingleSelection)
         self.cohortTable.setSelectionBehavior(qt.QAbstractItemView.SelectRows)
         self.cohortTable.setFocusPolicy(qt.Qt.NoFocus)
+        
+        # Disable selection of rows in the table, which may be confused for a highlight
+        self.cohortTable.setSelectionMode(qt.QAbstractItemView.NoSelection)
 
         self.taskLayout.addWidget(self.cohortTable)
-
         self.iteratorWidget.setVisible(True)
 
     def destroyCohortTable(self):
@@ -606,8 +607,22 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if not self.isPreviewMode and not self.isTaskMode:
             self.destroyCohortTable()
             return
-
+    
     ### Iterator Widgets ###
+    def unHighlightRow(self, row):
+        # Remove the highlight from the current row before proceeding to the following
+        # The first column remains unchanged, as it is the uid
+        for column in range(1, self.colCount):
+            item = self.cohortTable.item(row, column)
+            item.setBackground(qt.QColor()) 
+    
+    def highlightRow(self, row):
+        # Add the highlight to the following current row 
+        # The first column remains unchanged, as it is the uid
+        for column in range(1, self.colCount):
+            item = self.cohortTable.item(row, column)
+            item.setBackground(qt.QColor(255, 255, 0, 100))
+    
     def updateIteratorGUI(self):
         # Update the current UID label
         new_label = f"Data Unit {self.logic.current_uid()}"
@@ -619,9 +634,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Check if we have a previous case, and enable/disable the button accordingly
         self.previousButton.setEnabled(self.logic.has_previous_case())
         
-        ## Highlight the current row, which include the case / data unit / resources in the cohort table
-        self.cohortTable.selectRow(self.logic.data_manager.current_case_index)
-        
+        # Highlight the following (previous or next) row to indicate the current case 
+        self.highlightRow(self.logic.data_manager.current_case_index)
 
     def nextCase(self):
         """
@@ -635,6 +649,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if not self.logic.has_next_case():
                 print("You somehow requested the next case, despite there being none!")
                 return
+            
+            # Remove highlight from the current row
+            self.unHighlightRow(self.logic.data_manager.current_case_index)
 
             # Step into the next case
             self.logic.next_case()
@@ -656,6 +673,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if not self.logic.has_previous_case():
                 print("You somehow requested the previous case, despite there being none!")
                 return
+            # Remove highlight from the current row
+            self.unHighlightRow(self.logic.data_manager.current_case_index)
 
             # Step into the next case
             self.logic.previous_case()
