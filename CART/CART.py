@@ -523,6 +523,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.updateButtons()
 
     def buildCohortTable(self):
+      
+        # Rebuilds the table using the most updated cohort data 
+        self.destroyCohortTable()
+        
         csv_data_raw = self.logic.data_manager.case_data
 
         self.headers = list(csv_data_raw[0].keys())
@@ -582,31 +586,23 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.iteratorWidget.setVisible(False)
 
     def updateCohortTable(self):
-        # If preview then confirm were clicked
-        if self.isPreviewMode and self.isTaskMode:
-            # TODO Is this necessary? Can we just confirm and use the same table, so just load the volumes without touching the table?
-            self.previewButton.setEnabled(False)
-            self.confirmButton.setEnabled(False)
-            self.destroyCohortTable()
-            self.buildCohortTable()
-            return
+      # Remove any existing table if not in preview or task mode, e.g. when the cohort csv is changed
+      if not self.isPreviewMode and not self.isTaskMode:
+        self.destroyCohortTable()
+        return
 
-        # If preview gets toggled on
-        if self.isPreviewMode and not self.isTaskMode:
-            self.buildCohortTable()
-            return
+      # Disable buttons if in task mode
+      if self.isTaskMode:
+        self.previewButton.setEnabled(False)
+        self.confirmButton.setEnabled(False)
 
-        # If straight to confirm
-        if not self.isPreviewMode and self.isTaskMode:
-            self.previewButton.setEnabled(False)
-            self.confirmButton.setEnabled(False)
-            self.buildCohortTable()
-            return
+      # Disable navigation buttons if only in preview mode
+      if self.isPreviewMode and not self.isTaskMode:
+        self.previousButton.setEnabled(False)
+        self.nextButton.setEnabled(False)
 
-        # If preview gets toggled off
-        if not self.isPreviewMode and not self.isTaskMode:
-            self.destroyCohortTable()
-            return
+      # Always (re)build the table if in preview or task mode
+      self.buildCohortTable()
     
     ### Iterator Widgets ###
     def unHighlightRow(self, row):
@@ -689,6 +685,14 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     ### Task Related ###
     def updateButtons(self):
+        # If in task mode (confirm clicked), disable preview and confirm buttons
+        if self.isTaskMode:
+            # If we're in task mode, disable the preview button
+            self.previewButton.setEnabled(False)
+            self.confirmButton.setEnabled(False)
+
+            return 
+          
         # If we have a cohort file, it can be previewed
         if self.logic.cohort_path:
             self.previewButton.setEnabled(True)
@@ -696,7 +700,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # If the logic says we're ready to start, we can start
         if self.logic.is_ready():
             self.confirmButton.setEnabled(True)
-
+          
     def loadTaskWhenReady(self):
         # If we're not ready to load a task, leave everything untouched
         if not self.logic.is_ready():
@@ -736,8 +740,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.mainGUI.collapsed = True
             
             # Disable preview and confirm buttons, as task has started
-            self.previewButton.setEnabled(False)
-            self.confirmButton.setEnabled(False)  
+            self.updateButtons()
             
         except Exception as e:
             self.pythonExceptionPrompt(e)
