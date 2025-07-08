@@ -8,7 +8,8 @@ import slicer
 class DataUnitBase(ABC):
 
     def __init__(
-            self, data: dict[str, str],
+            self,
+            case_data: dict[str, str],
             data_path: Path,
             scene: Optional[slicer.vtkMRMLScene] = None
     ):
@@ -16,19 +17,22 @@ class DataUnitBase(ABC):
         Initialize a new data unit; you may want to add additional processing in 
           subclasses.
 
-        :param data: The contents of the cohort file for this specific case.
+        :param case_data: The contents of the cohort file for this specific case.
           Will always contain an "uid" entry; everything else is free-form
         :param data_path: A data path. Should be treated as the "working"
           directory for anything that needs to read from files on the disk.
         :param scene: A MRML scene, where nodes should be inserted into and
-          managed within.
+          managed within when the unit is in focus (actively being worked on)
           
         """
-        self.data_path = data_path
-        self.data = data
-        self.scene = scene
+        # Tracking parameters
+        self.data_path: Path = data_path
+        self.case_data: dict[str, str] = case_data
+        self.scene: slicer.vtkMRMLScene = scene
+
+        # Resource tracking
         self.resources = {}
-        self.uid = data.get("uid", None)
+        self.uid = case_data.get("uid", None)
         self.validated = False
         self._validate()
 
@@ -45,6 +49,37 @@ class DataUnitBase(ABC):
         """
 
         raise NotImplementedError("This method must be implemented in subclasses.")
+
+    @abstractmethod
+    def focus_gained(self):
+        """
+        This is called when the DataUnit is made the "focus" of the task. You should
+         "reveal" any resources you are managing here by adding them back to the MRML
+         scene.
+        """
+        raise NotImplementedError("This method must be implemented in subclasses.")
+
+    @abstractmethod
+    def focus_lost(self):
+        """
+        This is called when the DataUnit is removed from the "focus" of the task. You
+         should "hide" any resources you are managing here by removing them from the MRML
+         scene.
+        """
+        raise NotImplementedError("This method must be implemented in subclasses.")
+
+    @abstractmethod
+    def clean(self):
+        """
+        This method is called right before the DataUnit is deleted (due to the module
+         closing, the unit falling out of cache, or Slicer closing).
+
+        You should ensure any data managed in this data unit is removed from memory.
+         Our "base" implementation attempts to do this by replicating the DataUnit
+         "losing focus", but it is near certain you will need to extend this
+         functionality.
+        """
+        self.focus_lost()
 
     @abstractmethod
     def _validate(self):
@@ -68,7 +103,6 @@ class DataUnitBase(ABC):
         This method should be implemented to set up the resources after validation.
         """
         raise NotImplementedError("This method must be implemented in subclasses.")
-
 
     def get_resource(self, key: str) -> Any:
         """
@@ -100,7 +134,6 @@ class DataUnitBase(ABC):
         """
         return self.scene
 
-
     def get_data_uid(self) -> str:
         """
         Retrieve the unique identifier (UID) for this DataUnit instance.
@@ -109,3 +142,11 @@ class DataUnitBase(ABC):
             str: The UID of the data.
         """
         return self.uid
+
+    def __del__(self):
+        # When the object is garbage collected, run cleaning first
+        self.clean()
+
+    def __delete__(self, instance):
+        # When the objecte is explicitly deleted, run cleaning first
+        self.clean()

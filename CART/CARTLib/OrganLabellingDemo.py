@@ -32,6 +32,8 @@ class OrganLabellingDemoTask(TaskBaseClass):
         self.organText = None  # Placeholder for organ label text field
 
     def setup(self, container: qt.QWidget):
+        print(f"Running {self.__class__.__name__} setup!")
+
         # Outermost frame
         formLayout = qt.QFormLayout()
         container.setLayout(formLayout)
@@ -76,8 +78,8 @@ class OrganLabellingDemoTask(TaskBaseClass):
         self.resetLayoutButton.clicked.connect(self.resetLayout)
 
     def recieve(self, data_unit: D):
-        print(f"Running {self.__class__} setup!")
-        print(f"data_unit: {data_unit}")
+        print(f"Received new data unit: {hash(data_unit)}")
+
         if data_unit is not None:
             self.data_unit = data_unit
 
@@ -88,17 +90,16 @@ class OrganLabellingDemoTask(TaskBaseClass):
         self.data_unit = data_unit
 
         # Load all resources from the data unit
-        for key, value in data_unit.data.items():
+        for key, value in data_unit.case_data.items():
             if key == "uid":
                 continue
-            print(f"Data Unit Key: {key}, Value: {value}")
+            print(f"Data Unit {hash(data_unit)} ({key}): {value}")
             self.uid = value
 
             # Get the volume node for this resource
             volumeNode = data_unit.get_resource(key)
             if volumeNode:
                 self.volumeNodes.append(volumeNode)
-                print(f"Loaded volume node: {volumeNode.GetName()} for key: {key}")
 
         # Set up initial default view
         if len(self.volumeNodes) >= 2:
@@ -124,8 +125,9 @@ class OrganLabellingDemoTask(TaskBaseClass):
         print(f"Loaded {len(self.volumeNodes)} volume nodes")
 
     def showAllVolumes(self):
-
-        """Display all volumes in separate rows with axial/sagittal/coronal views"""
+        """
+        Display all volumes in separate rows with axial/sagittal/coronal views
+        """
         self.load_all_volumes= True  # Enable loading all volumes in multi-row layout
         if not self.volumeNodes:
             print("No volumes loaded")

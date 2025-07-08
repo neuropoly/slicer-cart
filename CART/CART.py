@@ -1023,8 +1023,9 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         #  (or the user made edits to it after a preview)
         self.load_cohort()
 
-        # Create the new task instance and return it.
-        self.current_task_instance = self.current_task_type(self.get_current_case())
+        # Create the new task instance
+        new_unit = self.select_current_case()
+        self.current_task_instance = self.current_task_type(new_unit)
         return self.current_task_instance
 
     ## DataUnit Management ##
@@ -1047,19 +1048,22 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         else:
             return False
 
-    def get_current_case(self) -> Optional[DataUnitBase]:
+    def select_current_case(self) -> Optional[DataUnitBase]:
         """
-        Get the DataUnit currently indexed by the data manager.
-
-        Returns None if a DataManager has not been initialized, or if its
-          empty (somehow)
+        Select the current unit managed by the Data Manager, if we have one
         """
         # If we don't have a data manager yet, return none
         if not self.data_manager:
             return None
 
-        # Otherwise, return the data manager's current item
-        return self.data_manager.current_data_unit()
+        # Otherwise, select the current data unit
+        current_unit = self.data_manager.select_current_unit()
+
+        # Pass it to the current task, so it can update anything it needs to
+        self._update_task_with_new_case(current_unit)
+
+        # Return it for further user
+        return current_unit
 
     def next_case(self) -> Optional[DataUnitBase]:
         """
@@ -1069,10 +1073,13 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         :return: The next valid case. 'None' if no valid case could be found.
         """
         # Get the next valid case
-        next_case = self.data_manager.next_data_unit()
+        next_unit = self.data_manager.next()
+
+        # Pass it to the current task, so it can update anything it needs to
+        self._update_task_with_new_case(next_unit)
 
         # Return it; the data manager is self-managing, no need to do any further checks
-        return next_case
+        return next_unit
 
     def previous_case(self):
         """
@@ -1082,7 +1089,15 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         :return: The previous valid case. 'None' if no valid case could be found.
         """
         # Get the previous valid case
-        previous_case = self.data_manager.previous_data_unit()
+        previous_case = self.data_manager.previous()
+
+        # Pass it to the current task, so it can update anything it needs to
+        self._update_task_with_new_case(previous_case)
 
         # Return it; the data manager is self-managing, no need to do any further checks
         return previous_case
+
+    def _update_task_with_new_case(self, new_case: DataUnitBase):
+        # Only update the task if exists
+        if self.current_task_instance:
+            self.current_task_instance.recieve(new_case)

@@ -47,20 +47,20 @@ class DataManager:
         # Current index in the
         self.current_case_index: int = 0
 
-        # Dynamically sized cached version of "get_data_unit"
+        # Dynamically sized cached version of "_get_data_unit"
         lru_cache_wrapper = lru_cache(maxsize=cache_size)
-        old_method = self.get_data_unit
-        self.get_data_unit = lru_cache_wrapper(old_method)
+        old_method = self._get_data_unit
+        self._get_data_unit = lru_cache_wrapper(old_method)
 
     def get_cache_size(self):
-        return self.get_data_unit.cache_info().maxsize
+        return self._get_data_unit.cache_info().maxsize
 
     def set_data_source(self, source: Path):
         # TODO: Validate the input before running
         self.data_source = source
 
         # Clear our cache, as its almost certainly no longer valid
-        self.get_data_unit.cache_clear()
+        self._get_data_unit.cache_clear()
 
         # Reset to the beginning, as everything is
         self.current_case_index = 0
@@ -96,28 +96,45 @@ class DataManager:
         self.current_case_index = 0  # Start at beginning
         print(f"Loaded {len(rows)} rows!")
 
-    def get_data_unit(self, idx: int):
+    def _get_data_unit(self, idx: int):
         """
-        Gets the current DataUnit at our index.
+        Gets the current DataUnit at our index. This method implicitly caches
+         and does NOT update the state of the DataManager!
 
-        Note that this is cached using LRU; it won't reconstruct a data unit
-        if we recently created it, instead using the cached version instead.
+        Unless you know what you're doing, you should use `select_unit_at`
+         instead!
         """
         current_case_data = self.case_data[idx]
         # TODO: replace this with a user-selectable data unit type
         return VolumeOnlyDataUnit(
-            data=current_case_data,
+            case_data=current_case_data,
             data_path=self.data_source
         )
 
     def current_uid(self):
         return self.case_data[self.current_case_index]['uid']
 
+    def current_case(self):
+        """
+        Return the case information for the current index
+        """
+        return self.case_data[self.current_case_index]
+
     def current_data_unit(self) -> DataUnitBase:
         """
         Return the current DataUnit in the queue without changing the index.
         """
-        return self.get_data_unit(self.current_case_index)
+        return self._get_data_unit(self.current_case_index)
+
+    def select_current_unit(self):
+        """
+        Selects the current data unit again, bringing it into focus if it was
+         not already
+        """
+        current_unit = self._get_data_unit(self.current_case_index)
+        current_unit.focus_gained()
+
+        return current_unit
 
     def has_next_case(self) -> bool:
         return self.current_case_index+1 < len(self.case_data)
@@ -125,23 +142,57 @@ class DataManager:
     def has_previous_case(self) -> bool:
         return self.current_case_index > 0
 
-    def next_data_unit(self) -> DataUnitBase:
+    def select_unit_at(self, idx: int) -> DataUnitBase:
+        """
+        Update the current selection index + loaded data unit. This involves:
+
+        * Revoking focus to the previously selected data unit
+        * Granting focus to the new data unit
+        * Updating our currently selected index
+
+        In that order; how the first steps are managed depends on the DataUnit's
+         specific implementation.
+        """
+        # Check that the new index is valid before proceeding
+        if idx < 0:
+            raise ValueError("Index cannot be less than 0.")
+        elif idx >= len(self.case_data):
+            raise ValueError("Index cannot be greater than the number of loaded cases.")
+
+        # Keep tabs on the prior data unit for later
+        prior_unit = self.current_data_unit()
+
+        # Attempt to grab the next data unit
+        new_unit = self._get_data_unit(idx)
+
+        # Try to transfer focus from one unit to the other
+        if prior_unit:
+            prior_unit.focus_lost()
+        new_unit.focus_gained()
+
+        # Set the current index to that of the new unit
+        self.current_case_index = idx
+
+        # Return the new unit
+        return new_unit
+
+    def next(self) -> DataUnitBase:
         """
         Advance to the next case, and get its corresponding DataUnit.
 
         :return: The previous data unit; None if it doesn't exist/is invalid
         """
-        self.current_case_index += 1
-        return self.get_data_unit(self.current_case_index)
+        new_index = self.current_case_index + 1
+        return self.select_unit_at(new_index)
 
-    def previous_data_unit(self) -> DataUnitBase:
+    def previous(self) -> DataUnitBase:
         """
         Advance to the next case, and get its corresponding DataUnit.
 
         :return: The previous data unit; None if it doesn't exist/is invalid
         """
-        self.current_case_index -= 1
-        return self.get_data_unit(self.current_case_index)
+        new_index = self.current_case_index - 1
+        return self.select_unit_at(new_index)
     
     @staticmethod
     def _read_csv(csv_path: Path) -> List[Dict[str, str]]:
