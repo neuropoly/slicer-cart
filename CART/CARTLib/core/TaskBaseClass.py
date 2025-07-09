@@ -41,7 +41,7 @@ class TaskBaseClass(ABC, Generic[D]):
         # If the task was specified, update the GUI with contents
         if self.data_unit:
             # TODO: Validate that the DataUnit has all fields needed for this task.
-            self.recieve(self.data_unit)
+            self.receive(self.data_unit)
 
     @abstractmethod
     def setup(self, container: qt.QWidget):
@@ -64,7 +64,7 @@ class TaskBaseClass(ABC, Generic[D]):
         raise NotImplementedError("buildGUI must be implemented in subclasses")
 
     @abstractmethod
-    def recieve(self, data_unit: D):
+    def receive(self, data_unit: D):
         """
         Receive a new DataUnit instance.
 

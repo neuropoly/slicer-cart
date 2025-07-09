@@ -77,7 +77,7 @@ class OrganLabellingDemoTask(TaskBaseClass):
         self.showAllVolumesButton.clicked.connect(self.showAllVolumes)
         self.resetLayoutButton.clicked.connect(self.resetLayout)
 
-    def recieve(self, data_unit: D):
+    def receive(self, data_unit: D):
         print(f"Received new data unit: {hash(data_unit)}")
 
         if data_unit is not None:

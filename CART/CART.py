@@ -1100,4 +1100,4 @@ class CARTLogic(ScriptedLoadableModuleLogic):
     def _update_task_with_new_case(self, new_case: DataUnitBase):
         # Only update the task if exists
         if self.current_task_instance:
-            self.current_task_instance.recieve(new_case)
+            self.current_task_instance.receive(new_case)
