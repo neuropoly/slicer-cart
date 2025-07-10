@@ -125,6 +125,6 @@ class SegmentationEvaluationDataUnit(DataUnitBase):
 
         # And pack the label node into the segmentation node; this auto-handles
         #  color coding for us
-        slicer.modules.segmentation.login().ImportLabelmapToSegmentationNode(
+        slicer.modules.segmentations.logic().ImportLabelmapToSegmentationNode(
             label_node, self.segmentation_node
         )
