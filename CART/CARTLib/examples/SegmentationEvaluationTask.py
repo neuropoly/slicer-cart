@@ -1,21 +1,15 @@
-from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-import ctk, qt
+import ctk
+import qt
+import slicer
 from slicer.i18n import tr as _
 from .SegmentationEvaluationDataUnit import SegmentationEvaluationDataUnit
 from ..core.TaskBaseClass import TaskBaseClass, D
 
 
 class SegmentationEvaluationGUI:
-
-    class EditTool(Enum):
-        PAINT = 1
-        ERASE = 2
-        LASSO = 3
-        SCISSOR = 4
-
     def __init__(self, bound_task: 'SegmentationEvaluationTask'):
         # Track the task, so we can reference it later
         self.bound_task = bound_task
@@ -34,8 +28,8 @@ class SegmentationEvaluationGUI:
         # Add the output path selector
         self.addOutputPathSelector(formLayout)
 
-        # Add the tool buttons
-        self.addToolButtons(formLayout)
+        # Add the segmentation editor widget
+        self.addSegmentationEditor(formLayout)
 
         return formLayout
 
@@ -49,46 +43,12 @@ class SegmentationEvaluationGUI:
         # Make it the first widget in our "form"
         formLayout.addRow(_("Output Path:"), self.outputFileEdit)
 
-    def addToolButtons(self, formLayout):
-        # Button panel layout
-        buttonPanel = qt.QGridLayout()
+    def addSegmentationEditor(self, formLayout):
+        # Build the editor widget
+        segmentEditorWidget = \
+            slicer.modules.segmenteditor.widgetRepresentation().self().editor
 
-        # Add the paint button
-        paintButton = qt.QPushButton(_("Paint"))
-        paintButton.setToolTip(_(
-            "Add to the current segmentation via a paint brush."
-        ))
-        buttonPanel.addWidget(paintButton, 0, 0)
-
-        # Add the erase button
-        eraseButton = qt.QPushButton(_("Erase"))
-        eraseButton.setToolTip(_(
-            "Remove from the current segmentation via an erase brush."
-        ))
-        buttonPanel.addWidget(eraseButton, 0, 1)
-
-        # Add the lasso fill button
-        lassoButton = qt.QPushButton(_("Lasso"))
-        lassoButton.setToolTip(_(
-            "Add to the current segmentation via filling within a circled region"
-        ))
-        buttonPanel.addWidget(lassoButton, 1, 0)
-
-        # Add the scissor delete button
-        scissorButton = qt.QPushButton(_("Scissor"))
-        scissorButton.setToolTip(_(
-            "Removed from the current segmentation via deleting within a circled region"
-        ))
-        buttonPanel.addWidget(scissorButton, 1, 1)
-
-        # Add the button panel to our layout
-        formLayout.addRow(buttonPanel)
-
-        # Add all the buttons to a (exclusive) button group
-        self.buttonGroup = qt.QButtonGroup()
-        for b in [paintButton, eraseButton, lassoButton, scissorButton]:
-            self.buttonGroup.addButton(b)
-            b.setCheckable(True)
+        formLayout.addRow(segmentEditorWidget)
 
 
 class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
