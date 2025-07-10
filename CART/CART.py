@@ -848,7 +848,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         self.data_path: Path = None
 
         # The data manager currently managing case iteration
-        self.data_manager: DataManager = None
+        self.data_manager: Optional[DataManager] = None
 
         # The currently selected task type
         self.current_task_type: type(TaskBaseClass) = None
@@ -943,6 +943,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         self.data_manager = DataManager(
             cohort_file=self.cohort_path,
             data_source=self.data_path,
+            data_unit_factory=self.data_unit_factory
         )
         return True
 
@@ -986,6 +987,15 @@ class CARTLogic(ScriptedLoadableModuleLogic):
             self.current_task_instance.cleanup()
             self.current_task_instance = None
 
+        # Get this task's preferred DataUnitFactory method
+        data_factory_method_map = self.current_task_type.getDataUnitFactories()
+        # TODO: Allow the user to select the specific method, rather than always
+        #  using the first in the map
+        duf = list(data_factory_method_map.values())[0]
+
+        # Update the data manager to use this task's preferred DataUnitFactory
+        self.data_unit_factory = duf
+
     def is_ready(self) -> bool:
         """
         Check if we're ready to run a task!
@@ -1007,6 +1017,9 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         elif not self.current_task_type:
             print("No task has been selected!")
             return False
+        elif not self.data_unit_factory:
+            print("No data unit factory has been selected!")
+            return False
 
         # If all checks passed, we can proceed!
         return True
@@ -1024,6 +1037,20 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # Load the cohort file into memory again, as it may not already be so
         #  (or the user made edits to it after a preview)
         self.load_cohort()
+
+        # Create the new task instance
+
+        # Create the new DataManager to match the current state
+        if self.data_manager:
+            # If we already have a loaded data manager, just update it
+            self.data_manager.set_data_unit_factory(self.data_unit_factory)
+        else:
+            # Otherwise, create a new DataManager from scratch
+            self.data_manager = DataManager(
+                cohort_file=self.cohort_path,
+                data_source=self.data_path,
+                data_unit_factory=self.data_unit_factory
+            )
 
         # Create the new task instance
         new_unit = self.select_current_case()

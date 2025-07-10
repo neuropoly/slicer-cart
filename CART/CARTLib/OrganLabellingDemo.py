@@ -1,4 +1,4 @@
-from .core.TaskBaseClass import TaskBaseClass, D
+from .core.TaskBaseClass import TaskBaseClass, DataUnitFactory
 from .core.DataUnitBase import DataUnitBase
 from .VolumeOnlyDataIO import VolumeOnlyDataUnit
 from .LayoutLogic import CaseIteratorLayoutLogic
@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 
-class OrganLabellingDemoTask(TaskBaseClass):
+class OrganLabellingDemoTask(TaskBaseClass[VolumeOnlyDataUnit]):
 
     def __init__(self, data_unit: VolumeOnlyDataUnit):
         """
@@ -77,7 +77,7 @@ class OrganLabellingDemoTask(TaskBaseClass):
         self.showAllVolumesButton.clicked.connect(self.showAllVolumes)
         self.resetLayoutButton.clicked.connect(self.resetLayout)
 
-    def receive(self, data_unit: D):
+    def receive(self, data_unit: VolumeOnlyDataUnit):
         print(f"Received new data unit: {hash(data_unit)}")
 
         if data_unit is not None:
@@ -256,4 +256,8 @@ class OrganLabellingDemoTask(TaskBaseClass):
         else:
             self.output_file = None
 
-
+    @classmethod
+    def getDataUnitFactories(cls) -> dict[str, DataUnitFactory]:
+        return {
+            "Default": VolumeOnlyDataUnit
+        }

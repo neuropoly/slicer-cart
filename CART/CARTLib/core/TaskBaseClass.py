@@ -1,12 +1,27 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Generic, Optional, TypeVar
+from pathlib import Path
+from typing import Generic, Optional, TypeVar, Protocol
 
 import qt
+import slicer
 from .DataUnitBase import DataUnitBase
 
 # Generic type hint class for anything which is a subclass of DataUnitBase
 D = TypeVar('D', bound=DataUnitBase)
+
+
+# Protocol signature which matches the DataUnitBase constructor; allows users to
+#  return non-init functions if they have a different method they want to use
+#  instead
+class DataUnitFactory(Protocol):
+    def __call__(
+            self,
+            case_data: dict[str, str],
+            data_path: Path,
+            scene: Optional[slicer.vtkMRMLScene] = None
+    ) -> D:
+        ...
 
 
 class TaskBaseClass(ABC, Generic[D]):
@@ -126,6 +141,37 @@ class TaskBaseClass(ABC, Generic[D]):
         instead.
         """
         return None
+
+    @classmethod
+    @abstractmethod
+    def getDataUnitFactories(cls) -> dict[str, DataUnitFactory]:
+        """
+        Returns a factory map (in label -> factory form) which, when called,
+        generates a new DataUnit instance of a type appropriate for use by this
+        task.
+
+        The "default" factory is just the class of your DataUnit subclass; for
+         example:
+
+        ```
+        return {
+            "Main": TaskDataUnit
+        }
+        ```
+
+        If you have a factory method instead, you can return that:
+
+        ```
+        return {
+            "Factory": TaskDataUnit.build_unit
+        }
+        ```
+
+        Note the lack of a trailing '()' in both; we need the *functions* here,
+         not their results!
+        """
+
+        raise NotImplementedError("setup must be implemented in subclasses")
 
     # TODO: Add standardized metadata which can be referenced by CART to
     #  build a task list.

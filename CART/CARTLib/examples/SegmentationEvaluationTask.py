@@ -6,7 +6,7 @@ import qt
 import slicer
 from slicer.i18n import tr as _
 from .SegmentationEvaluationDataUnit import SegmentationEvaluationDataUnit
-from ..core.TaskBaseClass import TaskBaseClass, D
+from ..core.TaskBaseClass import TaskBaseClass, DataUnitFactory
 
 
 class SegmentationEvaluationGUI:
@@ -45,6 +45,7 @@ class SegmentationEvaluationGUI:
 
     def addSegmentationEditor(self, formLayout):
         # Build the editor widget
+        # TODO: Fix this "stealing" from the original Segment Editor widget
         segmentEditorWidget = \
             slicer.modules.segmenteditor.widgetRepresentation().self().editor
 
@@ -72,8 +73,18 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
         gui_layout = self.gui.setup()
         container.setLayout(gui_layout)
 
-    def receive(self, data_unit: D):
+    def receive(self, data_unit: SegmentationEvaluationDataUnit):
         pass
 
     def save(self) -> bool:
         pass
+
+    @classmethod
+    def getDataUnitFactories(cls) -> dict[str, DataUnitFactory]:
+        """
+        We currently only support one data unit type, so we only provide it to
+         the user
+        """
+        return {
+            "Single Segmentation": SegmentationEvaluationDataUnit
+        }

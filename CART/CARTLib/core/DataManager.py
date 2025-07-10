@@ -6,8 +6,7 @@ from pathlib import Path
 from typing import Optional, List, Dict
 
 from .DataUnitBase import DataUnitBase
-# TODO: Remove this for a configurable method
-from ..VolumeOnlyDataIO import VolumeOnlyDataUnit
+from .TaskBaseClass import DataUnitFactory
 
 
 class DataManager:
@@ -27,6 +26,7 @@ class DataManager:
         self,
         cohort_file: Optional[Path] = None,
         data_source: Optional[Path] = None,
+        data_unit_factory: DataUnitFactory = None,
         cache_size: int = 2
     ):
         """
@@ -51,6 +51,9 @@ class DataManager:
         lru_cache_wrapper = lru_cache(maxsize=cache_size)
         old_method = self._get_data_unit
         self._get_data_unit = lru_cache_wrapper(old_method)
+
+        # The data unit factory to parse case information with
+        self.data_unit_factory: DataUnitFactory = data_unit_factory
 
     def get_cache_size(self):
         return self._get_data_unit.cache_info().maxsize
@@ -106,10 +109,13 @@ class DataManager:
         """
         current_case_data = self.case_data[idx]
         # TODO: replace this with a user-selectable data unit type
-        return VolumeOnlyDataUnit(
+        return self.data_unit_factory(
             case_data=current_case_data,
             data_path=self.data_source
         )
+
+    def set_data_unit_factory(self, duf: DataUnitFactory):
+        self.data_unit_factory = duf
 
     def current_uid(self):
         return self.case_data[self.current_case_index]['uid']
