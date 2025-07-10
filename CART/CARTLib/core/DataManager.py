@@ -14,11 +14,12 @@ class DataManager:
     Manages a CSV-based cohort and provides a cache of DataUnit objects for
       efficient forward/backward traversal.
 
-    # TODO: Implement way to indicate if a whole list was traversed.
+    # TODO: Implement way to indicate if all cases were previously traversed
 
     Attributes:
         cohort_csv: Path to the cohort CSV file currently selected.
         case_data: List of row dictionaries loaded from CSV.
+        data_unit_factory: The factory method for creating DataUnits from case entries
         cache_size: Maximum number of Data Unit objects held in memory at once.
     """
 
@@ -62,7 +63,7 @@ class DataManager:
         # TODO: Validate the input before running
         self.data_source = source
 
-        # Clear our cache, as its almost certainly no longer valid
+        # Clear our cache, as it's almost certainly no longer valid
         self._get_data_unit.cache_clear()
 
         # Reset to the beginning, as everything is
@@ -70,8 +71,6 @@ class DataManager:
 
         # Begin re-building the pre-fetch cache, if it exists
         self._pre_fetch_elements()
-
-        # TODO: Notify the Task that this has been updated as well somehow.
 
     def get_data_source(self):
         return self.data_source
