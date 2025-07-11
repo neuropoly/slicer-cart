@@ -54,14 +54,15 @@ class SegmentationEvaluationGUI:
 
 class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
     def __init__(self, data_unit: SegmentationEvaluationDataUnit):
-        # Run the base task's initialization
-        super().__init__(data_unit)
-
         # Variable for tracking the active GUI instance
         self.gui: Optional[SegmentationEvaluationGUI] = None
 
         # Variable for tracking the output directory
         self.output_dir: Optional[Path] = None
+
+        # Run the base task's initialization
+        print(data_unit)
+        super().__init__(data_unit)
 
     def setup(self, container: qt.QWidget):
         print(f"Running {self.__class__.__name__} setup!")
@@ -74,7 +75,17 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
         container.setLayout(gui_layout)
 
     def receive(self, data_unit: SegmentationEvaluationDataUnit):
-        pass
+        # Track the data unit for later
+        self.data_unit = data_unit
+
+        # Bring the volume and associated segmentation into view again
+        # TODO: Only do this if a GUI exists
+        slicer.util.setSliceViewerLayers(
+            background=self.data_unit.volume_node,
+            foreground=self.data_unit.segmentation_node,
+            label=self.data_unit.uid,
+            fit=True
+        )
 
     def save(self) -> bool:
         pass

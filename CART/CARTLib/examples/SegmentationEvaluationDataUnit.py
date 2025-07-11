@@ -24,6 +24,12 @@ class SegmentationEvaluationDataUnit(DataUnitBase):
         self.volume_node = None
         self.segmentation_node = None
 
+        # Hierarchy node which manages subjects, for ease of access
+        self.hierarchy_node = None
+
+        # Subject ID for nodes associated with this data unit
+        self.subject_id: int = None
+
         # Track whether this node has been processed already or not
         self.is_complete = case_data.get(self.COMPLETED_KEY, False)
 
@@ -42,18 +48,26 @@ class SegmentationEvaluationDataUnit(DataUnitBase):
         self.volume_node.SetDisplayVisibility(True)
         self.segmentation_node.SetDisplayVisibility(True)
 
+        # Expand the subject hierarchy and make it visible
+        self.hierarchy_node.SetItemExpanded(self.subject_id, True)
+        self.hierarchy_node.SetItemDisplayVisibility(self.subject_id, True)
+
     def focus_lost(self):
         # Make our managed nodes hidden again
         self.volume_node.SetDisplayVisibility(False)
         self.segmentation_node.SetDisplayVisibility(False)
 
+        # Collapse the subject hierarchy and hide it
+        # KO: This doesn't actually work, but the devs insist it does/will, so
+        #  I'm keeping it here just in case it ever does
+        self.hierarchy_node.SetItemExpanded(self.subject_id, False)
+        self.hierarchy_node.SetItemDisplayVisibility(self.subject_id, False)
+
     def clean(self):
         # Un-focus the contents first, avoiding some potential UI bugs
         super().clean()
-        # Remove our nodes from the scene, allowing them to fall out of memory
-        self.scene.RemoveNode(self.segmentation_node)
-        self.scene.RemoveNode(self.volume_node)
-
+        # Remove the subject (and, by extension, all its children)
+        self.hierarchy_node.RemoveItem(self.subject_id)
 
     def _validate(self):
         # Confirm that both a "volume" and "segmentation" entry exit
@@ -98,13 +112,16 @@ class SegmentationEvaluationDataUnit(DataUnitBase):
             raise ValueError(_("Data must be validated before initializing resources."))
 
         # Initialize the nodes containing our actual data
-        self._init_volume_node()
-        self._init_segmentation_node()
+        vn = self._init_volume_node()
+        sn = self._init_segmentation_node()
 
         # Ensure the segmentation node aligns with the geometry of the volume
         self.segmentation_node.SetReferenceImageGeometryParameterFromVolumeNode(
             self.volume_node
         )
+
+        # Initialize a subject to hold everything in for management sakes
+        self._init_subject([sn, vn])
 
     def _init_volume_node(self):
         # Load the volume node first
@@ -112,8 +129,10 @@ class SegmentationEvaluationDataUnit(DataUnitBase):
         self.volume_node = slicer.util.loadVolume(volume_path, {"show": False})
 
         # Update it and add it to our resources for easy access elsewhere
-        self.volume_node.SetName(f"{hex(hash(self))}_{self.VOLUME_KEY}")
+        self.volume_node.SetName(self.VOLUME_KEY)
         self.resources[self.VOLUME_KEY] = self.volume_node
+
+        return self.volume_node
 
     def _init_segmentation_node(self):
         # Load the segmentation as a labelled volume first
@@ -122,9 +141,29 @@ class SegmentationEvaluationDataUnit(DataUnitBase):
 
         # Then create our segmentation node
         self.segmentation_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentationNode")
+        self.segmentation_node.SetName(self.SEGMENTATION_KEY)
 
         # And pack the label node into the segmentation node; this auto-handles
         #  color coding for us
         slicer.modules.segmentations.logic().ImportLabelmapToSegmentationNode(
             label_node, self.segmentation_node
         )
+
+        # Remove the (now redundant) label node from the scene
+        self.scene.RemoveNode(label_node)
+
+        return self.segmentation_node
+
+    def _init_subject(self, node_list: list):
+        # Place them into a subject hierarchy for organization
+        shNode = self.scene.GetSubjectHierarchyNode()
+        self.subject_id = shNode.CreateSubjectItem(
+            shNode.GetSceneItemID(),
+            self.uid
+        )
+        for n in node_list:
+            print(hex(hash(n)))
+            item_id = shNode.GetItemByDataNode(n)
+            shNode.SetItemParent(item_id, self.subject_id)
+
+        self.hierarchy_node = shNode
