@@ -39,6 +39,12 @@ class SegmentationEvaluationGUI:
             "The directory the modified segmentations (and corresponding "
             "metadata) should be placed."
         ))
+        # Set the widget to only accept directories
+        self.outputFileEdit.filters = ctk.ctkPathLineEdit.Dirs
+
+        # When the widget's contents change, update our output dir to match
+        self.outputFileEdit.currentPathChanged.connect(self.outputPathChanged)
+
         # Make it the first widget in our "form"
         formLayout.addRow(_("Output Path:"), self.outputFileEdit)
 
@@ -60,6 +66,35 @@ class SegmentationEvaluationGUI:
         # As the volume node is tied to the segmentation node, this will also
         #  set the selected volume node automagically for us!
         self.segmentEditorWidget.setSegmentationNode(data_unit.segmentation_node)
+
+    ## GUI actions ##
+    def outputPathChanged(self):
+        # Get the current path from the GUI
+        current_path_specified = self.outputFileEdit.currentPath
+
+        # Strip it of leading/trailing whitespace
+        current_path_specified = current_path_specified.strip()
+
+        # If the data path is now empty, reset to the previous path and end early
+        if not current_path_specified:
+            print("Error: Base path was empty, retaining previous base path.")
+            self.outputFileEdit.currentPath = str(self.bound_task.output_dir)
+            return
+
+        # Otherwise, update the task's path; re
+        err_msg = self.bound_task.set_output_dir(Path(current_path_specified))
+
+        # If we failed, prompt the user as to why
+        if err_msg:
+            # Display an error message notifying the user
+            failurePrompt = qt.QErrorMessage()
+
+            # Add some details on what's happening for the user
+            failurePrompt.setWindowTitle("PATH ERROR!")
+
+            # Show the message
+            failurePrompt.showMessage(err_msg)
+            failurePrompt.exec_()
 
 
 class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
@@ -120,3 +155,24 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
         return {
             "Single Segmentation": SegmentationEvaluationDataUnit
         }
+
+    ## Utils ##
+    def set_output_dir(self, new_path: Path) -> Optional[str]:
+        """
+        Update the output directory; returns an error message if it failed!
+        """
+        # Confirm the directory exists
+        if not new_path.exists():
+            err = f"Error: Data path does not exist: {new_path}"
+            return err
+
+        # Confirm that it is a directory
+        if not new_path.is_dir():
+            err = f"Error: Data path was not a directory: {new_path}"
+            return err
+
+        # If that all ran, update our data path to the new data path
+        self.output_dir = new_path
+        print(f"Output path set to: {self.output_dir}")
+
+        return None
