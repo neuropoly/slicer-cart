@@ -244,3 +244,19 @@ class DataManager:
         """
         # TODO
         pass
+
+    ## Cleanup ##
+    def clean(self):
+        """
+        Explicitly delete the cache right before deletion.
+
+        This is in case the data inside reference the DataManager (or one of its
+         components), forming a cyclical reference that results in a memory leak
+        """
+        self._get_data_unit = None
+
+    def __del__(self):
+        self.clean()
+
+    def __delete__(self, instance):
+        self.clean()

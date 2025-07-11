@@ -1029,6 +1029,8 @@ class CARTLogic(ScriptedLoadableModuleLogic):
             return None
 
         # Rebuild the DataManager from scratch
+        if self.data_manager:
+            self.data_manager.clean()
         self.data_manager = DataManager(
             cohort_file=self.cohort_path,
             data_source=self.data_path,
