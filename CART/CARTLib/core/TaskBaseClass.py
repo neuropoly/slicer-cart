@@ -37,7 +37,7 @@ class TaskBaseClass(ABC, Generic[D]):
     itself.!
     """
 
-    def __init__(self, data_unit: Optional[D] = None):
+    def __init__(self):
         """
         Basic constructor.
 
@@ -49,14 +49,6 @@ class TaskBaseClass(ABC, Generic[D]):
         """
         # Create a logger to track the goings-on of this task.
         self.logger = logging.getLogger(f"{__class__.__name__}")
-
-        # Set the data unit to the one provided in the constructor, if any
-        self.data_unit: D = data_unit
-
-        # If the task was specified, update the GUI with contents
-        if self.data_unit:
-            # TODO: Validate that the DataUnit has all fields needed for this task.
-            self.receive(self.data_unit)
 
     @abstractmethod
     def setup(self, container: qt.QWidget):

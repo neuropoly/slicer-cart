@@ -1026,7 +1026,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # If all checks passed, we can proceed!
         return True
 
-    def init_task(self) -> Optional[TaskBaseClass]:
+    def init_task(self):
         """
         Initialize a new Task instance using current settings.
 
@@ -1055,9 +1055,11 @@ class CARTLogic(ScriptedLoadableModuleLogic):
             )
 
         # Create the new task instance
+        self.current_task_instance = self.current_task_type()
+
+        # Pass our first data unit to the task
         new_unit = self.select_current_case()
-        self.current_task_instance = self.current_task_type(new_unit)
-        return self.current_task_instance
+        self.current_task_instance.receive(new_unit)
 
     ## DataUnit Management ##
     def current_uid(self):

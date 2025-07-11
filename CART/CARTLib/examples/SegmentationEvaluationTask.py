@@ -53,16 +53,16 @@ class SegmentationEvaluationGUI:
 
 
 class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
-    def __init__(self, data_unit: SegmentationEvaluationDataUnit):
+    def __init__(self):
+        super().__init__()
         # Variable for tracking the active GUI instance
         self.gui: Optional[SegmentationEvaluationGUI] = None
 
         # Variable for tracking the output directory
         self.output_dir: Optional[Path] = None
 
-        # Run the base task's initialization
-        print(data_unit)
-        super().__init__(data_unit)
+        # Placeholder to track the currently-in-use Data Unit
+        self.data_unit = None
 
     def setup(self, container: qt.QWidget):
         print(f"Running {self.__class__.__name__} setup!")

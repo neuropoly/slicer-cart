@@ -14,16 +14,17 @@ from pathlib import Path
 
 class OrganLabellingDemoTask(TaskBaseClass[VolumeOnlyDataUnit]):
 
-    def __init__(self, data_unit: VolumeOnlyDataUnit):
+    def __init__(self):
         """
         Constructor for the OrganLabellingDemoTask.
 
         This initializes the task with a given DataUnitBase instance.
         """
+        super().__init__()
+
         self.load_all_volumes = True  # Flag to control volume loading
         self.layoutLogic = CaseIteratorLayoutLogic()  # Layout logic instance
         self.volumeNodes = []  # Store loaded volume nodes
-        super().__init__(data_unit)
 
         self.data_unit: DataUnitBase = None  # The currently managed data unit
 
