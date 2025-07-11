@@ -129,7 +129,7 @@ class SegmentationEvaluationDataUnit(DataUnitBase):
         self.volume_node = slicer.util.loadVolume(volume_path, {"show": False})
 
         # Update it and add it to our resources for easy access elsewhere
-        self.volume_node.SetName(self.VOLUME_KEY)
+        self.volume_node.SetName(f"{self.uid}_{self.VOLUME_KEY}")
         self.resources[self.VOLUME_KEY] = self.volume_node
 
         return self.volume_node
@@ -141,7 +141,7 @@ class SegmentationEvaluationDataUnit(DataUnitBase):
 
         # Then create our segmentation node
         self.segmentation_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentationNode")
-        self.segmentation_node.SetName(self.SEGMENTATION_KEY)
+        self.segmentation_node.SetName(f"{self.uid}_{self.SEGMENTATION_KEY}")
 
         # And pack the label node into the segmentation node; this auto-handles
         #  color coding for us
