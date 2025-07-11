@@ -122,8 +122,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # TODO: Dynamically load this dictionary instead
         self.task_map = {
             "Organ Labels": OrganLabellingDemoTask,
-            "Segmentation": SegmentationEvaluationTask,
-            "N/A": None  # Placeholder for testing
+            "Segmentation": SegmentationEvaluationTask
         }
 
     def setup(self) -> None:
@@ -709,7 +708,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.logic.init_task()
 
             # Create a "dummy" widget that the task can fill
-            self.dummyTaskWidget = qt.QWidget()
+            self.resetTaskDummyWidget()
             # Build the Task GUI, using the prior widget as a foundation
             self.logic.current_task_instance.setup(self.dummyTaskWidget)
             # Add the widget to our layout
@@ -739,6 +738,11 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         finally:
             # Re-enable the GUI
             self.enableGUIAfterLoad()
+
+    def resetTaskDummyWidget(self):
+        if self.dummyTaskWidget:
+            self.dummyTaskWidget.setParent(None)
+        self.dummyTaskWidget = qt.QWidget()
 
     def pythonExceptionPrompt(self, exc: Exception):
         """
@@ -942,11 +946,6 @@ class CARTLogic(ScriptedLoadableModuleLogic):
 
         # If all checks pass, update our state
         self.cohort_path = new_path
-        self.data_manager = DataManager(
-            cohort_file=self.cohort_path,
-            data_source=self.data_path,
-            data_unit_factory=self.data_unit_factory
-        )
         return True
 
     def set_data_path(self, new_path: Path) -> (bool, Optional[str]):
@@ -963,13 +962,6 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # If that all ran, update our data path to the new data path
         self.data_path = new_path
         print(f"Data path set to: {self.data_path}")
-
-        # and replace the previous data manager
-        del self.data_manager
-        self.data_manager = DataManager(
-            cohort_file=self.cohort_path,
-            data_source=self.data_path,
-        )
 
         return True, None
 
