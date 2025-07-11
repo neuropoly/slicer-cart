@@ -1036,23 +1036,15 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         if not self.is_ready():
             return None
 
-        # Load the cohort file into memory again, as it may not already be so
-        #  (or the user made edits to it after a preview)
+        # Rebuild the DataManager from scratch
+        self.data_manager = DataManager(
+            cohort_file=self.cohort_path,
+            data_source=self.data_path,
+            data_unit_factory=self.data_unit_factory
+        )
+
+        # Load the cohort file into memory using the new DataManager
         self.load_cohort()
-
-        # Create the new task instance
-
-        # Create the new DataManager to match the current state
-        if self.data_manager:
-            # If we already have a loaded data manager, just update it
-            self.data_manager.set_data_unit_factory(self.data_unit_factory)
-        else:
-            # Otherwise, create a new DataManager from scratch
-            self.data_manager = DataManager(
-                cohort_file=self.cohort_path,
-                data_source=self.data_path,
-                data_unit_factory=self.data_unit_factory
-            )
 
         # Create the new task instance
         self.current_task_instance = self.current_task_type()
