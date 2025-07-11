@@ -87,6 +87,10 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
             fit=True
         )
 
+    def cleanup(self):
+        # Break the cyclical link with our GUI so garbage collection can run
+        self.gui = None
+
     def save(self) -> bool:
         pass
 
