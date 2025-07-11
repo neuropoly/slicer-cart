@@ -14,9 +14,8 @@ class SegmentationEvaluationGUI:
         # Track the task, so we can reference it later
         self.bound_task = bound_task
 
-        # Button group; we don't use it, but need to track it so it doesn't get
-        #  destroyed by garbage collection!
-        self.buttonGroup: qt.QButtonGroup = None
+        # Segmentation editor widget
+        self.segmentEditorWidget = None
 
     def setup(self) -> qt.QFormLayout:
         """
@@ -46,10 +45,21 @@ class SegmentationEvaluationGUI:
     def addSegmentationEditor(self, formLayout):
         # Build the editor widget
         # TODO: Fix this "stealing" from the original Segment Editor widget
-        segmentEditorWidget = \
+        self.segmentEditorWidget = \
             slicer.modules.segmenteditor.widgetRepresentation().self().editor
 
-        formLayout.addRow(segmentEditorWidget)
+        formLayout.addRow(self.segmentEditorWidget)
+
+    def update(self, data_unit: SegmentationEvaluationDataUnit):
+        """
+        Update the GUI to match the contents of the new data unit.
+
+        Currently only selects the volume + segmentation node associated with
+         the provided data node, allowing the user to immediately start editing.
+        """
+        # As the volume node is tied to the segmentation node, this will also
+        #  set the selected volume node automagically for us!
+        self.segmentEditorWidget.setSegmentationNode(data_unit.segmentation_node)
 
 
 class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
@@ -74,6 +84,9 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
         gui_layout = self.gui.setup()
         container.setLayout(gui_layout)
 
+        # If we have GUI, update the GUI with our current data unit
+        self.gui.update(self.data_unit)
+
     def receive(self, data_unit: SegmentationEvaluationDataUnit):
         # Track the data unit for later
         self.data_unit = data_unit
@@ -86,6 +99,10 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
             label=self.data_unit.uid,
             fit=True
         )
+
+        # If we have GUI, update it as well
+        if self.gui:
+            self.gui.update(self.data_unit)
 
     def cleanup(self):
         # Break the cyclical link with our GUI so garbage collection can run
