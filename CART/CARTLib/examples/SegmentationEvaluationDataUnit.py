@@ -162,7 +162,6 @@ class SegmentationEvaluationDataUnit(DataUnitBase):
             self.uid
         )
         for n in node_list:
-            print(hex(hash(n)))
             item_id = shNode.GetItemByDataNode(n)
             shNode.SetItemParent(item_id, self.subject_id)
 
