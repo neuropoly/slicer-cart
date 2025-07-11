@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import Optional
 
 import vtk
-
 import ctk
 import qt
 import slicer
@@ -15,7 +14,7 @@ from slicer.util import VTKObservationMixin
 from CARTLib.Config import Config
 from CARTLib.core.DataManager import DataManager
 from CARTLib.core.DataUnitBase import DataUnitBase
-from CARTLib.core.TaskBaseClass import TaskBaseClass
+from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
 
 # TODO: Remove this explicit import
 from CARTLib.OrganLabellingDemo import OrganLabellingDemoTask
@@ -855,6 +854,9 @@ class CARTLogic(ScriptedLoadableModuleLogic):
 
         # The current task instance
         self.current_task_instance: Optional[TaskBaseClass] = None
+
+        # Current data unit factory
+        self.data_unit_factory: Optional[DataUnitFactory] = None
 
     ## User Management ##
     def get_users(self) -> list[str]:
