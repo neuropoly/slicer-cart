@@ -35,10 +35,8 @@ class SegmentationEvaluationGUI:
         # Add the segmentation editor widget
         self.addSegmentationEditor(formLayout)
 
-        # TMP: Save button
-        saveButton = qt.QPushButton("[TMP] Save")
-        formLayout.addRow(saveButton)
-        saveButton.clicked.connect(self.bound_task.save)
+        # Save button
+        self.addSaveButton(formLayout)
 
         return formLayout
 
@@ -65,6 +63,11 @@ class SegmentationEvaluationGUI:
             slicer.modules.segmenteditor.widgetRepresentation().self().editor
 
         formLayout.addRow(self.segmentEditorWidget)
+
+    def addSaveButton(self, formLayout):
+        saveButton = qt.QPushButton("Save")
+        formLayout.addRow(saveButton)
+        saveButton.clicked.connect(self.bound_task.save)
 
     def update(self, data_unit: SegmentationEvaluationDataUnit):
         """
