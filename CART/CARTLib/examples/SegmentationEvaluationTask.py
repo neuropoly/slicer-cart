@@ -207,11 +207,14 @@ class _OutputManager:
         # Define the "target" output directory
         target_dir = self.output_dir / f"{data_unit.uid}/anat/"
 
+        # File name, before extensions
+        fname = f"{data_unit.uid}_{self.user}_seg"
+
         # Define the target output file placement
-        segmentation_out = target_dir / f"{data_unit.uid}_seg.nii.gz"
+        segmentation_out = target_dir / f"{fname}.nii.gz"
 
         # Define the path for our side-care
-        sidecar_out = target_dir / f"{data_unit.uid}_seg.json"
+        sidecar_out = target_dir / f"{fname}.json"
 
         # Create the directories needed for this output
         target_dir.mkdir(parents=True, exist_ok=True)
