@@ -33,6 +33,10 @@ class SegmentationEvaluationDataUnit(DataUnitBase):
         # Track whether this node has been processed already or not
         self.is_complete = case_data.get(self.COMPLETED_KEY, False)
 
+        # Path to the original segmentation file; used for re-loading and
+        #  sidecar fetching
+        self.segmentation_path = self.data_path / self.case_data[self.SEGMENTATION_KEY]
+
         # Initialize our resources
         self._initialize_resources()
 
@@ -136,7 +140,7 @@ class SegmentationEvaluationDataUnit(DataUnitBase):
 
     def _init_segmentation_node(self):
         # Load the segmentation as a labelled volume first
-        segmentation_path = self.data_path / self.case_data[self.SEGMENTATION_KEY]
+        segmentation_path = self.segmentation_path
         label_node = slicer.util.loadLabelVolume(segmentation_path)
 
         # Then create our segmentation node

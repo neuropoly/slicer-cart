@@ -1,3 +1,5 @@
+import json
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -7,6 +9,9 @@ import slicer
 from slicer.i18n import tr as _
 from .SegmentationEvaluationDataUnit import SegmentationEvaluationDataUnit
 from ..core.TaskBaseClass import TaskBaseClass, DataUnitFactory
+
+
+VERSION = 0.01
 
 
 class SegmentationEvaluationGUI:
@@ -29,6 +34,11 @@ class SegmentationEvaluationGUI:
 
         # Add the segmentation editor widget
         self.addSegmentationEditor(formLayout)
+
+        # TMP: Save button
+        saveButton = qt.QPushButton("[TMP] Save")
+        formLayout.addRow(saveButton)
+        saveButton.clicked.connect(self.bound_task.save)
 
         return formLayout
 
@@ -106,6 +116,9 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
         # Variable for tracking the output directory
         self.output_dir: Optional[Path] = None
 
+        # Output manager to handling saving/loading of modified segmentations
+        self.output_manager: _OutputManager = None
+
         # Placeholder to track the currently-in-use Data Unit
         self.data_unit = None
 
@@ -144,7 +157,8 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
         self.gui = None
 
     def save(self) -> bool:
-        pass
+        # Have the output manager save the result
+        self.output_manager.save_segmentation(self.data_unit)
 
     @classmethod
     def getDataUnitFactories(cls) -> dict[str, DataUnitFactory]:
@@ -175,4 +189,89 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
         self.output_dir = new_path
         print(f"Output path set to: {self.output_dir}")
 
+        # Create a new output manager with this directory
+        self.output_manager = _OutputManager(self.output_dir)
+
         return None
+
+
+class _OutputManager:
+    """
+    Manages the output of the Segmentation Evaluation task
+    """
+    def __init__(self, output_dir: Path):
+        self.output_dir = output_dir
+
+    def save_segmentation(self, data_unit: SegmentationEvaluationDataUnit):
+        # Define the "target" output directory
+        target_dir = self.output_dir / f"{data_unit.uid}/anat/"
+
+        # Define the target output file placement
+        segmentation_out = target_dir / f"{data_unit.uid}_seg.nii.gz"
+
+        # Define the path for our side-care
+        sidecar_out = target_dir / f"{data_unit.uid}_seg.json"
+
+        # Create the directories needed for this output
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        # Save the node
+        self._save_segmentation_node(
+            data_unit.segmentation_node, data_unit.volume_node, segmentation_out
+        )
+
+        # Save/update the side-car file, if it exists
+        self._save_sidecar(
+            data_unit, sidecar_out
+        )
+
+    def _save_segmentation_node(self, seg_node, volume_node, target_file):
+        """
+        Save a segmentation node's contents to file; this gets its own utility
+         function because you can't do so directly. Instead, you need to convert
+         it back to a label-type node w/ reference to a volume node first, then
+         save it.
+        """
+        # Convert the Segmentation back to a Label (for Nifti export)
+        label_node = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLLabelMapVolumeNode"
+        )
+        slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(
+            seg_node, label_node, volume_node
+        )
+
+        # Save the active segmentation node to this directory
+        slicer.util.saveNode(label_node, str(target_file))
+
+        # Clean up the node after so it doesn't pollute the scene
+        slicer.mrmlScene.RemoveNode(label_node)
+
+    def _save_sidecar(self, data_node, target_file: Path):
+        # Check for an existing sidecar, and use it as our basis if it exists
+        fname = str(data_node.segmentation_path).split('.')[0]
+
+        # Read in the existing side-car file first, if possible
+        sidecar_file = Path(f"{fname}.json")
+        if sidecar_file.exists():
+            with open(sidecar_file, 'r') as fp:
+                sidecar_data = json.load(fp)
+        else:
+            sidecar_data = dict()
+
+        # New entry
+        entry_time = datetime.now()
+        new_entry = {
+            "Name": "Segmentation Review [CART]",
+            "Author": "",  # TODO: Pass in user info to DataUnit
+            "Version": VERSION,
+            "Date": entry_time.strftime('%Y-%m-%d %H:%M:%S')
+        }
+
+        # Add a new entry to the side-car's contents
+        generated_by = sidecar_data.get("GeneratedBy", [])
+        generated_by.append(new_entry)
+        sidecar_data["GeneratedBy"] = generated_by
+
+        # Write the sidecar file to our target file
+        with open(target_file, 'w') as fp:
+            json.dump(sidecar_data, fp, indent=2)
