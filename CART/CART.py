@@ -420,6 +420,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         idx = self.userSelectButton.currentIndex
         self.logic.set_most_recent_user(idx)
 
+        # Exit task mode until we begin a new task
+        self._disableTaskMode()
+
         # Rebuild the GUI to match
         self._refreshUserList()
 
