@@ -140,10 +140,10 @@ class SegmentationEvaluationDataUnit(DataUnitBase):
         label_node = slicer.util.loadLabelVolume(segmentation_path)
 
         # Then create our segmentation node
-        self.segmentation_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentationNode")
+        self.segmentation_node = self.scene.AddNewNodeByClass("vtkMRMLSegmentationNode")
         self.segmentation_node.SetName(f"{self.uid}_{self.SEGMENTATION_KEY}")
 
-        # And pack the label node into the segmentation node; this auto-handles
+        # Pack the label node into the segmentation node; this auto-handles
         #  color coding for us
         slicer.modules.segmentations.logic().ImportLabelmapToSegmentationNode(
             label_node, self.segmentation_node
