@@ -108,8 +108,8 @@ class SegmentationEvaluationGUI:
 
 
 class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, user: str):
+        super().__init__(user)
         # Variable for tracking the active GUI instance
         self.gui: Optional[SegmentationEvaluationGUI] = None
 
@@ -190,7 +190,7 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
         print(f"Output path set to: {self.output_dir}")
 
         # Create a new output manager with this directory
-        self.output_manager = _OutputManager(self.output_dir)
+        self.output_manager = _OutputManager(self.output_dir, self.user)
 
         return None
 
@@ -199,8 +199,9 @@ class _OutputManager:
     """
     Manages the output of the Segmentation Evaluation task
     """
-    def __init__(self, output_dir: Path):
+    def __init__(self, output_dir: Path, user: str):
         self.output_dir = output_dir
+        self.user = user
 
     def save_segmentation(self, data_unit: SegmentationEvaluationDataUnit):
         # Define the "target" output directory
@@ -262,7 +263,7 @@ class _OutputManager:
         entry_time = datetime.now()
         new_entry = {
             "Name": "Segmentation Review [CART]",
-            "Author": "",  # TODO: Pass in user info to DataUnit
+            "Author": self.user,
             "Version": VERSION,
             "Date": entry_time.strftime('%Y-%m-%d %H:%M:%S')
         }

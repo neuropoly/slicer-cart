@@ -37,7 +37,7 @@ class TaskBaseClass(ABC, Generic[D]):
     itself.!
     """
 
-    def __init__(self):
+    def __init__(self, user: str):
         """
         Basic constructor.
 
@@ -47,6 +47,10 @@ class TaskBaseClass(ABC, Generic[D]):
         TODO: Swap Optional for newer Optional syntax ('D | None');
          currently only on Python 3.10 and up (which Slicer 5.8 doesn't have)
         """
+        # Track the user for later; we often want to stratify our task by which
+        #  user is running it
+        self.user = user
+
         # Create a logger to track the goings-on of this task.
         self.logger = logging.getLogger(f"{__class__.__name__}")
 

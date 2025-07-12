@@ -1041,7 +1041,8 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         self.load_cohort()
 
         # Create the new task instance
-        self.current_task_instance = self.current_task_type()
+        self.current_task_instance = \
+            self.current_task_type(self.get_current_user())
 
         # Pass our first data unit to the task
         new_unit = self.select_current_case()

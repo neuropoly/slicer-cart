@@ -14,13 +14,13 @@ from pathlib import Path
 
 class OrganLabellingDemoTask(TaskBaseClass[VolumeOnlyDataUnit]):
 
-    def __init__(self):
+    def __init__(self, user: str):
         """
         Constructor for the OrganLabellingDemoTask.
 
         This initializes the task with a given DataUnitBase instance.
         """
-        super().__init__()
+        super().__init__(user)
 
         self.load_all_volumes = True  # Flag to control volume loading
         self.layoutLogic = CaseIteratorLayoutLogic()  # Layout logic instance
