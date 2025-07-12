@@ -98,10 +98,13 @@ class SegmentationEvaluationGUI:
         output_path_str = widget.currentPath.strip()
 
         if not output_path_str:
-            # TODO: Prompt the user instead
-            print("Output path was empty")
-            # Reset it to our prior managed directory instead
+            # Prompt the user with the error
+            err_msg = "Output path was empty"
+            self._linkedPathErrorPrompt(err_msg, prompt)
+
+            # Reset it to our prior managed directory for convenience sakes
             widget.currentPath = str(self.bound_task.output_dir)
+
             # Return early, which keeps the prompt active
             return
 
@@ -114,22 +117,28 @@ class SegmentationEvaluationGUI:
 
         # If we got an error message, prompt the user about why and return
         if err_msg:
-            # Prompt the user with the error, locking the original prompt until
-            #  acknowledged by the user
-            failurePrompt = qt.QErrorMessage(prompt)
-
-            # Add some details on what's happening for the user
-            failurePrompt.setWindowTitle("PATH ERROR!")
-
-            # Show the message
-            failurePrompt.showMessage(err_msg)
-            failurePrompt.exec()
+            self._linkedPathErrorPrompt(err_msg, prompt)
 
             # Return, keeping the prompt alive
             return
         # Otherwise, close the prompt with an "accepted" signal
         else:
             prompt.accept()
+
+    def _linkedPathErrorPrompt(self, err_msg, prompt):
+        """
+        Prompt the user with an error message
+        """
+        # Prompt the user with the error, locking the original prompt until
+        #  acknowledged by the user
+        failurePrompt = qt.QErrorMessage(prompt)
+
+        # Add some details on what's happening for the user
+        failurePrompt.setWindowTitle("PATH ERROR!")
+
+        # Show the message
+        failurePrompt.showMessage(err_msg)
+        failurePrompt.exec()
 
     def addSegmentationEditor(self, formLayout):
         # Build the editor widget
