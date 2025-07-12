@@ -29,8 +29,8 @@ class SegmentationEvaluationGUI:
         # Initialize the layout we'll insert everything into
         formLayout = qt.QFormLayout()
 
-        # Add the output path selector
-        self.addOutputPathSelector(formLayout)
+        # Prompt the user for an output directory
+        self.promptSelectOutput()
 
         # Add the segmentation editor widget
         self.addSegmentationEditor(formLayout)
@@ -40,21 +40,96 @@ class SegmentationEvaluationGUI:
 
         return formLayout
 
-    def addOutputPathSelector(self, formLayout):
-        # Output file designator
-        self.outputFileEdit = ctk.ctkPathLineEdit()
-        self.outputFileEdit.setToolTip(_(
+    def promptSelectOutput(self):
+        # Initialize the prompt
+        prompt = self._buildOutputDirPrompt()
+
+        # Show the prompt with "exec", blocking the main window until resolved
+        result = prompt.exec()
+        print(result, self.bound_task.output_dir)
+
+    def _buildOutputDirPrompt(self):
+        prompt = qt.QDialog()
+        prompt.setWindowTitle("Select Output Directory")
+        # Add a basic layout to hold widgets in this prompt
+        layout = qt.QVBoxLayout()
+        prompt.setLayout(layout)
+
+        # Add a label describing what's being asked
+        label = qt.QLabel("Please select an output directory:")
+        layout.addWidget(label)
+
+        # Add an output file selection widget
+        outputFileEdit = ctk.ctkPathLineEdit()
+        outputFileEdit.setToolTip(_(
             "The directory the modified segmentations (and corresponding "
-            "metadata) should be placed."
+            "metadata) will be placed."
         ))
         # Set the widget to only accept directories
-        self.outputFileEdit.filters = ctk.ctkPathLineEdit.Dirs
+        outputFileEdit.filters = ctk.ctkPathLineEdit.Dirs
+        # Add it to our layout
+        layout.addWidget(outputFileEdit)
 
-        # When the widget's contents change, update our output dir to match
-        self.outputFileEdit.currentPathChanged.connect(self.outputPathChanged)
+        # Add a button box to confirm/cancel out
+        buttonBox = qt.QDialogButtonBox()
+        buttonBox.addButton(_("Confirm"), qt.QDialogButtonBox.AcceptRole)
+        layout.addWidget(buttonBox)
 
-        # Make it the first widget in our "form"
-        formLayout.addRow(_("Output Path:"), self.outputFileEdit)
+        # When the user confirms, ensure we have a valid path first
+        buttonBox.accepted.connect(
+            lambda: self._attemptOutputPathUpdate(prompt, outputFileEdit)
+        )
+
+        # Resize the prompt to be wider, as by default its very tiny
+        prompt.resize(500, prompt.minimumHeight)
+
+        return prompt
+
+    def _attemptOutputPathUpdate(
+            self,
+            prompt: qt.QDialog,
+            widget: ctk.ctkPathLineEdit
+    ):
+        """
+        Validates the output path provided by a user, only closing the
+         associated prompt if it was valid.
+        """
+        # Strip whitespace to avoid a "space" path
+        output_path_str = widget.currentPath.strip()
+
+        if not output_path_str:
+            # TODO: Prompt the user instead
+            print("Output path was empty")
+            # Reset it to our prior managed directory instead
+            widget.currentPath = str(self.bound_task.output_dir)
+            # Return early, which keeps the prompt active
+            return
+
+        # Convert it to a Path for ease of use
+        output_path = Path(output_path_str)
+
+        # Otherwise, try to update the task's path; we rely on its validation
+        #  to ensure parity with any other checks
+        err_msg = self.bound_task.set_output_dir(output_path)
+
+        # If we got an error message, prompt the user about why and return
+        if err_msg:
+            # Prompt the user with the error, locking the original prompt until
+            #  acknowledged by the user
+            failurePrompt = qt.QErrorMessage(prompt)
+
+            # Add some details on what's happening for the user
+            failurePrompt.setWindowTitle("PATH ERROR!")
+
+            # Show the message
+            failurePrompt.showMessage(err_msg)
+            failurePrompt.exec()
+
+            # Return, keeping the prompt alive
+            return
+        # Otherwise, close the prompt with an "accepted" signal
+        else:
+            prompt.accept()
 
     def addSegmentationEditor(self, formLayout):
         # Build the editor widget
@@ -79,35 +154,6 @@ class SegmentationEvaluationGUI:
         # As the volume node is tied to the segmentation node, this will also
         #  set the selected volume node automagically for us!
         self.segmentEditorWidget.setSegmentationNode(data_unit.segmentation_node)
-
-    ## GUI actions ##
-    def outputPathChanged(self):
-        # Get the current path from the GUI
-        current_path_specified = self.outputFileEdit.currentPath
-
-        # Strip it of leading/trailing whitespace
-        current_path_specified = current_path_specified.strip()
-
-        # If the data path is now empty, reset to the previous path and end early
-        if not current_path_specified:
-            print("Error: Base path was empty, retaining previous base path.")
-            self.outputFileEdit.currentPath = str(self.bound_task.output_dir)
-            return
-
-        # Otherwise, update the task's path; re
-        err_msg = self.bound_task.set_output_dir(Path(current_path_specified))
-
-        # If we failed, prompt the user as to why
-        if err_msg:
-            # Display an error message notifying the user
-            failurePrompt = qt.QErrorMessage()
-
-            # Add some details on what's happening for the user
-            failurePrompt.setWindowTitle("PATH ERROR!")
-
-            # Show the message
-            failurePrompt.showMessage(err_msg)
-            failurePrompt.exec_()
 
 
 class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
