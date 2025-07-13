@@ -214,9 +214,9 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
         # Break the cyclical link with our GUI so garbage collection can run
         self.gui = None
 
-    def save(self) -> bool:
+    def save(self) -> Optional[str]:
         # Have the output manager save the result
-        self.output_manager.save_segmentation(self.data_unit)
+        return self.output_manager.save_segmentation(self.data_unit)
 
     @classmethod
     def getDataUnitFactories(cls) -> dict[str, DataUnitFactory]:
@@ -261,7 +261,8 @@ class _OutputManager:
         self.output_dir = output_dir
         self.user = user
 
-    def save_segmentation(self, data_unit: SegmentationEvaluationDataUnit):
+    def save_segmentation(self, data_unit: SegmentationEvaluationDataUnit) \
+            -> Optional[str]:
         # Define the "target" output directory
         target_dir = self.output_dir / f"{data_unit.uid}/anat/"
 
@@ -277,15 +278,22 @@ class _OutputManager:
         # Create the directories needed for this output
         target_dir.mkdir(parents=True, exist_ok=True)
 
-        # Save the node
-        self._save_segmentation_node(
-            data_unit.segmentation_node, data_unit.volume_node, segmentation_out
-        )
+        try:
+            # Save the node
+            self._save_segmentation_node(
+                data_unit.segmentation_node, data_unit.volume_node, segmentation_out
+            )
 
-        # Save/update the side-car file, if it exists
-        self._save_sidecar(
-            data_unit, sidecar_out
-        )
+            # Save/update the side-car file, if it exists
+            self._save_sidecar(
+                data_unit, sidecar_out
+            )
+
+            # Return nothing, indicating a successful save
+            return None
+        except Exception as e:
+            # If any error occurred, return a string version of it for reporting
+            return str(e)
 
     def _save_segmentation_node(self, seg_node, volume_node, target_file):
         """

@@ -89,7 +89,7 @@ class TaskBaseClass(ABC, Generic[D]):
         raise NotImplementedError("setup must be implemented in subclasses")
 
     @abstractmethod
-    def save(self) -> bool:
+    def save(self) -> Optional[str]:
         """
         Run when the user requests the current data in the case be saved.
 
@@ -98,6 +98,9 @@ class TaskBaseClass(ABC, Generic[D]):
         (including, potentially, the original cohort file).
 
         By default, this is also AUTOMATICALLY RUN when a new case is loaded.
+
+        Returns None on a successful save; otherwise, return an errror message
+        describing the error
         """
 
         raise NotImplementedError("save must be implemented in subclasses")

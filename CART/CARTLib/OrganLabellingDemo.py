@@ -1,3 +1,5 @@
+from typing import Optional
+
 from .core.TaskBaseClass import TaskBaseClass, DataUnitFactory
 from .core.DataUnitBase import DataUnitBase
 from .VolumeOnlyDataIO import VolumeOnlyDataUnit
@@ -177,20 +179,20 @@ class OrganLabellingDemoTask(TaskBaseClass[VolumeOnlyDataUnit]):
                 fit=True
             )
 
-    def save(self) -> bool:
+    def save(self) -> Optional[str]:
         print(f"Running {self.__class__} save!")
 
         # Validate we have an output folder to actually save to
         print(f"Output file: {self.output_file}")
         if not self.output_file:
-            print("No output file specified.")
-            return False
+            err_msg = "No output file specified."
+            return err_msg
 
         # Validate that the user has actually entered an organ
         organText = self.organTextInput.text
         if not organText:
-            print("No organ text specified.")
-            return False
+            err_msg = "No organ text specified."
+            return err_msg
 
         # TODO
 
@@ -244,7 +246,7 @@ class OrganLabellingDemoTask(TaskBaseClass[VolumeOnlyDataUnit]):
             csv_writer.writerows(csv_data)
 
         print(f"Saved organ label '{organText}' for UID {self.data_unit.uid}")
-        return True
+        return None
 
     def onOutputFileChanged(self):
         """
