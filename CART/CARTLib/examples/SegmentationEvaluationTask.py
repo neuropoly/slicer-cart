@@ -151,7 +151,7 @@ class SegmentationEvaluationGUI:
     def addSaveButton(self, formLayout):
         saveButton = qt.QPushButton("Save")
         formLayout.addRow(saveButton)
-        saveButton.clicked.connect(self.bound_task.save)
+        saveButton.clicked.connect(self._save)
 
     def update(self, data_unit: SegmentationEvaluationDataUnit):
         """
@@ -163,6 +163,29 @@ class SegmentationEvaluationGUI:
         # As the volume node is tied to the segmentation node, this will also
         #  set the selected volume node automagically for us!
         self.segmentEditorWidget.setSegmentationNode(data_unit.segmentation_node)
+
+    def _save(self):
+        """
+        Wrapper for task saving, which just enables us to prompt the user
+        on success/failure
+        """
+        # Attempt to save
+        err_msg = self.bound_task.save()
+
+        # If successful, prompt the user to acknowledge
+        if err_msg is None:
+            msgBox = qt.QMessageBox()
+            msgBox.setWindowTitle("Success!")
+            msgBox.setText(f"The segmentation for '{self.bound_task.data_unit.uid}' "
+                           f"was successfully saved!\n\n"
+                           f"Saved to: {self.bound_task.output_dir}!")
+            msgBox.addButton(_("Confirm"), qt.QMessageBox.AcceptRole)
+            msgBox.exec()
+        else:
+            errBox = qt.QErrorMessage()
+            errBox.setWindowTitle("ERROR!")
+            errBox.showMessage(err_msg)
+            errBox.exec()
 
 
 class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
