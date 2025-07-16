@@ -519,7 +519,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if self.isPreviewMode:
             # Change the color of the preview button to indicate preview mode
             self.previewButton.setStyleSheet("background-color: #777eb4; color: #777eb4;")
-                        # Load the file's cases into memory
+            # Load the file's cases into memory
             self.logic.load_cohort()
 
         else:
@@ -972,6 +972,15 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         """
         Load the contents of the currently selected cohort file into memory
         """
+        # If we don't have a data manager yet, create one
+        if self.data_manager is None:
+            self.data_manager = DataManager(
+                cohort_file=self.cohort_path,
+                data_source=self.data_manager,
+                data_unit_factory=self.data_unit_factory
+            )
+
+        # Load the cases from the CSV into memory
         self.data_manager.load_cases()
 
     ## Task Management ##
