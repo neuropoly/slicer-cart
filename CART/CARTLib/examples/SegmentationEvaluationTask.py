@@ -176,9 +176,12 @@ class SegmentationEvaluationGUI:
         if err_msg is None:
             msgBox = qt.QMessageBox()
             msgBox.setWindowTitle("Success!")
+            seg_out, __ = self.bound_task.output_manager.get_output_destinations(
+                self.bound_task.data_unit
+            )
             msgBox.setText(f"The segmentation for '{self.bound_task.data_unit.uid}' "
                            f"was successfully saved!\n\n"
-                           f"Saved to: {self.bound_task.output_dir}!")
+                           f"Saved to: {str(seg_out.resolve())}!")
             msgBox.addButton(_("Confirm"), qt.QMessageBox.AcceptRole)
             msgBox.exec()
         else:
@@ -286,21 +289,14 @@ class _OutputManager:
 
     def save_segmentation(self, data_unit: SegmentationEvaluationDataUnit) \
             -> Optional[str]:
-        # Define the "target" output directory
-        target_dir = self.output_dir / f"{data_unit.uid}/anat/"
+        # Calculate the designation paths for our files
+        segmentation_out, sidecar_out = self.get_output_destinations(data_unit)
 
-        # File name, before extensions
-        fname = f"{data_unit.uid}_{self.user}_seg"
+        # Create the directories needed for these outputs
+        segmentation_out.parent.mkdir(parents=True, exist_ok=True)
+        sidecar_out.parent.mkdir(parents=True, exist_ok=True)
 
-        # Define the target output file placement
-        segmentation_out = target_dir / f"{fname}.nii.gz"
-
-        # Define the path for our side-care
-        sidecar_out = target_dir / f"{fname}.json"
-
-        # Create the directories needed for this output
-        target_dir.mkdir(parents=True, exist_ok=True)
-
+        # Attempt to save our results
         try:
             # Save the node
             self._save_segmentation_node(
@@ -317,6 +313,29 @@ class _OutputManager:
         except Exception as e:
             # If any error occurred, return a string version of it for reporting
             return str(e)
+
+    def get_output_destinations(self, data_unit: SegmentationEvaluationDataUnit) -> \
+            (Path, Path):
+        """
+        Get the output paths for the files managed by this manager
+        :param data_unit: The data unit whose data will be saved
+        :return: Two paths, one per output file:
+            * The path to the (.nii.gz) segmentation file
+            * The path to the (.json) sidecar file, corresponding to the prior
+        """
+        # Define the "target" output directory
+        target_dir = self.output_dir / f"{data_unit.uid}/anat/"
+
+        # File name, before extensions
+        fname = f"{data_unit.uid}_{self.user}_seg"
+
+        # Define the target output file placement
+        segmentation_out = target_dir / f"{fname}.nii.gz"
+
+        # Define the path for our side-care
+        sidecar_out = target_dir / f"{fname}.json"
+
+        return segmentation_out, sidecar_out
 
     def _save_segmentation_node(self, seg_node, volume_node, target_file):
         """
