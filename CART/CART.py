@@ -593,13 +593,13 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
       # Disable buttons if in task mode
       if self.isTaskMode:
-        self.previewButton.setEnabled(False)
-        self.confirmButton.setEnabled(False)
+          self.previewButton.setEnabled(False)
+          self.confirmButton.setEnabled(False)
 
       # Disable navigation buttons if only in preview mode
       if self.isPreviewMode and not self.isTaskMode:
-        self.previousButton.setEnabled(False)
-        self.nextButton.setEnabled(False)
+          self.previousButton.setEnabled(False)
+          self.nextButton.setEnabled(False)
 
       # Always (re)build the table if in preview or task mode
       self.buildCohortTable()
@@ -700,7 +700,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # If the logic says we're ready to start, we can start
         if self.logic.is_ready():
             self.confirmButton.setEnabled(True)
-          
+                    
     def loadTaskWhenReady(self):
         # If we're not ready to load a task, leave everything untouched
         if not self.logic.is_ready():

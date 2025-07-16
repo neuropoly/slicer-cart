@@ -104,11 +104,12 @@ class DataManager:
         if we recently created it, instead using the cached version instead.
         """
         current_case_data = self.case_data[idx]
-        # TODO: replace this with a user-selectable data unit type
         
+        # TODO: replace this with a user-selectable data unit type
         return VolumeOnlyDataUnit(
             data=current_case_data,
-            data_path=self.data_source)
+            data_path=self.data_source
+          )
         
 
     def current_uid(self):
