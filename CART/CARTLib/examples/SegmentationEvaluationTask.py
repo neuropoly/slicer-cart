@@ -26,6 +26,7 @@ class SegmentationEvaluationGUI:
         #  the current state of our bound task
         self.saveButton = None
 
+    ## GUI CONSTRUCTION ##
     def setup(self) -> qt.QFormLayout:
         """
         Build the GUI's contents, returning the resulting layout for use
@@ -44,6 +45,25 @@ class SegmentationEvaluationGUI:
 
         return formLayout
 
+    def addSegmentationEditor(self, formLayout):
+        # Build the editor widget
+        # TODO: Fix this "stealing" from the original Segment Editor widget
+        self.segmentEditorWidget = \
+            slicer.modules.segmenteditor.widgetRepresentation().self().editor
+
+        formLayout.addRow(self.segmentEditorWidget)
+
+    def addSaveButton(self, formLayout):
+        # Create the save button
+        saveButton = qt.QPushButton("Save")
+        formLayout.addRow(saveButton)
+        saveButton.clicked.connect(self._save)
+        self.saveButton = saveButton
+
+        # Match it's state to the current ability to save
+        self._updatedSaveButtonState()
+
+    ## USER PROMPTS ##
     def promptSelectOutput(self):
         # Initialize the prompt
         prompt = self._buildOutputDirPrompt()
@@ -99,6 +119,36 @@ class SegmentationEvaluationGUI:
 
         return prompt
 
+    def _linkedPathErrorPrompt(self, err_msg, prompt):
+        """
+        Prompt the user with an error message
+        """
+        # Prompt the user with the error, locking the original prompt until
+        #  acknowledged by the user
+        failurePrompt = qt.QErrorMessage(prompt)
+
+        # Add some details on what's happening for the user
+        failurePrompt.setWindowTitle("PATH ERROR!")
+
+        # Show the message
+        failurePrompt.showMessage(err_msg)
+        failurePrompt.exec()
+
+    ## GUI SYNCHRONIZATION ##
+    def _updatedSaveButtonState(self):
+        # Ensure the button is active on when we're ready to save
+        can_save = self.bound_task.can_save()
+        self.saveButton.setEnabled(can_save)
+
+        # Change the tooltip of the button to inform the user what's wrong
+
+        if can_save:
+            tooltip_text = _("Saves the current segmentation!")
+        else:
+            tooltip_text = _("Cannot save currently; no output directory set!")
+        self.saveButton.setToolTip(tooltip_text)
+
+    ## TASK LINKS ##
     def _attemptOutputPathUpdate(
             self,
             prompt: qt.QDialog,
@@ -138,52 +188,6 @@ class SegmentationEvaluationGUI:
         # Otherwise, close the prompt with an "accepted" signal
         else:
             prompt.accept()
-
-    def _linkedPathErrorPrompt(self, err_msg, prompt):
-        """
-        Prompt the user with an error message
-        """
-        # Prompt the user with the error, locking the original prompt until
-        #  acknowledged by the user
-        failurePrompt = qt.QErrorMessage(prompt)
-
-        # Add some details on what's happening for the user
-        failurePrompt.setWindowTitle("PATH ERROR!")
-
-        # Show the message
-        failurePrompt.showMessage(err_msg)
-        failurePrompt.exec()
-
-    def addSegmentationEditor(self, formLayout):
-        # Build the editor widget
-        # TODO: Fix this "stealing" from the original Segment Editor widget
-        self.segmentEditorWidget = \
-            slicer.modules.segmenteditor.widgetRepresentation().self().editor
-
-        formLayout.addRow(self.segmentEditorWidget)
-
-    def addSaveButton(self, formLayout):
-        # Create the save button
-        saveButton = qt.QPushButton("Save")
-        formLayout.addRow(saveButton)
-        saveButton.clicked.connect(self._save)
-        self.saveButton = saveButton
-
-        # Match it's state to the current ability to save
-        self._updatedSaveButtonState()
-
-    def _updatedSaveButtonState(self):
-        # Ensure the button is active on when we're ready to save
-        can_save = self.bound_task.can_save()
-        self.saveButton.setEnabled(can_save)
-
-        # Change the tooltip of the button to inform the user what's wrong
-
-        if can_save:
-            tooltip_text = _("Saves the current segmentation!")
-        else:
-            tooltip_text = _("Cannot save currently; no output directory set!")
-        self.saveButton.setToolTip(tooltip_text)
 
     def update(self, data_unit: SegmentationEvaluationDataUnit):
         """
