@@ -22,6 +22,10 @@ class SegmentationEvaluationGUI:
         # Segmentation editor widget
         self.segmentEditorWidget = None
 
+        # The manual "save" button; whether it is enabled/disabled depends on
+        #  the current state of our bound task
+        self.saveButton = None
+
     def setup(self) -> qt.QFormLayout:
         """
         Build the GUI's contents, returning the resulting layout for use
@@ -46,6 +50,16 @@ class SegmentationEvaluationGUI:
 
         # Show the prompt with "exec", blocking the main window until resolved
         result = prompt.exec()
+
+        # If the user cancelled out of the prompt, notify them that they will
+        #  need to specify an output directory later!
+        if result == 0:
+            notif = qt.QErrorMessage()
+            notif.setWindowTitle(_("NO OUTPUT!"))
+            notif.showMessage(_("No output directory selected! You will need to "
+                                "specify this before segmentations can be saved."))
+            notif.exec()
+
         print(result, self.bound_task.output_dir)
 
     def _buildOutputDirPrompt(self):
@@ -149,9 +163,27 @@ class SegmentationEvaluationGUI:
         formLayout.addRow(self.segmentEditorWidget)
 
     def addSaveButton(self, formLayout):
+        # Create the save button
         saveButton = qt.QPushButton("Save")
         formLayout.addRow(saveButton)
         saveButton.clicked.connect(self._save)
+        self.saveButton = saveButton
+
+        # Match it's state to the current ability to save
+        self._updatedSaveButtonState()
+
+    def _updatedSaveButtonState(self):
+        # Ensure the button is active on when we're ready to save
+        can_save = self.bound_task.can_save()
+        self.saveButton.setEnabled(can_save)
+
+        # Change the tooltip of the button to inform the user what's wrong
+
+        if can_save:
+            tooltip_text = _("Saves the current segmentation!")
+        else:
+            tooltip_text = _("Cannot save currently; no output directory set!")
+        self.saveButton.setToolTip(tooltip_text)
 
     def update(self, data_unit: SegmentationEvaluationDataUnit):
         """
@@ -243,6 +275,17 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
     def save(self) -> Optional[str]:
         # Have the output manager save the result
         return self.output_manager.save_segmentation(self.data_unit)
+
+    def can_save(self) -> bool:
+        """
+        Shortcut for checking whether we can save the current segmentation or
+         not. Checks three things:
+        * We have set an output path,
+        * That output path exists, and
+        * That output path is a directory (and thus, files can be placed within it)
+        :return: True if we are ready to save, false otherwise
+        """
+        return self.output_dir and self.output_dir.exists() and self.output_dir.is_dir()
 
     @classmethod
     def getDataUnitFactories(cls) -> dict[str, DataUnitFactory]:
