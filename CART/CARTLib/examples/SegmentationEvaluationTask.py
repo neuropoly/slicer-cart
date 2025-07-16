@@ -34,8 +34,8 @@ class SegmentationEvaluationGUI:
         # Initialize the layout we'll insert everything into
         formLayout = qt.QFormLayout()
 
-        # Prompt the user for an output directory
-        self.promptSelectOutput()
+        # Add the output selection button
+        self.addOutputSelectionButton(formLayout)
 
         # Add the segmentation editor widget
         self.addSegmentationEditor(formLayout)
@@ -43,7 +43,16 @@ class SegmentationEvaluationGUI:
         # Save button
         self.addSaveButton(formLayout)
 
+        # Prompt the user for an output directory
+        self.promptSelectOutput()
+
         return formLayout
+
+    def addOutputSelectionButton(self, formLayout):
+        # Create the save button
+        outputChangeButton = qt.QPushButton("Change Output Directory")
+        formLayout.addRow(outputChangeButton)
+        outputChangeButton.clicked.connect(self.promptSelectOutput)
 
     def addSegmentationEditor(self, formLayout):
         # Build the editor widget
@@ -60,11 +69,15 @@ class SegmentationEvaluationGUI:
         saveButton.clicked.connect(self._save)
         self.saveButton = saveButton
 
-        # Match it's state to the current ability to save
-        self._updatedSaveButtonState()
-
     ## USER PROMPTS ##
     def promptSelectOutput(self):
+        """
+        Prompt the user to select an output directory.
+
+        The prompt will validate that the chosen output directory is valid,
+         and lock the save button if the user cancel's out of it without
+         selecting such a directory.
+        """
         # Initialize the prompt
         prompt = self._buildOutputDirPrompt()
 
@@ -75,12 +88,20 @@ class SegmentationEvaluationGUI:
         #  need to specify an output directory later!
         if result == 0:
             notif = qt.QErrorMessage()
-            notif.setWindowTitle(_("NO OUTPUT!"))
-            notif.showMessage(_("No output directory selected! You will need to "
-                                "specify this before segmentations can be saved."))
-            notif.exec()
+            if self.bound_task.can_save():
+                notif.setWindowTitle(_("REVERTING!"))
+                notif.showMessage(_("Cancelled out of window; falling back to previous "
+                                    "output directory "
+                                    f"({str(self.bound_task.output_dir)})"))
+                notif.exec()
+            else:
+                notif.setWindowTitle(_("NO OUTPUT!"))
+                notif.showMessage(_("No output directory selected! You will need to "
+                                    "specify this before segmentations can be saved."))
+                notif.exec()
 
-        print(result, self.bound_task.output_dir)
+        # Update the save button to match the current saving capability
+        self._updatedSaveButtonState()
 
     def _buildOutputDirPrompt(self):
         prompt = qt.QDialog()
