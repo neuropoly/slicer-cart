@@ -294,7 +294,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         mainLayout.addRow(_("Data Path:"), dataPathSelectionWidget)
 
         # Connect the signal to handle base path changes
-        dataPathSelectionWidget.currentPathChanged.connect(self.onDataPathChanged)
+        dataPathSelectionWidget.validInputChanged.connect(self.onDataPathChanged)
 
         # Make it accessible
         self.dataPathSelectionWidget = dataPathSelectionWidget
