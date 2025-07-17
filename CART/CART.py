@@ -734,15 +734,14 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     
     def loadTaskWhenReady(self):
         # If we're not ready to load a task, leave everything untouched
+        if not self.logic.is_ready():
+            return
+
         # If cohort csv and data path aren't matching, display a comprehensive error box
         is_valid, error_message = self.logic.validate_cohort_and_data_path_match()
         if not is_valid:
             self.showErrorPopup("Cannot Start Task", error_message)
             return  # Stop execution if validation fails
-        
-        
-        if not self.logic.is_ready():
-            return
 
         # Disable the GUI, as to avoid de-synchronization
         self.disableGUIWhileLoading()
