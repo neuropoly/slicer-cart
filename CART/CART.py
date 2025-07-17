@@ -444,6 +444,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Select the first (most recent) entry in the list
         self.userSelectButton.currentIndex = 0
 
+    def onDataPathValidityChanged(self):
+        print("CURRENT PATH: ", self.dataPathSelectionWidget.currentPath)
+        return
+    
     def onDataPathChanged(self):
         """
         Handles changes to the base path selection.
@@ -471,16 +475,16 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._disableTaskMode()
 
         # If we failed, prompt the user as to why
-        else:
-            # Display an error message notifying the user
-            failurePrompt = qt.QErrorMessage()
+        # else:
+        #     # Display an error message notifying the user
+        #     failurePrompt = qt.QErrorMessage()
 
-            # Add some details on what's happening for the user
-            failurePrompt.setWindowTitle("PATH ERROR!")
+        #     # Add some details on what's happening for the user
+        #     failurePrompt.setWindowTitle("PATH ERROR!")
 
-            # Show the message
-            failurePrompt.showMessage(reason)
-            failurePrompt.exec_()
+        #     # Show the message
+        #     failurePrompt.showMessage(reason)
+        #     failurePrompt.exec_()
 
     def onCohortChanged(self):
         # Get the currently selected cohort file from the widget
@@ -623,7 +627,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
       # Always (re)build the table if in preview or task mode
       self.buildCohortTable()
-    
+        
     ### Iterator Widgets ###
     def unHighlightRow(self, row):
         # Remove the highlight from the current row before proceeding to the following
@@ -1007,6 +1011,9 @@ class CARTLogic(ScriptedLoadableModuleLogic):
 
         return True, None
 
+    def validate_cohort_and_data_path_match(self) -> bool:
+        return 
+    
     def load_cohort(self):
         """
         Load the contents of the currently selected cohort file into memory
@@ -1043,6 +1050,10 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # We can't proceed if we don't have a selected task type
         elif not self.current_task_type:
             print("No task has been selected!")
+            return False
+        # We can't proceed if the data folder doesn't accomodate the cohort file
+        elif not self.validate_cohort_and_data_path_match:
+            print("Data path doesn't match the cohort file!")
             return False
 
         # If all checks passed, we can proceed!

@@ -232,6 +232,11 @@ class DataManager:
         if duplicates:
             raise ValueError(f"Duplicate uid values found in file: {duplicates}")
 
+    @staticmethod
+    def _validate_cohort_and_data_path_match() -> bool:
+        # cohort_file, data_source
+		return True
+    
     def _pre_fetch_elements(self):
         """
         Rebuild the cache of pre-fetched DataUnits.
