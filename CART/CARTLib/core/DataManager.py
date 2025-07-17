@@ -107,11 +107,13 @@ class DataManager:
          instead!
         """
         current_case_data = self.case_data[idx]
+        
         # TODO: replace this with a user-selectable data unit type
         return self.data_unit_factory(
             case_data=current_case_data,
             data_path=self.data_source
-        )
+          )
+        
 
     def set_data_unit_factory(self, duf: DataUnitFactory):
         self.data_unit_factory = duf
