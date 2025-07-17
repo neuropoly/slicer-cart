@@ -206,6 +206,20 @@ class DataManager:
             if reader.fieldnames is None:
                 raise ValueError("CSV file has no header row")
             return list(reader)
+        
+    @staticmethod
+    def _read_csv_cases(csv_path: Path) -> List[str]:
+        """
+        Gets the requested cases in the cohort csv
+        """
+        case_names = []
+        with csv_path.open(newline="") as csvfile:
+            reader = csv.reader(csvfile)
+            next(reader)
+            for row in reader:
+                if row:
+                    case_names.append(row[0])
+        return case_names
 
     # TODO Change rows to rows and define row typing at the definition of rows
     @staticmethod
@@ -232,10 +246,40 @@ class DataManager:
         if duplicates:
             raise ValueError(f"Duplicate uid values found in file: {duplicates}")
 
-    @staticmethod
-    def _validate_cohort_and_data_path_match() -> bool:
-        # cohort_file, data_source
-		return True
+    def validate_cohort_and_data_path_match(self) -> bool:
+        """
+        Ensure that the cohort csv can extract the right resources and cases from the data path
+        """
+        
+        # List holding every case (a row) as a dict
+        all_cases = DataManager._read_csv(self.cohort_csv)
+        
+        # Fetch all case names requested in the cohort csv
+        case_names = DataManager._read_csv_cases(self.cohort_csv)
+     
+        # Compare with all case names
+        # All case names in the data path
+        all_cases_names = [d.name for d in self.data_source.iterdir() if d.is_dir()]
+        
+        # Check if all case names in the cohort csv are in the data path
+        if not set(case_names).issubset(set(all_cases_names)):
+            return False
+        
+        print("FIRST TEST PASSED!")
+        
+        # Check if all requested resources exist directly under their respective case's folder
+        for case in all_cases:
+            # Iterate over items starting from the second one (skipping 'uid')
+            for resource_name, rel_path in list(case.items())[1:]:
+                this_case = case["uid"] 
+                absolute_path = self.data_source / rel_path
+                if not (absolute_path).exists():
+                    mismatched_case = this_case
+                    print("MISMATCHED PATH: ", absolute_path)
+                    print("MISMATCHED CASE: ", mismatched_case)
+                    return False
+  
+        return True
     
     def _pre_fetch_elements(self):
         """

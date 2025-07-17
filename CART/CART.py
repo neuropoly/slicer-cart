@@ -1012,7 +1012,9 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         return True, None
 
     def validate_cohort_and_data_path_match(self) -> bool:
-        return 
+        print("VALIDATED!!")
+        return self.data_manager.validate_cohort_and_data_path_match()
+
     
     def load_cohort(self):
         """
@@ -1052,7 +1054,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
             print("No task has been selected!")
             return False
         # We can't proceed if the data folder doesn't accomodate the cohort file
-        elif not self.validate_cohort_and_data_path_match:
+        elif not self.validate_cohort_and_data_path_match():
             print("Data path doesn't match the cohort file!")
             return False
 
