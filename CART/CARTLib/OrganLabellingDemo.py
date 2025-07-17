@@ -1,4 +1,6 @@
-from .core.TaskBaseClass import TaskBaseClass, D
+from typing import Optional
+
+from .core.TaskBaseClass import TaskBaseClass, DataUnitFactory
 from .core.DataUnitBase import DataUnitBase
 from .VolumeOnlyDataIO import VolumeOnlyDataUnit
 from .LayoutLogic import CaseIteratorLayoutLogic
@@ -12,18 +14,19 @@ import time
 from pathlib import Path
 
 
-class OrganLabellingDemoTask(TaskBaseClass):
+class OrganLabellingDemoTask(TaskBaseClass[VolumeOnlyDataUnit]):
 
-    def __init__(self, data_unit: VolumeOnlyDataUnit):
+    def __init__(self, user: str):
         """
         Constructor for the OrganLabellingDemoTask.
 
         This initializes the task with a given DataUnitBase instance.
         """
+        super().__init__(user)
+
         self.load_all_volumes = True  # Flag to control volume loading
         self.layoutLogic = CaseIteratorLayoutLogic()  # Layout logic instance
         self.volumeNodes = []  # Store loaded volume nodes
-        super().__init__(data_unit)
 
         self.data_unit: DataUnitBase = None  # The currently managed data unit
 
@@ -77,7 +80,7 @@ class OrganLabellingDemoTask(TaskBaseClass):
         self.showAllVolumesButton.clicked.connect(self.showAllVolumes)
         self.resetLayoutButton.clicked.connect(self.resetLayout)
 
-    def recieve(self, data_unit: D):
+    def receive(self, data_unit: VolumeOnlyDataUnit):
         print(f"Received new data unit: {hash(data_unit)}")
 
         if data_unit is not None:
@@ -176,20 +179,20 @@ class OrganLabellingDemoTask(TaskBaseClass):
                 fit=True
             )
 
-    def save(self) -> bool:
+    def save(self) -> Optional[str]:
         print(f"Running {self.__class__} save!")
 
         # Validate we have an output folder to actually save to
         print(f"Output file: {self.output_file}")
         if not self.output_file:
-            print("No output file specified.")
-            return False
+            err_msg = "No output file specified."
+            return err_msg
 
         # Validate that the user has actually entered an organ
         organText = self.organTextInput.text
         if not organText:
-            print("No organ text specified.")
-            return False
+            err_msg = "No organ text specified."
+            return err_msg
 
         # TODO
 
@@ -243,7 +246,7 @@ class OrganLabellingDemoTask(TaskBaseClass):
             csv_writer.writerows(csv_data)
 
         print(f"Saved organ label '{organText}' for UID {self.data_unit.uid}")
-        return True
+        return None
 
     def onOutputFileChanged(self):
         """
@@ -256,4 +259,8 @@ class OrganLabellingDemoTask(TaskBaseClass):
         else:
             self.output_file = None
 
-
+    @classmethod
+    def getDataUnitFactories(cls) -> dict[str, DataUnitFactory]:
+        return {
+            "Default": VolumeOnlyDataUnit
+        }

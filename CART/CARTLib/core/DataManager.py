@@ -6,8 +6,7 @@ from pathlib import Path
 from typing import Optional, List, Dict
 
 from .DataUnitBase import DataUnitBase
-# TODO: Remove this for a configurable method
-from ..VolumeOnlyDataIO import VolumeOnlyDataUnit
+from .TaskBaseClass import DataUnitFactory
 
 
 class DataManager:
@@ -15,11 +14,12 @@ class DataManager:
     Manages a CSV-based cohort and provides a cache of DataUnit objects for
       efficient forward/backward traversal.
 
-    # TODO: Implement way to indicate if a whole list was traversed.
+    # TODO: Implement way to indicate if all cases were previously traversed
 
     Attributes:
         cohort_csv: Path to the cohort CSV file currently selected.
         case_data: List of row dictionaries loaded from CSV.
+        data_unit_factory: The factory method for creating DataUnits from case entries
         cache_size: Maximum number of Data Unit objects held in memory at once.
     """
 
@@ -27,6 +27,7 @@ class DataManager:
         self,
         cohort_file: Optional[Path] = None,
         data_source: Optional[Path] = None,
+        data_unit_factory: DataUnitFactory = None,
         cache_size: int = 2
     ):
         """
@@ -52,6 +53,9 @@ class DataManager:
         old_method = self._get_data_unit
         self._get_data_unit = lru_cache_wrapper(old_method)
 
+        # The data unit factory to parse case information with
+        self.data_unit_factory: DataUnitFactory = data_unit_factory
+
     def get_cache_size(self):
         return self._get_data_unit.cache_info().maxsize
 
@@ -59,7 +63,7 @@ class DataManager:
         # TODO: Validate the input before running
         self.data_source = source
 
-        # Clear our cache, as its almost certainly no longer valid
+        # Clear our cache, as it's almost certainly no longer valid
         self._get_data_unit.cache_clear()
 
         # Reset to the beginning, as everything is
@@ -67,8 +71,6 @@ class DataManager:
 
         # Begin re-building the pre-fetch cache, if it exists
         self._pre_fetch_elements()
-
-        # TODO: Notify the Task that this has been updated as well somehow.
 
     def get_data_source(self):
         return self.data_source
@@ -107,11 +109,14 @@ class DataManager:
         current_case_data = self.case_data[idx]
         
         # TODO: replace this with a user-selectable data unit type
-        return VolumeOnlyDataUnit(
+        return self.data_unit_factory(
             case_data=current_case_data,
             data_path=self.data_source
           )
         
+
+    def set_data_unit_factory(self, duf: DataUnitFactory):
+        self.data_unit_factory = duf
 
     def current_uid(self):
         return self.case_data[self.current_case_index]['uid']
@@ -241,3 +246,19 @@ class DataManager:
         """
         # TODO
         pass
+
+    ## Cleanup ##
+    def clean(self):
+        """
+        Explicitly delete the cache right before deletion.
+
+        This is in case the data inside reference the DataManager (or one of its
+         components), forming a cyclical reference that results in a memory leak
+        """
+        self._get_data_unit = None
+
+    def __del__(self):
+        self.clean()
+
+    def __delete__(self, instance):
+        self.clean()
