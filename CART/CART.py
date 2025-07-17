@@ -734,6 +734,13 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     
     def loadTaskWhenReady(self):
         # If we're not ready to load a task, leave everything untouched
+        # If cohort csv and data path aren't matching, display a comprehensive error box
+        is_valid, error_message = self.logic.validate_cohort_and_data_path_match()
+        if not is_valid:
+            self.showErrorPopup("Cannot Start Task", error_message)
+            return  # Stop execution if validation fails
+        
+        
         if not self.logic.is_ready():
             return
 
@@ -863,6 +870,19 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """Called just after the scene is closed."""
         pass
 
+    def showErrorPopup(self, title: str, message: str):
+        """
+        Displays a standardized critical error message box.
+        """
+        msgBox = qt.QMessageBox()
+        msgBox.setIcon(qt.QMessageBox.Critical)
+        msgBox.setText(f"<b>{title}</b>")
+        msgBox.setInformativeText(message)
+        msgBox.setWindowTitle("Validation Error")
+        msgBox.setStandardButtons(qt.QMessageBox.Ok)
+        # Allows for selectable text in the error message
+        msgBox.setTextInteractionFlags(qt.Qt.TextSelectableByMouse)
+        msgBox.exec_()
 #
 # CARTLogic
 #
@@ -1012,10 +1032,12 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         return True, None
 
     def validate_cohort_and_data_path_match(self) -> bool:
-        print("VALIDATED!!")
+        """
+        Ran right before task start, upon clicking on confirm
+        """
         return self.data_manager.validate_cohort_and_data_path_match()
 
-    
+  
     def load_cohort(self):
         """
         Load the contents of the currently selected cohort file into memory
@@ -1053,11 +1075,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         elif not self.current_task_type:
             print("No task has been selected!")
             return False
-        # We can't proceed if the data folder doesn't accomodate the cohort file
-        elif not self.validate_cohort_and_data_path_match():
-            print("Data path doesn't match the cohort file!")
-            return False
-
+          
         # If all checks passed, we can proceed!
         return True
 
