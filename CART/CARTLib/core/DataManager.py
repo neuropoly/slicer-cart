@@ -174,7 +174,7 @@ class DataManager:
 
         # Set the current index to that of the new unit
         self.current_case_index = idx
-        
+         
         # Return the new unit
         return new_unit
 
@@ -206,7 +206,7 @@ class DataManager:
             if reader.fieldnames is None:
                 raise ValueError("CSV file has no header row")
             return list(reader)
-        
+          
     # TODO Change rows to rows and define row typing at the definition of rows
     @staticmethod
     def _validate_columns(rows: List[Dict[str, str]]) -> None:
@@ -232,7 +232,39 @@ class DataManager:
         if duplicates:
             raise ValueError(f"Duplicate uid values found in file: {duplicates}")
 
-    def validate_cohort_and_data_path_match(self) -> (bool, Optional[str]):
+    def requested_cases_in_data_path_errors(self, uids_in_csv: set[str], all_dir_names_in_path: set[str]) -> List[str]:
+        # Check 1: Find case folders listed in the CSV but not found in the data path
+        errors = []
+        
+        missing_folders = uids_in_csv - all_dir_names_in_path
+        if missing_folders:
+            errors.append(f"Error: The following case folders are missing from '{self.data_source}':")
+            errors.extend(f"  - {uid}" for uid in sorted(list(missing_folders)))
+            
+        return errors
+    
+    def requested_resources_in_data_path_errors(self, all_cases_in_csv: List[Dict[str, str]], all_dir_names_in_path: set[str]) -> List[str]:
+        # Check 2: For each existing case folder, verify all its resource files exist
+        errors = []
+        
+        for case in all_cases_in_csv:
+            case_uid = case["uid"]
+            if case_uid in all_dir_names_in_path:  # Only check resources for folders that actually exist
+                case_resource_errors = []
+                # Iterate over resource columns (skipping the 'uid' column)
+                for resource_name, rel_path in list(case.items())[1:]:
+                    expected_file = self.data_source  / rel_path
+                    if not expected_file.exists():
+                        case_resource_errors.append(f"  - Resource '{resource_name}': File not found at '{rel_path}'")
+                
+                if case_resource_errors:
+                    errors.append(f"\nError: Missing resources for case '{case_uid}':")
+                    errors.extend(case_resource_errors)
+                    
+        return errors
+    
+    
+    def validate_cohort_and_data_path_match(self) -> Optional[str]:
       """
       Ensure the cohort CSV aligns with resources in the data path.
 
@@ -250,38 +282,23 @@ class DataManager:
           DataManager._validate_columns(all_cases_in_csv)
           DataManager._validate_unique_uids(all_cases_in_csv)
       except ValueError as e:
-          return False, f"Invalid CSV file provided: {e}"
+          return f"Invalid CSV file provided: {e}"
 
       all_dir_names_in_path = {d.name for d in self.data_source.iterdir() if d.is_dir()}
       uids_in_csv = {row['uid'] for row in all_cases_in_csv}
 
       # Check 1: Find case folders listed in the CSV but not found in the data path
-      missing_folders = uids_in_csv - all_dir_names_in_path
-      if missing_folders:
-          errors.append(f"Error: The following case folders are missing from '{self.data_source}':")
-          errors.extend(f"  - {uid}" for uid in sorted(list(missing_folders)))
+      errors += self.requested_cases_in_data_path_errors(uids_in_csv, all_dir_names_in_path)
 
       # Check 2: For each existing case folder, verify all its resource files exist
-      for case in all_cases_in_csv:
-          case_uid = case["uid"]
-          if case_uid in all_dir_names_in_path:  # Only check resources for folders that actually exist
-              case_resource_errors = []
-              # Iterate over resource columns (skipping the 'uid' column)
-              for resource_name, rel_path in list(case.items())[1:]:
-                  expected_file = self.data_source  / rel_path
-                  if not expected_file.exists():
-                      case_resource_errors.append(f"  - Resource '{resource_name}': File not found at '{rel_path}'")
-              
-              if case_resource_errors:
-                  errors.append(f"\nError: Missing resources for case '{case_uid}':")
-                  errors.extend(case_resource_errors)
+      errors += self.requested_resources_in_data_path_errors(all_cases_in_csv, all_dir_names_in_path)
 
       if errors:
           error_message = "Data path and cohort file mismatch detected.\n\n" + "\n".join(errors)
-          return False, error_message
+          return error_message
 
-      return True, None
-    
+      return None
+  
     def _pre_fetch_elements(self):
         """
         Rebuild the cache of pre-fetched DataUnits.

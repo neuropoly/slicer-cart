@@ -443,10 +443,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Select the first (most recent) entry in the list
         self.userSelectButton.currentIndex = 0
-
-    def onDataPathValidityChanged(self):
-        print("CURRENT PATH: ", self.dataPathSelectionWidget.currentPath)
-        return
     
     def onDataPathChanged(self):
         """
@@ -473,18 +469,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if success:
             # Exit task mode; any active task is no longer relevant.
             self._disableTaskMode()
-
-        # If we failed, prompt the user as to why
-        # else:
-        #     # Display an error message notifying the user
-        #     failurePrompt = qt.QErrorMessage()
-
-        #     # Add some details on what's happening for the user
-        #     failurePrompt.setWindowTitle("PATH ERROR!")
-
-        #     # Show the message
-        #     failurePrompt.showMessage(reason)
-        #     failurePrompt.exec_()
 
     def onCohortChanged(self):
         # Get the currently selected cohort file from the widget
@@ -627,7 +611,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
       # Always (re)build the table if in preview or task mode
       self.buildCohortTable()
-        
+
     ### Iterator Widgets ###
     def unHighlightRow(self, row):
         # Remove the highlight from the current row before proceeding to the following
@@ -738,8 +722,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             return
 
         # If cohort csv and data path aren't matching, display a comprehensive error box
-        is_valid, error_message = self.logic.validate_cohort_and_data_path_match()
-        if not is_valid:
+        error_message = self.logic.validate_cohort_and_data_path_match()
+        if error_message:
             self.showErrorPopup("Cannot Start Task", error_message)
             return  # Stop execution if validation fails
 
@@ -881,7 +865,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         msgBox.setStandardButtons(qt.QMessageBox.Ok)
         # Allows for selectable text in the error message
         msgBox.setTextInteractionFlags(qt.Qt.TextSelectableByMouse)
-        msgBox.exec_()
+        msgBox.exec()
 #
 # CARTLogic
 #
@@ -1030,11 +1014,16 @@ class CARTLogic(ScriptedLoadableModuleLogic):
 
         return True, None
 
-    def validate_cohort_and_data_path_match(self) -> bool:
+    def validate_cohort_and_data_path_match(self) -> Optional[str]:
         """
         Ran right before task start, upon clicking on confirm
         """
-        return self.data_manager.validate_cohort_and_data_path_match()
+        # This returns either an error message, which evaluates to True, but unvalidates, thus False is returned
+        # Or returns None, which evaluates to False, but validates, thus True is returned
+        validation_result = self.data_manager.validate_cohort_and_data_path_match()
+        if validation_result:
+            return validation_result
+        return None
 
   
     def load_cohort(self):
