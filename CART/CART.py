@@ -1018,6 +1018,10 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         """
         Returns all errors between the cohort CSV file and the data path, if they exist. Else, returns None.
         """
+        # If we don't have a data manager, create one
+        if not self.data_manager:
+            self.rebuild_data_manager()
+
         validation_result = self.data_manager.validate_cohort_and_data_path_match()
         if validation_result:
             return validation_result
@@ -1029,11 +1033,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         """
         # If we don't have a data manager yet, create one
         if self.data_manager is None:
-            self.data_manager = DataManager(
-                cohort_file=self.cohort_path,
-                data_source=self.data_manager,
-                data_unit_factory=self.data_unit_factory
-            )
+            self.rebuild_data_manager()
 
         # Load the cases from the CSV into memory
         self.data_manager.load_cases()
@@ -1095,14 +1095,8 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         if not self.is_ready():
             return None
 
-        # Rebuild the DataManager from scratch
-        if self.data_manager:
-            self.data_manager.clean()
-        self.data_manager = DataManager(
-            cohort_file=self.cohort_path,
-            data_source=self.data_path,
-            data_unit_factory=self.data_unit_factory
-        )
+        # Rebuild our data manager
+        self.rebuild_data_manager()
 
         # Load the cohort file into memory using the new DataManager
         self.load_cohort()
@@ -1116,6 +1110,18 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         self.current_task_instance.receive(new_unit)
 
     ## DataUnit Management ##
+    def rebuild_data_manager(self):
+        # If we had a prior data manager, clean it up first
+        if self.data_manager:
+            self.data_manager.clean()
+
+        # Build a new data manager with the current state
+        self.data_manager = DataManager(
+            cohort_file=self.cohort_path,
+            data_source=self.data_path,
+            data_unit_factory=self.data_unit_factory
+        )
+
     def current_uid(self):
         if self.data_manager:
             return self.data_manager.current_uid()
