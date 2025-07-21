@@ -290,10 +290,10 @@ class DataManager:
           return f"Invalid CSV file provided: {e}"
 
       all_dir_names_in_path = {d.name for d in self.data_source.iterdir() if d.is_dir()}
-      uids_in_csv = {row['uid'] for row in all_cases_in_csv}
 
-      # Check 1: Find case folders listed in the CSV but not found in the data path
-      errors += self.requested_cases_in_data_path_errors(uids_in_csv, all_dir_names_in_path)
+      # # Check 1: Find case folders listed in the CSV but not found in the data path
+      # uids_in_csv = {row['uid'] for row in all_cases_in_csv}
+      # errors += self.requested_cases_in_data_path_errors(uids_in_csv, all_dir_names_in_path)
 
       # Check 2: For each existing case folder, verify all its resource files exist
       errors += self.requested_resources_in_data_path_errors(all_cases_in_csv, all_dir_names_in_path)
