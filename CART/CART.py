@@ -1016,10 +1016,8 @@ class CARTLogic(ScriptedLoadableModuleLogic):
 
     def validate_cohort_and_data_path_match(self) -> Optional[str]:
         """
-        Ran right before task start, upon clicking on confirm
+        Returns all errors between the cohort CSV file and the data path, if they exist. Else, returns None.
         """
-        # This returns either an error message, which evaluates to True, but unvalidates, thus False is returned
-        # Or returns None, which evaluates to False, but validates, thus True is returned
         validation_result = self.data_manager.validate_cohort_and_data_path_match()
         if validation_result:
             return validation_result
