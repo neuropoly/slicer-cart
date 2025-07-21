@@ -1,12 +1,27 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Generic, Optional, TypeVar
+from pathlib import Path
+from typing import Generic, Optional, TypeVar, Protocol
 
 import qt
+import slicer
 from .DataUnitBase import DataUnitBase
 
 # Generic type hint class for anything which is a subclass of DataUnitBase
 D = TypeVar('D', bound=DataUnitBase)
+
+
+# Protocol signature which matches the DataUnitBase constructor; allows users to
+#  return non-init functions if they have a different method they want to use
+#  instead
+class DataUnitFactory(Protocol):
+    def __call__(
+            self,
+            case_data: dict[str, str],
+            data_path: Path,
+            scene: Optional[slicer.vtkMRMLScene] = None
+    ) -> D:
+        ...
 
 
 class TaskBaseClass(ABC, Generic[D]):
@@ -22,7 +37,7 @@ class TaskBaseClass(ABC, Generic[D]):
     itself.!
     """
 
-    def __init__(self, data_unit: Optional[D] = None):
+    def __init__(self, user: str):
         """
         Basic constructor.
 
@@ -32,16 +47,12 @@ class TaskBaseClass(ABC, Generic[D]):
         TODO: Swap Optional for newer Optional syntax ('D | None');
          currently only on Python 3.10 and up (which Slicer 5.8 doesn't have)
         """
+        # Track the user for later; we often want to stratify our task by which
+        #  user is running it
+        self.user = user
+
         # Create a logger to track the goings-on of this task.
         self.logger = logging.getLogger(f"{__class__.__name__}")
-
-        # Set the data unit to the one provided in the constructor, if any
-        self.data_unit: D = data_unit
-
-        # If the task was specified, update the GUI with contents
-        if self.data_unit:
-            # TODO: Validate that the DataUnit has all fields needed for this task.
-            self.recieve(self.data_unit)
 
     @abstractmethod
     def setup(self, container: qt.QWidget):
@@ -64,7 +75,7 @@ class TaskBaseClass(ABC, Generic[D]):
         raise NotImplementedError("buildGUI must be implemented in subclasses")
 
     @abstractmethod
-    def recieve(self, data_unit: D):
+    def receive(self, data_unit: D):
         """
         Receive a new DataUnit instance.
 
@@ -78,7 +89,7 @@ class TaskBaseClass(ABC, Generic[D]):
         raise NotImplementedError("setup must be implemented in subclasses")
 
     @abstractmethod
-    def save(self) -> bool:
+    def save(self) -> Optional[str]:
         """
         Run when the user requests the current data in the case be saved.
 
@@ -87,6 +98,9 @@ class TaskBaseClass(ABC, Generic[D]):
         (including, potentially, the original cohort file).
 
         By default, this is also AUTOMATICALLY RUN when a new case is loaded.
+
+        Returns None on a successful save; otherwise, return an errror message
+        describing the error
         """
 
         raise NotImplementedError("save must be implemented in subclasses")
@@ -126,6 +140,37 @@ class TaskBaseClass(ABC, Generic[D]):
         instead.
         """
         return None
+
+    @classmethod
+    @abstractmethod
+    def getDataUnitFactories(cls) -> dict[str, DataUnitFactory]:
+        """
+        Returns a factory map (in label -> factory form) which, when called,
+        generates a new DataUnit instance of a type appropriate for use by this
+        task.
+
+        The "default" factory is just the class of your DataUnit subclass; for
+         example:
+
+        ```
+        return {
+            "Main": TaskDataUnit
+        }
+        ```
+
+        If you have a factory method instead, you can return that:
+
+        ```
+        return {
+            "Factory": TaskDataUnit.build_unit
+        }
+        ```
+
+        Note the lack of a trailing '()' in both; we need the *functions* here,
+         not their results!
+        """
+
+        raise NotImplementedError("setup must be implemented in subclasses")
 
     # TODO: Add standardized metadata which can be referenced by CART to
     #  build a task list.

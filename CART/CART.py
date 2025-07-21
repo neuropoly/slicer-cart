@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import Optional
 
 import vtk
-
 import ctk
 import qt
 import slicer
@@ -15,10 +14,11 @@ from slicer.util import VTKObservationMixin
 from CARTLib.Config import Config
 from CARTLib.core.DataManager import DataManager
 from CARTLib.core.DataUnitBase import DataUnitBase
-from CARTLib.core.TaskBaseClass import TaskBaseClass
+from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
 
 # TODO: Remove this explicit import
 from CARTLib.OrganLabellingDemo import OrganLabellingDemoTask
+from CARTLib.examples.SegmentationEvaluationTask import SegmentationEvaluationTask
 
 CURRENT_DIR = Path(__file__).parent
 CONFIGURATION_FILE_NAME = CURRENT_DIR / "configuration.json"
@@ -122,7 +122,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # TODO: Dynamically load this dictionary instead
         self.task_map = {
             "Organ Labels": OrganLabellingDemoTask,
-            "N/A": None  # Placeholder for testing
+            "Segmentation": SegmentationEvaluationTask
         }
 
     def setup(self) -> None:
@@ -420,6 +420,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         idx = self.userSelectButton.currentIndex
         self.logic.set_most_recent_user(idx)
 
+        # Exit task mode until we begin a new task
+        self._disableTaskMode()
+
         # Rebuild the GUI to match
         self._refreshUserList()
 
@@ -504,7 +507,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if self.isPreviewMode:
             # Change the color of the preview button to indicate preview mode
             self.previewButton.setStyleSheet("background-color: #777eb4; color: #777eb4;")
-                        # Load the file's cases into memory
+            # Load the file's cases into memory
             self.logic.load_cohort()
 
         else:
@@ -738,7 +741,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.logic.init_task()
 
             # Create a "dummy" widget that the task can fill
-            self.dummyTaskWidget = qt.QWidget()
+            self.resetTaskDummyWidget()
             # Build the Task GUI, using the prior widget as a foundation
             self.logic.current_task_instance.setup(self.dummyTaskWidget)
             # Add the widget to our layout
@@ -771,6 +774,11 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         finally:
             # Re-enable the GUI
             self.enableGUIAfterLoad()
+
+    def resetTaskDummyWidget(self):
+        if self.dummyTaskWidget:
+            self.dummyTaskWidget.setParent(None)
+        self.dummyTaskWidget = qt.QWidget()
 
     def pythonExceptionPrompt(self, exc: Exception):
         """
@@ -892,13 +900,16 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         self.data_path: Path = None
 
         # The data manager currently managing case iteration
-        self.data_manager: DataManager = None
+        self.data_manager: Optional[DataManager] = None
 
         # The currently selected task type
         self.current_task_type: type(TaskBaseClass) = None
 
         # The current task instance
         self.current_task_instance: Optional[TaskBaseClass] = None
+
+        # Current data unit factory
+        self.data_unit_factory: Optional[DataUnitFactory] = None
 
     ## User Management ##
     def get_users(self) -> list[str]:
@@ -984,10 +995,6 @@ class CARTLogic(ScriptedLoadableModuleLogic):
 
         # If all checks pass, update our state
         self.cohort_path = new_path
-        self.data_manager = DataManager(
-            cohort_file=self.cohort_path,
-            data_source=self.data_path,
-        )
         return True
 
     def set_data_path(self, new_path: Path) -> (bool, Optional[str]):
@@ -1004,13 +1011,6 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # If that all ran, update our data path to the new data path
         self.data_path = new_path
         print(f"Data path set to: {self.data_path}")
-
-        # and replace the previous data manager
-        del self.data_manager
-        self.data_manager = DataManager(
-            cohort_file=self.cohort_path,
-            data_source=self.data_path,
-        )
 
         return True, None
 
@@ -1029,6 +1029,15 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         """
         Load the contents of the currently selected cohort file into memory
         """
+        # If we don't have a data manager yet, create one
+        if self.data_manager is None:
+            self.data_manager = DataManager(
+                cohort_file=self.cohort_path,
+                data_source=self.data_manager,
+                data_unit_factory=self.data_unit_factory
+            )
+
+        # Load the cases from the CSV into memory
         self.data_manager.load_cases()
 
     ## Task Management ##
@@ -1040,6 +1049,15 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         if self.current_task_instance:
             self.current_task_instance.cleanup()
             self.current_task_instance = None
+
+        # Get this task's preferred DataUnitFactory method
+        data_factory_method_map = self.current_task_type.getDataUnitFactories()
+        # TODO: Allow the user to select the specific method, rather than always
+        #  using the first in the map
+        duf = list(data_factory_method_map.values())[0]
+
+        # Update the data manager to use this task's preferred DataUnitFactory
+        self.data_unit_factory = duf
 
     def is_ready(self) -> bool:
         """
@@ -1062,11 +1080,14 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         elif not self.current_task_type:
             print("No task has been selected!")
             return False
+        elif not self.data_unit_factory:
+            print("No data unit factory has been selected!")
+            return False
 
         # If all checks passed, we can proceed!
         return True
 
-    def init_task(self) -> Optional[TaskBaseClass]:
+    def init_task(self):
         """
         Initialize a new Task instance using current settings.
 
@@ -1076,14 +1097,25 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         if not self.is_ready():
             return None
 
-        # Load the cohort file into memory again, as it may not already be so
-        #  (or the user made edits to it after a preview)
+        # Rebuild the DataManager from scratch
+        if self.data_manager:
+            self.data_manager.clean()
+        self.data_manager = DataManager(
+            cohort_file=self.cohort_path,
+            data_source=self.data_path,
+            data_unit_factory=self.data_unit_factory
+        )
+
+        # Load the cohort file into memory using the new DataManager
         self.load_cohort()
 
         # Create the new task instance
+        self.current_task_instance = \
+            self.current_task_type(self.get_current_user())
+
+        # Pass our first data unit to the task
         new_unit = self.select_current_case()
-        self.current_task_instance = self.current_task_type(new_unit)
-        return self.current_task_instance
+        self.current_task_instance.receive(new_unit)
 
     ## DataUnit Management ##
     def current_uid(self):
@@ -1157,4 +1189,4 @@ class CARTLogic(ScriptedLoadableModuleLogic):
     def _update_task_with_new_case(self, new_case: DataUnitBase):
         # Only update the task if exists
         if self.current_task_instance:
-            self.current_task_instance.recieve(new_case)
+            self.current_task_instance.receive(new_case)
