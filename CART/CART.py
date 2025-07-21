@@ -50,26 +50,26 @@ class CART(ScriptedLoadableModule):
             "Ivan Johnson-Eversoll (University of Iowa)"
         ]
         self.parent.helpText = _("""
-                CART (Collaborative Annotation and Review Tool) provides a set 
-                of abstract base classes for creating streamlined annotation 
-                workflows in 3D Slicer. The framework enables efficient 
-                iteration through medical imaging cohorts with customizable 
+                CART (Collaborative Annotation and Review Tool) provides a set
+                of abstract base classes for creating streamlined annotation
+                workflows in 3D Slicer. The framework enables efficient
+                iteration through medical imaging cohorts with customizable
                 tasks and flexible data loading strategies.
-                
-                See more information on the 
+
+                See more information on the
                 <a href="https://github.com/SomeoneInParticular/CART/tree/main">GitHub repository</a>.
             """)
         # TODO: replace with organization, grant and thanks
         self.parent.acknowledgementText = _("""
                 Originally created during Slicer Project Week #43.
-                
+
                 Special thanks the many members of the Slicer community who
-                contributed to this work, including the many projects which 
+                contributed to this work, including the many projects which
                 were used as reference. Of note:
                 <a href="https://github.com/neuropoly/slicercart">SlicerCART</a> (the name and general framework),
                 <a href="https://github.com/JoostJM/SlicerCaseIterator">SlicerCaseIterator</a> (inspired much of our logic),
                 <a href="https://github.com/SlicerUltrasound/SlicerUltrasound">SlicerUltrasound/AnnotateUltrasound</a> (basis for our UI design),
-                and the many other projects discussed during the breakout session (notes 
+                and the many other projects discussed during the breakout session (notes
                 <a href="https://docs.google.com/document/d/12XuYPVuRgy4RTuIabSIjy_sRrYSliewKhcbB1zJgXVI/">here.</a>)
             """)
 
@@ -395,7 +395,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """
         Creates a pop-up, prompting the user to enter their name into a
         text box to register themselves as a new user.
-        """        
+        """
         # Create a new widget
         new_name = qt.QInputDialog().getText(
             self.mainGUI,
@@ -473,18 +473,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             # Exit task mode; any active task is no longer relevant.
             self._disableTaskMode()
 
-        # If we failed, prompt the user as to why
-        else:
-            # Display an error message notifying the user
-            failurePrompt = qt.QErrorMessage()
-
-            # Add some details on what's happening for the user
-            failurePrompt.setWindowTitle("PATH ERROR!")
-
-            # Show the message
-            failurePrompt.showMessage(reason)
-            failurePrompt.exec_()
-
     def onCohortChanged(self):
         # Get the currently selected cohort file from the widget
         new_cohort = Path(self.cohortFileSelectionButton.currentPath)
@@ -546,10 +534,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._disableTaskMode()
 
     def buildCohortTable(self):
-      
-        # Rebuilds the table using the most updated cohort data 
+
+        # Rebuilds the table using the most updated cohort data
         self.destroyCohortTable()
-        
+
         csv_data_raw = self.logic.data_manager.case_data
 
         self.headers = list(csv_data_raw[0].keys())
@@ -592,11 +580,11 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.cohortTable.setAlternatingRowColors(True)
         self.cohortTable.setShowGrid(True)
         self.cohortTable.verticalHeader().setVisible(False)
-        
+
         self.cohortTable.setEditTriggers(qt.QAbstractItemView.NoEditTriggers)
         self.cohortTable.setSelectionBehavior(qt.QAbstractItemView.SelectRows)
         self.cohortTable.setFocusPolicy(qt.Qt.NoFocus)
-        
+
         # Disable selection of rows in the table, which may be confused for a highlight
         self.cohortTable.setSelectionMode(qt.QAbstractItemView.NoSelection)
 
@@ -626,22 +614,22 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
       # Always (re)build the table if in preview or task mode
       self.buildCohortTable()
-    
+
     ### Iterator Widgets ###
     def unHighlightRow(self, row):
         # Remove the highlight from the current row before proceeding to the following
         # The first column remains unchanged, as it is the uid
         for column in range(1, self.colCount):
             item = self.cohortTable.item(row, column)
-            item.setBackground(qt.QColor()) 
-    
+            item.setBackground(qt.QColor())
+
     def highlightRow(self, row):
-        # Add the highlight to the following current row 
+        # Add the highlight to the following current row
         # The first column remains unchanged, as it is the uid
         for column in range(1, self.colCount):
             item = self.cohortTable.item(row, column)
             item.setBackground(qt.QColor(255, 255, 0, 100))
-    
+
     def updateIteratorGUI(self):
         # Update the current UID label
         new_label = f"Data Unit {self.logic.current_uid()}"
@@ -652,8 +640,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Check if we have a previous case, and enable/disable the button accordingly
         self.previousButton.setEnabled(self.logic.has_previous_case())
-        
-        # Highlight the following (previous or next) row to indicate the current case 
+
+        # Highlight the following (previous or next) row to indicate the current case
         self.highlightRow(self.logic.data_manager.current_case_index)
 
     def nextCase(self):
@@ -668,7 +656,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if not self.logic.has_next_case():
                 print("You somehow requested the next case, despite there being none!")
                 return
-            
+
             # Remove highlight from the current row
             self.unHighlightRow(self.logic.data_manager.current_case_index)
 
@@ -721,8 +709,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.previewButton.setEnabled(False)
             self.confirmButton.setEnabled(False)
 
-            return 
-          
+            return
+
         # If we have a cohort file, it can be previewed
         if self.logic.cohort_path:
             self.previewButton.setEnabled(True)
@@ -730,11 +718,17 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # If the logic says we're ready to start, we can start
         if self.logic.is_ready():
             self.confirmButton.setEnabled(True)
-                    
+
     def loadTaskWhenReady(self):
         # If we're not ready to load a task, leave everything untouched
         if not self.logic.is_ready():
             return
+
+        # If cohort csv and data path aren't matching, display a comprehensive error box
+        error_message = self.logic.validate_cohort_and_data_path_match()
+        if error_message:
+            self.showErrorPopup("Cannot Start Task", error_message)
+            return  # Stop execution if validation fails
 
         # Disable the GUI, as to avoid de-synchronization
         self.disableGUIWhileLoading()
@@ -768,10 +762,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
             # Collapse the main (setup) GUI, if it wasn't already
             self.mainGUI.collapsed = True
-            
+
             # Disable preview and confirm buttons, as task has started
             self.updateButtons()
-            
+
         except Exception as e:
             # Notify the user of the exception
             self.pythonExceptionPrompt(e)
@@ -867,6 +861,19 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """Called just after the scene is closed."""
         pass
 
+    def showErrorPopup(self, title: str, message: str):
+        """
+        Displays a standardized critical error message box.
+        """
+        msgBox = qt.QMessageBox()
+        msgBox.setIcon(qt.QMessageBox.Critical)
+        msgBox.setText(f"<b>{title}</b>")
+        msgBox.setInformativeText(message)
+        msgBox.setWindowTitle("Validation Error")
+        msgBox.setStandardButtons(qt.QMessageBox.Ok)
+        # Allows for selectable text in the error message
+        msgBox.setTextInteractionFlags(qt.Qt.TextSelectableByMouse)
+        msgBox.exec()
 #
 # CARTLogic
 #
@@ -1006,6 +1013,15 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         print(f"Data path set to: {self.data_path}")
 
         return True, None
+
+    def validate_cohort_and_data_path_match(self) -> Optional[str]:
+        """
+        Returns all errors between the cohort CSV file and the data path, if they exist. Else, returns None.
+        """
+        validation_result = self.data_manager.validate_cohort_and_data_path_match()
+        if validation_result:
+            return validation_result
+        return None
 
     def load_cohort(self):
         """
