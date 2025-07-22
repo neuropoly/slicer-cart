@@ -9,6 +9,8 @@ import slicer
 from slicer.i18n import tr as _
 from .SegmentationEvaluationDataUnit import SegmentationEvaluationDataUnit
 from ..core.TaskBaseClass import TaskBaseClass, DataUnitFactory
+from ..utils.widgets import CARTSegmentationEditorWidget
+from ..utils.data import save_segmentation_to_nifti, save_volume_to_nifti
 
 
 VERSION = 0.01
@@ -20,7 +22,7 @@ class SegmentationEvaluationGUI:
         self.bound_task = bound_task
 
         # Segmentation editor widget
-        self.segmentEditorWidget = None
+        self.segmentEditorWidget: Optional[CARTSegmentationEditorWidget] = None
 
         # The manual "save" button; whether it is enabled/disabled depends on
         #  the current state of our bound task
@@ -56,10 +58,7 @@ class SegmentationEvaluationGUI:
 
     def addSegmentationEditor(self, formLayout):
         # Build the editor widget
-        # TODO: Fix this "stealing" from the original Segment Editor widget
-        self.segmentEditorWidget = \
-            slicer.modules.segmenteditor.widgetRepresentation().self().editor
-
+        self.segmentEditorWidget = CARTSegmentationEditorWidget()
         formLayout.addRow(self.segmentEditorWidget)
 
     def addSaveButton(self, formLayout):
@@ -156,6 +155,14 @@ class SegmentationEvaluationGUI:
         failurePrompt.exec()
 
     ## GUI SYNCHRONIZATION ##
+    def enter(self):
+        # Ensure the segmentation editor widget it set up correctly
+        self.segmentEditorWidget.enter()
+
+    def exit(self):
+        # Ensure the segmentation editor widget handles itself before hiding
+        self.segmentEditorWidget.exit()
+
     def _updatedSaveButtonState(self):
         # Ensure the button is active on when we're ready to save
         can_save = self.bound_task.can_save()
@@ -230,6 +237,10 @@ class SegmentationEvaluationGUI:
         err_msg = self.bound_task.save()
 
         # If successful, prompt the user to acknowledge
+        self.saveCompletePrompt(err_msg)
+
+    def saveCompletePrompt(self, err_msg):
+        # If theirs no error message, present a "success!" prompt
         if err_msg is None:
             msgBox = qt.QMessageBox()
             msgBox.setWindowTitle("Success!")
@@ -241,6 +252,8 @@ class SegmentationEvaluationGUI:
                            f"Saved to: {str(seg_out.resolve())}!")
             msgBox.addButton(_("Confirm"), qt.QMessageBox.AcceptRole)
             msgBox.exec()
+
+        # Otherwise, display an error prompt.
         else:
             errBox = qt.QErrorMessage()
             errBox.setWindowTitle("ERROR!")
@@ -273,8 +286,11 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
         gui_layout = self.gui.setup()
         container.setLayout(gui_layout)
 
-        # If we have GUI, update the GUI with our current data unit
+        # Update this new GUI with our current data unit
         self.gui.update(self.data_unit)
+
+        # "Enter" the gui to ensure it is loaded correctly
+        self.gui.enter()
 
     def receive(self, data_unit: SegmentationEvaluationDataUnit):
         # Track the data unit for later
@@ -298,8 +314,10 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
         self.gui = None
 
     def save(self) -> Optional[str]:
-        # Have the output manager save the result
-        return self.output_manager.save_segmentation(self.data_unit)
+        if self.can_save():
+            # Have the output manager save the result
+            return self.output_manager.save_segmentation(self.data_unit)
+        return None
 
     def can_save(self) -> bool:
         """
@@ -311,6 +329,21 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
         :return: True if we are ready to save, false otherwise
         """
         return self.output_dir and self.output_dir.exists() and self.output_dir.is_dir()
+
+    def autosave(self) -> Optional[str]:
+        result = super().autosave()
+        if self.gui:
+            self.gui.saveCompletePrompt(result)
+
+    def enter(self):
+        # If we have a GUI, enter it
+        if self.gui:
+            self.gui.enter()
+
+    def exit(self):
+        # If we have a GUI, exit it
+        if self.gui:
+            self.gui.exit()
 
     @classmethod
     def getDataUnitFactories(cls) -> dict[str, DataUnitFactory]:
@@ -367,14 +400,10 @@ class _OutputManager:
         # Attempt to save our results
         try:
             # Save the node
-            self._save_segmentation_node(
-                data_unit.segmentation_node, data_unit.volume_node, segmentation_out
-            )
+            self._save_segmentation(data_unit, segmentation_out)
 
             # Save/update the side-car file, if it exists
-            self._save_sidecar(
-                data_unit, sidecar_out
-            )
+            self._save_sidecar(data_unit, sidecar_out)
 
             # Return nothing, indicating a successful save
             return None
@@ -405,30 +434,29 @@ class _OutputManager:
 
         return segmentation_out, sidecar_out
 
-    def _save_segmentation_node(self, seg_node, volume_node, target_file):
+    @staticmethod
+    def _save_segmentation(
+            data_unit: SegmentationEvaluationDataUnit,
+            target_file: Path
+    ):
         """
-        Save a segmentation node's contents to file; this gets its own utility
-         function because you can't do so directly. Instead, you need to convert
-         it back to a label-type node w/ reference to a volume node first, then
-         save it.
+        Save the data unit's currently tracked segmentation to the designated
+        output
         """
-        # Convert the Segmentation back to a Label (for Nifti export)
-        label_node = slicer.mrmlScene.AddNewNodeByClass(
-            "vtkMRMLLabelMapVolumeNode"
-        )
-        slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(
-            seg_node, label_node, volume_node
-        )
+        # Extract the relevant node data from the data unit
+        seg_node = data_unit.segmentation_node
+        vol_node = data_unit.volume_node
 
-        # Save the active segmentation node to this directory
-        slicer.util.saveNode(label_node, str(target_file))
+        # Try to save the segmenattion using them
+        save_segmentation_to_nifti(seg_node, vol_node, target_file)
 
-        # Clean up the node after so it doesn't pollute the scene
-        slicer.mrmlScene.RemoveNode(label_node)
-
-    def _save_sidecar(self, data_node, target_file: Path):
+    def _save_sidecar(
+            self,
+            data_unit: SegmentationEvaluationDataUnit,
+            target_file: Path
+    ):
         # Check for an existing sidecar, and use it as our basis if it exists
-        fname = str(data_node.segmentation_path).split('.')[0]
+        fname = str(data_unit.segmentation_path).split('.')[0]
 
         # Read in the existing side-car file first, if possible
         sidecar_file = Path(f"{fname}.json")

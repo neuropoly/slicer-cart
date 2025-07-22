@@ -69,7 +69,7 @@ class TaskBaseClass(ABC, Generic[D]):
 
         You should NOT pull data from a DataUnit at this time; just build the
           "default" version of the GUI here to avoid redundant calls. You should
-          populate the GUI within the `setup` function below instead.
+          populate the GUI within the `receive` function below instead.
         """
 
         raise NotImplementedError("buildGUI must be implemented in subclasses")
@@ -99,11 +99,24 @@ class TaskBaseClass(ABC, Generic[D]):
 
         By default, this is also AUTOMATICALLY RUN when a new case is loaded.
 
-        Returns None on a successful save; otherwise, return an errror message
-        describing the error
+        Returns None on a successful save; otherwise, return an error message
+        describing what went wrong.
         """
 
         raise NotImplementedError("save must be implemented in subclasses")
+
+    def autosave(self) -> Optional[str]:
+        """
+        Called when the task is asked to auto-save, either due to the case being
+        changed or through periodic auto-saving. By default, just saves as normal;
+        overwrite if you want some custom functionality to be run in this context.
+
+        Returns None on a successful save; otherwise, return an error message
+        describing what went wrong.
+        """
+        print("Autosaving...")
+        self.save()
+        print("Auto-save was successful!")
 
     def isTaskComplete(self, data_unit: D) -> bool:
         """
@@ -128,6 +141,41 @@ class TaskBaseClass(ABC, Generic[D]):
           * Closing open I/O streams (i.e. files)
           * Removing objects from the Slicer MRML scene (i.e. a loaded segmentation)
           * Deleting large objects explicitly (i.e. large segmentations)
+        """
+        pass
+
+    def enter(self):
+        """
+        Called when the CART module is loaded; you should ensure any
+        GUI elements attached to this task are synchronized and ready to be
+        used again here. For example:
+
+        * Synchronize any widgets which rely on the MRML state
+        * Re-initialize keyboard shortcuts
+        * Restart a timer
+
+        This is also called once when a task is first initialized to simulate
+        CART being loaded! Be careful to avoid redundant calls!
+        """
+        pass
+
+    def exit(self):
+        """
+        Called when the CART module is unloaded, and any associated GUI hidden;
+        You should ensure that nothing is running in the background while the
+        other module is being used to avoid user confusion.
+
+        Some things that you might to do to prevent this include:
+
+        * Pause a running timer
+        * Unlink anything dependent on the MRML state that you don't want to
+         implicitly synchronize
+        * Disable keyboard shortcuts
+
+        You probably don't want to delete anything at this point, as the user
+        might bring it back into focus later! Instead, place anything that needs
+        to be handled when CART and/or the task is terminated into `cleanup`;
+        `exit` is called right before most `cleanup` calls anyway.
         """
         pass
 

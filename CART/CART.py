@@ -11,7 +11,7 @@ from slicer.ScriptedLoadableModule import *
 from slicer.i18n import tr as _
 from slicer.util import VTKObservationMixin
 
-from CARTLib.Config import Config
+from CARTLib.utils.config import config
 from CARTLib.core.DataManager import DataManager
 from CARTLib.core.DataUnitBase import DataUnitBase
 from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
@@ -74,7 +74,7 @@ class CART(ScriptedLoadableModule):
             """)
 
         # Load our configuration
-        Config.load()
+        config.load()
 
 
 #
@@ -193,8 +193,28 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.StartCloseEvent, self.onSceneStartClose)
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.EndCloseEvent, self.onSceneEndClose)
 
-    ## GUI builders ##
+        # Synchronize our state with the logic
+        self.sync_with_logic()
 
+    def sync_with_logic(self):
+        # Update the user selection widget with the contents of the logic instance
+        users = self.logic.get_users()
+        self.userSelectButton.addItems(users)
+
+        # If there were users, use the first (most recent) as the default
+        if users:
+            self.userSelectButton.currentIndex = 0
+
+        # Pull the currently selected cohort file next
+        self.cohortFileSelectionButton.currentPath = self.logic.cohort_path
+
+        # Pull the currently selected data path next
+        self.dataPathSelectionWidget.currentPath = self.logic.data_path
+
+        # Finally, attempt to update our task from the config
+        self.taskOptions.currentText = config.last_used_task
+
+    ## GUI builders ##
     def buildUserUI(self, mainLayout: qt.QFormLayout):
         """
         Builds the GUI for the user management section of the Widget
@@ -212,14 +232,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Set the name of the button to the "UserSelectionButton"
         userSelectButton.toolTip = _("Select a previous user.")
-
-        # Load it up with the list of users in the configuration file
-        users = Config.get_users()
-        userSelectButton.addItems(Config.get_users())
-
-        # If there are users, use the first (most recent) as the default
-        if users:
-            userSelectButton.currentIndex = 0
 
         # When the user selects an existing entry, update the program to match
         userSelectButton.activated.connect(self.userSelected)
@@ -267,17 +279,12 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         ]
 
         # When the cohort is changed, update accordingly
-        cohortFileSelectionButton.connect.parameterNames
         cohortFileSelectionButton.currentPathChanged.connect(self.onCohortChanged)
 
         # TODO: Optionally set a default filter
 
         # Add it to our layout
         mainLayout.addRow(_("Cohort File:"), cohortFileSelectionButton)
-
-        # Set default value but don't auto-load
-        default_value = sample_data_cohort_csv.as_posix() if sample_data_cohort_csv.exists() else ""
-        cohortFileSelectionButton.currentPath = default_value
 
         # Make the button easy-to-access
         self.cohortFileSelectionButton = cohortFileSelectionButton
@@ -291,6 +298,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         dataPathSelectionWidget.filters = ctk.ctkPathLineEdit.Dirs
         dataPathSelectionWidget.toolTip = _("Select the base directory path. Leave empty to use None as base path.")
 
+        # Add it to our layout
         mainLayout.addRow(_("Data Path:"), dataPathSelectionWidget)
 
         # Connect the signal to handle base path changes
@@ -386,11 +394,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.nextButton.clicked.connect(self.nextCase)
         self.previousButton.clicked.connect(self.previousCase)
 
-
     ## Connected Functions ##
 
     ### Setup Widgets ###
-
     def promptNewUser(self):
         """
         Creates a pop-up, prompting the user to enter their name into a
@@ -521,6 +527,12 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Update the currently selected task
         task_name = self.taskOptions.currentText
         new_task = self.task_map.get(task_name, None)
+
+        # If the task is valid, update the config to match
+        if new_task:
+            config.last_used_task = task_name
+            config.save()
+
         self.logic.set_task_type(new_task)
 
         # Purge the current task widget
@@ -853,6 +865,14 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """Called when the application closes and the module widget is destroyed."""
         pass
 
+    def enter(self):
+        # Delegate to our logic to have tasks properly update
+        self.logic.enter()
+
+    def exit(self):
+        # Delegate to our logic to have tasks properly update
+        self.logic.exit()
+
     def onSceneStartClose(self, caller, event) -> None:
         """Called just before the scene is closed."""
         pass
@@ -894,10 +914,10 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         ScriptedLoadableModuleLogic.__init__(self)
 
         # Path to the cohort file currently in use
-        self.cohort_path: Path = None
+        self.cohort_path: Path = config.last_used_cohort_file
 
         # Path to where the user specified their data is located
-        self.data_path: Path = None
+        self.data_path: Path = config.last_used_data_path
 
         # The data manager currently managing case iteration
         self.data_manager: Optional[DataManager] = None
@@ -914,13 +934,13 @@ class CARTLogic(ScriptedLoadableModuleLogic):
     ## User Management ##
     def get_users(self) -> list[str]:
         # Simple wrapper for our config
-        return Config.get_users()
+        return config.users
 
     def get_current_user(self) -> str:
         """
         Gets the currently selected user, if there is one
         """
-        users = Config.get_users()
+        users = self.get_users()
         if users:
             return users[0]
         else:
@@ -930,7 +950,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         """
         Change the most recent user to the one specified
         """
-        users = Config.get_users()
+        users = self.get_users()
 
         # If the index is out of bounds, exit early with a failure
         if len(users) <= idx or idx < 0:
@@ -942,7 +962,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         users.insert(0, selected_user)
 
         # Immediately save the Config and return
-        Config.save()
+        config.save()
         return True
 
     def add_new_user(self, user_name: str) -> bool:
@@ -951,28 +971,8 @@ class CARTLogic(ScriptedLoadableModuleLogic):
 
         Returns True if this was successful, False otherwise
         """
-        # Strip leading and trailing whitespace in the username
-        user_name = user_name.strip()
-
-        # Confirm they actually provided a (non-whitespace only) string
-        if not user_name:
-            print("Something must be entered as a name!")
-            return False
-
-        # Check if the user already exists
-        current_users = Config.get_users()
-        if user_name in current_users:
-            print("User name already exists!")
-            return False
-
-        # Add the username to the list at the top
-        current_users.insert(0, user_name)
-
-        # Save the configuration
-        Config.save()
-
-        # Return that this has been done successfully
-        return True
+        # Tell the config to add the new username
+        return config.add_user(user_name)
 
     ## Cohort Path/Data Path Management ##
     def set_current_cohort(self, new_path: Path) -> bool:
@@ -995,6 +995,8 @@ class CARTLogic(ScriptedLoadableModuleLogic):
 
         # If all checks pass, update our state
         self.cohort_path = new_path
+        config.last_used_cohort_file = new_path
+        config.save()
         return True
 
     def set_data_path(self, new_path: Path) -> (bool, Optional[str]):
@@ -1008,8 +1010,10 @@ class CARTLogic(ScriptedLoadableModuleLogic):
             err = f"Error: Data path was not a directory: {new_path}"
             return False, err
 
-        # If that all ran, update our data path to the new data path
+        # If that all ran, update everything to match
         self.data_path = new_path
+        config.last_used_data_path = new_path
+        config.save()
         print(f"Data path set to: {self.data_path}")
 
         return True, None
@@ -1039,14 +1043,22 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         self.data_manager.load_cases()
 
     ## Task Management ##
+    def clear_task(self):
+        """
+        Clears the current task instance, ensuring its cleaned itself up before
+        its removed from memory
+        """
+        if self.current_task_instance:
+            self.current_task_instance.exit()
+            self.current_task_instance.cleanup()
+            self.current_task_instance = None
+
     def set_task_type(self, task_type: type(TaskBaseClass)):
         # Set the task type
         self.current_task_type = task_type
 
         # If we have a task built already, delete it
-        if self.current_task_instance:
-            self.current_task_instance.cleanup()
-            self.current_task_instance = None
+        self.clear_task()
 
         # Get this task's preferred DataUnitFactory method
         data_factory_method_map = self.current_task_type.getDataUnitFactories()
@@ -1101,13 +1113,40 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # Load the cohort file into memory using the new DataManager
         self.load_cohort()
 
+        # Ensure the current task has cleaned itself up.
+        self.clear_task()
+
         # Create the new task instance
         self.current_task_instance = \
             self.current_task_type(self.get_current_user())
 
+        # Act as though CART has just been reloaded so the task can initialize
+        #  properly
+        self.current_task_instance.enter()
+
         # Pass our first data unit to the task
         new_unit = self.select_current_case()
         self.current_task_instance.receive(new_unit)
+
+    def enter(self):
+        """
+        Called when the CART module is loaded (through our CARTWidget).
+
+        Just signals to the current task that CART is now in view again, and it
+        should synchronize its state to the MRML scene.
+        """
+        if self.current_task_instance:
+            self.current_task_instance.enter()
+
+    def exit(self):
+        """
+        Called when the CART module is un-loaded (through our CARTWidget).
+
+        Just signals to the current task that CART is no longer in view, and it
+        should pause any active processes in the GUI.
+        """
+        if self.current_task_instance:
+            self.current_task_instance.exit()
 
     ## DataUnit Management ##
     def rebuild_data_manager(self):
@@ -1192,5 +1231,13 @@ class CARTLogic(ScriptedLoadableModuleLogic):
 
     def _update_task_with_new_case(self, new_case: DataUnitBase):
         # Only update the task if exists
-        if self.current_task_instance:
-            self.current_task_instance.receive(new_case)
+        task = self.current_task_instance
+        if not task:
+            return
+
+        # If autosaving is on, have the task save its current case before proceeding
+        if config.autosave:
+            task.autosave()
+
+        # Have the task receive the new case
+        task.receive(new_case)
