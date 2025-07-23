@@ -60,8 +60,6 @@ class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):
                         f"Invalid data for key '{key}': value must be a .nrrd file."
                     )
 
-        self.validated = True
-
     def _parse_path(self, path_str: str):
         # TODO: Make this reference a user-specified value instead
         if self.base_path is None:

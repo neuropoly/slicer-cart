@@ -11,6 +11,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 # ========================================================================
+from typing import Optional
 
 # Adapted from
 # https://github.com/pieper/CompareVolumes/blob/master/CompareVolumes.py
@@ -349,3 +350,92 @@ class CaseIteratorLayoutLogic(ScriptedLoadableModuleLogic):
       sliceNode.SetSliceOffset(offset)
       view += 1.
     return sliceNodesByViewName
+
+  def create_linked_slice_views(
+          self,
+          volume_nodes: Optional[list[slicer.vtkMRMLVolumeNode]] = None,
+          background: Optional[slicer.vtkMRMLVolumeNode] = None,
+          label: Optional[slicer.vtkMRMLSegmentationNode] = None,
+          orientation: str = 'Axial',
+          max_horizontal: int = 4,
+          opacity: float = 0.5
+  ) -> dict[str, slicer.vtkMRMLSliceNode]:
+    """
+    Create N linked slice viewers arranged horizontally or vertically
+    based on the number of volume nodes, all in the specified orientation
+    ('Axial', 'Sagittal', or 'Coronal'). Optionally overlay a segmentation
+    (label) node as the label layer in each view.
+
+    :param volume_nodes: List of volume nodes to display. If None, all volume nodes in the scene are used.
+    :param background: Volume node to use as the background layer.
+    :param label: Segmentation node or labelmap volume to use as the label layer.
+    :param orientation: Slice orientation for all viewers ('Axial', 'Sagittal', or 'Coronal').
+    :param max_horizontal: Maximum number of viewers in a single horizontal row.
+    :param opacity: Foreground opacity when a background node is set.
+    :return: Mapping of view names to slice nodes.
+    """
+    import slicer
+
+    # Determine the volume nodes to display
+    if volume_nodes is None:
+      volume_nodes = list(slicer.util.getNodes('*VolumeNode*').values())
+    n = len(volume_nodes)
+    if n == 0:
+      return {}
+
+    # Orient vertically if the number of nodes exceeds our maximum allowed horizontal views.
+    layout_type = 'horizontal' if n <= max_horizontal else 'vertical'
+
+    # Build the XML layout description
+    layout_desc = f'<layout type="{layout_type}">\n'
+    actual_view_names: list[str] = []
+    for idx, vol in enumerate(volume_nodes, start=1):
+      # Include orientation in view name for uniqueness
+      base_name = vol.GetName() or f'Volume{idx}'
+      view_name = f'{base_name}_{orientation}'
+      # Obtain distinct color
+      rgb = [int(round(v * 255)) for v in self.lookupTable.GetTableValue(idx)[:-1]]
+      color = f'#{rgb[0]:02X}{rgb[1]:02X}{rgb[2]:02X}'
+      layout_desc += self.sliceViewItemPattern.format(
+        viewName=view_name,
+        orientation=orientation,
+        color=color
+      )
+      actual_view_names.append(view_name)
+    layout_desc += '</layout>'
+
+    # Apply the new layout
+    self.assignLayoutDescription(layout_desc)
+    slicer.app.processEvents()
+
+    # Reorder volumes so background appears first if specified
+    if background:
+      volume_nodes = [background] + [v for v in volume_nodes if v != background]
+
+    # Populate each slice viewer with the appropriate volume + label
+    slice_nodes: dict[str, slicer.vtkMRMLSliceNode] = {}
+    lm = slicer.app.layoutManager()
+    for idx, view_name in enumerate(actual_view_names):
+      vol = volume_nodes[idx] if idx < len(volume_nodes) else None
+      sw = lm.sliceWidget(view_name)
+      cn = sw.mrmlSliceCompositeNode()
+      if background and vol:
+        cn.SetBackgroundVolumeID(background.GetID())
+        cn.SetForegroundVolumeID(vol.GetID())
+        cn.SetForegroundOpacity(opacity)
+      elif vol:
+        cn.SetBackgroundVolumeID(vol.GetID())
+        cn.SetForegroundVolumeID("")
+
+      sn = sw.mrmlSliceNode()
+      sn.SetOrientation(orientation)
+
+      if vol:
+        sn.RotateToVolumePlane(vol)
+      sw.fitSliceToBackground()
+      cn.SetLinkedControl(True)
+      slice_nodes[view_name] = sn
+
+    # Snap slice offsets to IJK to avoid rounding errors
+    self.snapToIJK()
+    return slice_nodes

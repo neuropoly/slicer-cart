@@ -33,8 +33,6 @@ class DataUnitBase(ABC):
         # Resource tracking
         self.resources = {}
         self.uid = case_data.get("uid", None)
-        self.validated = False
-        self._validate()
 
     @abstractmethod
     def to_dict(self) -> dict:

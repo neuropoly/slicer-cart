@@ -77,8 +77,6 @@ class SegmentationEvaluationDataUnit(DataUnitBase):
         self.validate_key_is_file(self.VOLUME_KEY)
         self.validate_key_is_file(self.SEGMENTATION_KEY)
 
-        self.validated = True
-
     def validate_key_is_file(self, key: str):
         """
         Validate a file we need designed by our case:

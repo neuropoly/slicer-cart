@@ -19,6 +19,7 @@ from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
 # TODO: Remove this explicit import
 from CARTLib.OrganLabellingDemo import OrganLabellingDemoTask
 from CARTLib.examples.SegmentationEvaluationTask import SegmentationEvaluationTask
+from CARTLib.examples.MultiContrastSegmentationEvaluationTask import MultiContrastSegmentationEvaluationTask
 
 CURRENT_DIR = Path(__file__).parent
 CONFIGURATION_FILE_NAME = CURRENT_DIR / "configuration.json"
@@ -122,7 +123,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # TODO: Dynamically load this dictionary instead
         self.task_map = {
             "Organ Labels": OrganLabellingDemoTask,
-            "Segmentation": SegmentationEvaluationTask
+            "Segmentation": SegmentationEvaluationTask,
+            "MultiContrast Segmentation": MultiContrastSegmentationEvaluationTask,
         }
 
     def setup(self) -> None:
