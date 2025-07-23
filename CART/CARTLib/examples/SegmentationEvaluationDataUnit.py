@@ -109,9 +109,6 @@ class SegmentationEvaluationDataUnit(DataUnitBase):
         Attempt to load the volume and segmentation files into memory as
          MRML nodes.
         """
-        if not self.validated:
-            raise ValueError(_("Data must be validated before initializing resources."))
-
         # Initialize the nodes containing our actual data
         vn = self._init_volume_node()
         sn = self._init_segmentation_node()

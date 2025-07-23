@@ -71,7 +71,6 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
 
     def focus_lost(self) -> None:
         """Hide all volumes and segmentation when focus is lost."""
-        print(f"{self.validated=}")
         for node in self.volume_nodes.values():
             node.SetDisplayVisibility(False)
         self.segmentation_node.SetDisplayVisibility(False)
