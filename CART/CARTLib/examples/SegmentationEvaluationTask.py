@@ -17,7 +17,7 @@ VERSION = 0.01
 
 
 class SegmentationEvaluationGUI:
-    def __init__(self, bound_task: 'SegmentationEvaluationTask'):
+    def __init__(self, bound_task: "SegmentationEvaluationTask"):
         # Track the task, so we can reference it later
         self.bound_task = bound_task
 
@@ -89,14 +89,22 @@ class SegmentationEvaluationGUI:
             notif = qt.QErrorMessage()
             if self.bound_task.can_save():
                 notif.setWindowTitle(_("REVERTING!"))
-                notif.showMessage(_("Cancelled out of window; falling back to previous "
-                                    "output directory "
-                                    f"({str(self.bound_task.output_dir)})"))
+                notif.showMessage(
+                    _(
+                        "Cancelled out of window; falling back to previous "
+                        "output directory "
+                        f"({str(self.bound_task.output_dir)})"
+                    )
+                )
                 notif.exec()
             else:
                 notif.setWindowTitle(_("NO OUTPUT!"))
-                notif.showMessage(_("No output directory selected! You will need to "
-                                    "specify this before segmentations can be saved."))
+                notif.showMessage(
+                    _(
+                        "No output directory selected! You will need to "
+                        "specify this before segmentations can be saved."
+                    )
+                )
                 notif.exec()
 
         # Update the save button to match the current saving capability
@@ -115,10 +123,12 @@ class SegmentationEvaluationGUI:
 
         # Add an output file selection widget
         outputFileEdit = ctk.ctkPathLineEdit()
-        outputFileEdit.setToolTip(_(
-            "The directory the modified segmentations (and corresponding "
-            "metadata) will be placed."
-        ))
+        outputFileEdit.setToolTip(
+            _(
+                "The directory the modified segmentations (and corresponding "
+                "metadata) will be placed."
+            )
+        )
         # Set the widget to only accept directories
         outputFileEdit.filters = ctk.ctkPathLineEdit.Dirs
         # Add it to our layout
@@ -177,11 +187,7 @@ class SegmentationEvaluationGUI:
         self.saveButton.setToolTip(tooltip_text)
 
     ## TASK LINKS ##
-    def _attemptOutputPathUpdate(
-            self,
-            prompt: qt.QDialog,
-            widget: ctk.ctkPathLineEdit
-    ):
+    def _attemptOutputPathUpdate(self, prompt: qt.QDialog, widget: ctk.ctkPathLineEdit):
         """
         Validates the output path provided by a user, only closing the
          associated prompt if it was valid.
@@ -247,9 +253,11 @@ class SegmentationEvaluationGUI:
             seg_out, __ = self.bound_task.output_manager.get_output_destinations(
                 self.bound_task.data_unit
             )
-            msgBox.setText(f"The segmentation for '{self.bound_task.data_unit.uid}' "
-                           f"was successfully saved!\n\n"
-                           f"Saved to: {str(seg_out.resolve())}!")
+            msgBox.setText(
+                f"The segmentation for '{self.bound_task.data_unit.uid}' "
+                f"was successfully saved!\n\n"
+                f"Saved to: {str(seg_out.resolve())}!"
+            )
             msgBox.addButton(_("Confirm"), qt.QMessageBox.AcceptRole)
             msgBox.exec()
 
@@ -302,7 +310,7 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
             background=self.data_unit.volume_node,
             foreground=self.data_unit.segmentation_node,
             label=self.data_unit.uid,
-            fit=True
+            fit=True,
         )
 
         # If we have GUI, update it as well
@@ -351,9 +359,7 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
         We currently only support one data unit type, so we only provide it to
          the user
         """
-        return {
-            "Single Segmentation": SegmentationEvaluationDataUnit
-        }
+        return {"Single Segmentation": SegmentationEvaluationDataUnit}
 
     ## Utils ##
     def set_output_dir(self, new_path: Path) -> Optional[str]:
@@ -384,12 +390,14 @@ class _OutputManager:
     """
     Manages the output of the Segmentation Evaluation task
     """
+
     def __init__(self, output_dir: Path, user: str):
         self.output_dir = output_dir
         self.user = user
 
-    def save_segmentation(self, data_unit: SegmentationEvaluationDataUnit) \
-            -> Optional[str]:
+    def save_segmentation(
+        self, data_unit: SegmentationEvaluationDataUnit
+    ) -> Optional[str]:
         # Calculate the designation paths for our files
         segmentation_out, sidecar_out = self.get_output_destinations(data_unit)
 
@@ -411,8 +419,9 @@ class _OutputManager:
             # If any error occurred, return a string version of it for reporting
             return str(e)
 
-    def get_output_destinations(self, data_unit: SegmentationEvaluationDataUnit) -> \
-            (Path, Path):
+    def get_output_destinations(
+        self, data_unit: SegmentationEvaluationDataUnit
+    ) -> (Path, Path):
         """
         Get the output paths for the files managed by this manager
         :param data_unit: The data unit whose data will be saved
@@ -436,8 +445,7 @@ class _OutputManager:
 
     @staticmethod
     def _save_segmentation(
-            data_unit: SegmentationEvaluationDataUnit,
-            target_file: Path
+        data_unit: SegmentationEvaluationDataUnit, target_file: Path
     ):
         """
         Save the data unit's currently tracked segmentation to the designated
@@ -451,17 +459,15 @@ class _OutputManager:
         save_segmentation_to_nifti(seg_node, vol_node, target_file)
 
     def _save_sidecar(
-            self,
-            data_unit: SegmentationEvaluationDataUnit,
-            target_file: Path
+        self, data_unit: SegmentationEvaluationDataUnit, target_file: Path
     ):
         # Check for an existing sidecar, and use it as our basis if it exists
-        fname = str(data_unit.segmentation_path).split('.')[0]
+        fname = str(data_unit.segmentation_path).split(".")[0]
 
         # Read in the existing side-car file first, if possible
         sidecar_file = Path(f"{fname}.json")
         if sidecar_file.exists():
-            with open(sidecar_file, 'r') as fp:
+            with open(sidecar_file) as fp:
                 sidecar_data = json.load(fp)
         else:
             sidecar_data = dict()
@@ -472,7 +478,7 @@ class _OutputManager:
             "Name": "Segmentation Review [CART]",
             "Author": self.user,
             "Version": VERSION,
-            "Date": entry_time.strftime('%Y-%m-%d %H:%M:%S')
+            "Date": entry_time.strftime("%Y-%m-%d %H:%M:%S"),
         }
 
         # Add a new entry to the side-car's contents
@@ -481,5 +487,5 @@ class _OutputManager:
         sidecar_data["GeneratedBy"] = generated_by
 
         # Write the sidecar file to our target file
-        with open(target_file, 'w') as fp:
+        with open(target_file, "w") as fp:
             json.dump(sidecar_data, fp, indent=2)

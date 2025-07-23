@@ -10,6 +10,7 @@ class Config:
     """
     Configuration manager for CART.
     """
+
     def __init__(self, config_path: Path):
         # Attributes
         self.config_path = config_path
@@ -29,14 +30,14 @@ class Config:
         # If our specified configuration file doesn't exist, copy the default to make one
         if not MAIN_CONFIG.exists():
             print("No configuration file found, creating a new one!")
-            with open(DEFAULT_FILE, "r") as cf:
+            with open(DEFAULT_FILE) as cf:
                 # Load the data
                 self._backing_dict = json.load(cf)
                 # And immediately save it, creating a copy
                 self.save()
         # Otherwise, load the configuration as-is
         else:
-            with open(self.config_path, "r") as cf:
+            with open(self.config_path) as cf:
                 self._backing_dict = json.load(cf)
 
         # Mark that there are no longer any changes between the config and file
@@ -121,7 +122,7 @@ class Config:
     @autosave.setter
     def autosave(self, new_val: bool):
         # Validate that the value is a boolean, to avoid weird jank later
-        assert type(new_val) is bool
+        assert isinstance(new_val, bool), "Autosave must be a boolean value."
         self._backing_dict["autosave"] = new_val
         self._has_changed = True
 

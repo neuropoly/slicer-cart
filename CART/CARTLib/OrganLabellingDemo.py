@@ -64,7 +64,9 @@ class OrganLabellingDemoTask(TaskBaseClass[VolumeOnlyDataUnit]):
 
         # Button to show all volumes in separate rows
         self.showAllVolumesButton = qt.QPushButton("Show All Volumes")
-        self.showAllVolumesButton.toolTip = "Display all volumes in separate rows with axial/sagittal/coronal views"
+        self.showAllVolumesButton.toolTip = (
+            "Display all volumes in separate rows with axial/sagittal/coronal views"
+        )
         layoutBox.addWidget(self.showAllVolumesButton)
 
         # Button to reset to default layout
@@ -111,14 +113,11 @@ class OrganLabellingDemoTask(TaskBaseClass[VolumeOnlyDataUnit]):
                 background=self.volumeNodes[0],
                 foreground=self.volumeNodes[1] if len(self.volumeNodes) > 1 else None,
                 label=None,
-                fit=True
+                fit=True,
             )
         elif len(self.volumeNodes) == 1:
             slicer.util.setSliceViewerLayers(
-                background=self.volumeNodes[0],
-                foreground=None,
-                label=None,
-                fit=True
+                background=self.volumeNodes[0], foreground=None, label=None, fit=True
             )
 
         if self.load_all_volumes:
@@ -131,21 +130,23 @@ class OrganLabellingDemoTask(TaskBaseClass[VolumeOnlyDataUnit]):
         """
         Display all volumes in separate rows with axial/sagittal/coronal views
         """
-        self.load_all_volumes= True  # Enable loading all volumes in multi-row layout
+        self.load_all_volumes = True  # Enable loading all volumes in multi-row layout
         if not self.volumeNodes:
             print("No volumes loaded")
             return
 
         print("Showing all volumes in multi-row layout")
-        sliceNodesByViewName = self.layoutLogic.viewersPerVolume(self.volumeNodes, include3D=False)
+        sliceNodesByViewName = self.layoutLogic.viewersPerVolume(
+            self.volumeNodes, include3D=False
+        )
 
         # Rotate each volume to its own planes - don't use volumeNodes[0] for all
-        orientations = ('Axial', 'Sagittal', 'Coronal')
+        orientations = ("Axial", "Sagittal", "Coronal")
         for volumeNode in self.volumeNodes:
             # Get slice nodes for this specific volume
             volumeSliceNodes = []
             for orientation in orientations:
-                viewName = volumeNode.GetName() + '-' + orientation
+                viewName = volumeNode.GetName() + "-" + orientation
                 if viewName in sliceNodesByViewName:
                     volumeSliceNodes.append(sliceNodesByViewName[viewName])
 
@@ -169,14 +170,11 @@ class OrganLabellingDemoTask(TaskBaseClass[VolumeOnlyDataUnit]):
                 background=self.volumeNodes[0],
                 foreground=self.volumeNodes[1],
                 label=None,
-                fit=True
+                fit=True,
             )
         elif len(self.volumeNodes) == 1:
             slicer.util.setSliceViewerLayers(
-                background=self.volumeNodes[0],
-                foreground=None,
-                label=None,
-                fit=True
+                background=self.volumeNodes[0], foreground=None, label=None, fit=True
             )
 
     def save(self) -> Optional[str]:
@@ -197,18 +195,14 @@ class OrganLabellingDemoTask(TaskBaseClass[VolumeOnlyDataUnit]):
         # TODO
 
         # Setup
-        field_names = [
-            "uid",
-            "organ",
-            "Timestamp"
-        ]
+        field_names = ["uid", "organ", "Timestamp"]
         csv_data = []
 
         # If the file already exists, update its contents if possible
         uid = self.data_unit.get_data_uid()
         if Path(self.output_file).exists():
             entry_found = False
-            with open(self.output_file, 'r') as fp:
+            with open(self.output_file) as fp:
                 csv_reader = csv.DictReader(fp)
                 # if an entry exists, update it
                 for r in csv_reader:
@@ -216,9 +210,11 @@ class OrganLabellingDemoTask(TaskBaseClass[VolumeOnlyDataUnit]):
                     csv_data.append(r)
                     print(r)
                     # If we have an entry, update its contents with the current state
-                    if r.get('uid', '') == uid:
-                        r['organ'] = organText
-                        r['Timestamp'] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                    if r.get("uid", "") == uid:
+                        r["organ"] = organText
+                        r["Timestamp"] = time.strftime(
+                            "%Y-%m-%d %H:%M:%S", time.localtime()
+                        )
                         entry_found = True
 
             # Otherwise, create a new entry
@@ -226,7 +222,7 @@ class OrganLabellingDemoTask(TaskBaseClass[VolumeOnlyDataUnit]):
                 new_entry = {
                     "uid": uid,
                     "organ": organText,
-                    "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                    "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
                 }
                 csv_data.append(new_entry)
 
@@ -235,12 +231,12 @@ class OrganLabellingDemoTask(TaskBaseClass[VolumeOnlyDataUnit]):
             new_entry = {
                 "uid": uid,
                 "organ": organText,
-                "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
             }
             csv_data.append(new_entry)
 
         # Overwrite the file with the new data
-        with open(self.output_file, 'w') as fp:
+        with open(self.output_file, "w") as fp:
             csv_writer = csv.DictWriter(fp, field_names)
             csv_writer.writeheader()
             csv_writer.writerows(csv_data)
@@ -261,6 +257,4 @@ class OrganLabellingDemoTask(TaskBaseClass[VolumeOnlyDataUnit]):
 
     @classmethod
     def getDataUnitFactories(cls) -> dict[str, DataUnitFactory]:
-        return {
-            "Default": VolumeOnlyDataUnit
-        }
+        return {"Default": VolumeOnlyDataUnit}

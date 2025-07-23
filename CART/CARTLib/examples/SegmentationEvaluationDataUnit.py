@@ -14,10 +14,10 @@ class SegmentationEvaluationDataUnit(DataUnitBase):
     COMPLETED_KEY = "completed"
 
     def __init__(
-            self,
-            case_data: dict[str, str],
-            data_path: Path,
-            scene: Optional[slicer.vtkMRMLScene] = slicer.mrmlScene
+        self,
+        case_data: dict[str, str],
+        data_path: Path,
+        scene: Optional[slicer.vtkMRMLScene] = slicer.mrmlScene,
     ):
         super().__init__(case_data, data_path, scene)
 
@@ -45,7 +45,7 @@ class SegmentationEvaluationDataUnit(DataUnitBase):
         return {
             self.VOLUME_KEY: self.case_data[self.VOLUME_KEY],
             self.SEGMENTATION_KEY: self.case_data[self.SEGMENTATION_KEY],
-            self.COMPLETED_KEY: self.is_complete
+            self.COMPLETED_KEY: self.is_complete,
         }
 
     def focus_gained(self):
@@ -87,22 +87,16 @@ class SegmentationEvaluationDataUnit(DataUnitBase):
         # Check that there is an entry matching this key in the case
         file_path = self.case_data.get(key, None)
         if not file_path:
-            raise ValueError(
-                f"Case {self.uid} was missing required entry '{key}'."
-            )
+            raise ValueError(f"Case {self.uid} was missing required entry '{key}'.")
 
         # Confirm that something matching the designated path exists on our drive
         file_path = self.data_path / file_path
         if not file_path.exists():
-            raise ValueError(
-                f"Path for '{key}' does not exist for case {self.uid}."
-            )
+            raise ValueError(f"Path for '{key}' does not exist for case {self.uid}.")
 
         # Confirm that it is a file
         if not file_path.is_file():
-            raise ValueError(
-                f"Path for '{key}' for case {self.uid} was not a file."
-            )
+            raise ValueError(f"Path for '{key}' for case {self.uid} was not a file.")
 
     def _initialize_resources(self):
         """

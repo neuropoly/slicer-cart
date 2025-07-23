@@ -19,7 +19,9 @@ from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
 # TODO: Remove this explicit import
 from CARTLib.OrganLabellingDemo import OrganLabellingDemoTask
 from CARTLib.examples.SegmentationEvaluationTask import SegmentationEvaluationTask
-from CARTLib.examples.MultiContrastSegmentationEvaluationTask import MultiContrastSegmentationEvaluationTask
+from CARTLib.examples.MultiContrastSegmentationEvaluationTask import (
+    MultiContrastSegmentationEvaluationTask,
+)
 
 CURRENT_DIR = Path(__file__).parent
 CONFIGURATION_FILE_NAME = CURRENT_DIR / "configuration.json"
@@ -41,16 +43,17 @@ class CART(ScriptedLoadableModule):
     def __init__(self, parent):
         ScriptedLoadableModule.__init__(self, parent)
         self.parent.title = "CART"  # It's an acronym title, not really translate-able
-        self.parent.categories = ['Utilities']
+        self.parent.categories = ["Utilities"]
         self.parent.dependencies = []  # No dependencies
         # TODO: Move these metadata contents into a standalone file which can
         #  be updated automatically as new PRs are made
         self.parent.contributors = [
             "Kalum Ost (Montréal Polytechnique)",
             "Kuan Yi (Montréal Polytechnique)",
-            "Ivan Johnson-Eversoll (University of Iowa)"
+            "Ivan Johnson-Eversoll (University of Iowa)",
         ]
-        self.parent.helpText = _("""
+        self.parent.helpText = _(
+            """
                 CART (Collaborative Annotation and Review Tool) provides a set
                 of abstract base classes for creating streamlined annotation
                 workflows in 3D Slicer. The framework enables efficient
@@ -59,9 +62,11 @@ class CART(ScriptedLoadableModule):
 
                 See more information on the
                 <a href="https://github.com/SomeoneInParticular/CART/tree/main">GitHub repository</a>.
-            """)
+            """
+        )
         # TODO: replace with organization, grant and thanks
-        self.parent.acknowledgementText = _("""
+        self.parent.acknowledgementText = _(
+            """
                 Originally created during Slicer Project Week #43.
 
                 Special thanks the many members of the Slicer community who
@@ -72,7 +77,8 @@ class CART(ScriptedLoadableModule):
                 <a href="https://github.com/SlicerUltrasound/SlicerUltrasound">SlicerUltrasound/AnnotateUltrasound</a> (basis for our UI design),
                 and the many other projects discussed during the breakout session (notes
                 <a href="https://docs.google.com/document/d/12XuYPVuRgy4RTuIabSIjy_sRrYSliewKhcbB1zJgXVI/">here.</a>)
-            """)
+            """
+        )
 
         # Load our configuration
         config.load()
@@ -81,7 +87,6 @@ class CART(ScriptedLoadableModule):
 #
 # CARTParameterNode
 #
-
 
 
 #
@@ -192,8 +197,12 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Connections
 
         # These connections ensure that we update parameter node when scene is closed
-        self.addObserver(slicer.mrmlScene, slicer.mrmlScene.StartCloseEvent, self.onSceneStartClose)
-        self.addObserver(slicer.mrmlScene, slicer.mrmlScene.EndCloseEvent, self.onSceneEndClose)
+        self.addObserver(
+            slicer.mrmlScene, slicer.mrmlScene.StartCloseEvent, self.onSceneStartClose
+        )
+        self.addObserver(
+            slicer.mrmlScene, slicer.mrmlScene.EndCloseEvent, self.onSceneEndClose
+        )
 
         # Synchronize our state with the logic
         self.sync_with_logic()
@@ -252,10 +261,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         newUserButton.clicked.connect(self.promptNewUser)
 
         # Force its size to not change dynamically
-        newUserButton.setSizePolicy(
-            qt.QSizePolicy.Fixed,
-            qt.QSizePolicy.Fixed
-        )
+        newUserButton.setSizePolicy(qt.QSizePolicy.Fixed, qt.QSizePolicy.Fixed)
 
         # Force it to be square
         # KO: We can't just use "resize" here, because either Slicer or QT
@@ -298,7 +304,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Base path selection
         dataPathSelectionWidget = ctk.ctkPathLineEdit()
         dataPathSelectionWidget.filters = ctk.ctkPathLineEdit.Dirs
-        dataPathSelectionWidget.toolTip = _("Select the base directory path. Leave empty to use None as base path.")
+        dataPathSelectionWidget.toolTip = _(
+            "Select the base directory path. Leave empty to use None as base path."
+        )
 
         # Add it to our layout
         mainLayout.addRow(_("Data Path:"), dataPathSelectionWidget)
@@ -330,9 +338,13 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # A button to preview the cohort, without starting on a task
         previewButton = qt.QPushButton(_("Preview"))
-        previewButton.setToolTip(_("""
-        Reads the contents of the cohort.csv for review, without starting the task
-        """))
+        previewButton.setToolTip(
+            _(
+            """
+            Reads the contents of the cohort.csv for review, without starting the task
+            """
+            )
+        )
 
         # On click, attempt to load the cohort file and its contents into the GUI
         previewButton.clicked.connect(self.onPreviewCohortClicked)
@@ -386,7 +398,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Add a text field to display the current case name under the buttons
         self.currentCaseNameLabel = qt.QLineEdit()
         self.currentCaseNameLabel.readOnly = True
-        self.currentCaseNameLabel.placeholderText = _("Current case name will appear here")
+        self.currentCaseNameLabel.placeholderText = _(
+            "Current case name will appear here"
+        )
         self.taskLayout.addWidget(self.currentCaseNameLabel)
 
         # Make the groupbox accessible elsewhere, so it can be made visible later
@@ -406,9 +420,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """
         # Create a new widget
         new_name = qt.QInputDialog().getText(
-            self.mainGUI,
-            _("Add New User"),
-            _("New User Name:")
+            self.mainGUI, _("Add New User"), _("New User Name:")
         )
 
         # Attempt to add the new user to the Logic
@@ -514,7 +526,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         if self.isPreviewMode:
             # Change the color of the preview button to indicate preview mode
-            self.previewButton.setStyleSheet("background-color: #777eb4; color: #777eb4;")
+            self.previewButton.setStyleSheet(
+                "background-color: #777eb4; color: #777eb4;"
+            )
             # Load the file's cases into memory
             self.logic.load_cohort()
 
@@ -562,16 +576,15 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.cohortTable = qt.QTableWidget()
 
         self.cohortTable.setSizePolicy(
-            qt.QSizePolicy.Expanding,
-            qt.QSizePolicy.Expanding
+            qt.QSizePolicy.Expanding, qt.QSizePolicy.Expanding
         )
 
         self.cohortTable.setRowCount(self.rowCount)
         self.cohortTable.setColumnCount(self.colCount)
-        self.cohortTable.setHorizontalHeaderLabels(
-            [_(h) for h in self.headers]
+        self.cohortTable.setHorizontalHeaderLabels([_(h) for h in self.headers])
+        self.cohortTable.horizontalHeader().setSectionResizeMode(
+            qt.QHeaderView.ResizeToContents
         )
-        self.cohortTable.horizontalHeader().setSectionResizeMode(qt.QHeaderView.ResizeToContents)
 
         self.cohortTable.setHorizontalScrollBarPolicy(qt.Qt.ScrollBarAsNeeded)
 
@@ -611,23 +624,23 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.iteratorWidget.setVisible(False)
 
     def updateCohortTable(self):
-      # Remove any existing table if not in preview or task mode, e.g. when the cohort csv is changed
-      if not self.isPreviewMode and not self.isTaskMode:
-        self.destroyCohortTable()
-        return
+        # Remove any existing table if not in preview or task mode, e.g. when the cohort csv is changed
+        if not self.isPreviewMode and not self.isTaskMode:
+            self.destroyCohortTable()
+            return
 
-      # Disable buttons if in task mode
-      if self.isTaskMode:
-          self.previewButton.setEnabled(False)
-          self.confirmButton.setEnabled(False)
+        # Disable buttons if in task mode
+        if self.isTaskMode:
+            self.previewButton.setEnabled(False)
+            self.confirmButton.setEnabled(False)
 
-      # Disable navigation buttons if only in preview mode
-      if self.isPreviewMode and not self.isTaskMode:
-          self.previousButton.setEnabled(False)
-          self.nextButton.setEnabled(False)
+        # Disable navigation buttons if only in preview mode
+        if self.isPreviewMode and not self.isTaskMode:
+            self.previousButton.setEnabled(False)
+            self.nextButton.setEnabled(False)
 
-      # Always (re)build the table if in preview or task mode
-      self.buildCohortTable()
+        # Always (re)build the table if in preview or task mode
+        self.buildCohortTable()
 
     ### Iterator Widgets ###
     def unHighlightRow(self, row):
@@ -692,7 +705,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         try:
             # Confirm we have a next case to step into first
             if not self.logic.has_previous_case():
-                print("You somehow requested the previous case, despite there being none!")
+                print(
+                    "You somehow requested the previous case, despite there being none!"
+                )
                 return
             # Remove highlight from the current row
             self.unHighlightRow(self.logic.data_manager.current_case_index)
@@ -896,6 +911,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Allows for selectable text in the error message
         msgBox.setTextInteractionFlags(qt.Qt.TextSelectableByMouse)
         msgBox.exec()
+
+
 #
 # CARTLogic
 #
@@ -989,11 +1006,10 @@ class CARTLogic(ScriptedLoadableModuleLogic):
             return False
 
         # Warn the user if they're reloading the same file
-        if (
-            self.cohort_path is not None and
-            str(new_path.resolve()) == str(self.cohort_path.resolve())
+        if self.cohort_path is not None and str(new_path.resolve()) == str(
+            self.cohort_path.resolve()
         ):
-            print(f"Warning: Reloaded the same cohort file!")
+            print("Warning: Reloaded the same cohort file!")
 
         # If all checks pass, update our state
         self.cohort_path = new_path
@@ -1119,8 +1135,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         self.clear_task()
 
         # Create the new task instance
-        self.current_task_instance = \
-            self.current_task_type(self.get_current_user())
+        self.current_task_instance = self.current_task_type(self.get_current_user())
 
         # Act as though CART has just been reloaded so the task can initialize
         #  properly
@@ -1160,7 +1175,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         self.data_manager = DataManager(
             cohort_file=self.cohort_path,
             data_source=self.data_path,
-            data_unit_factory=self.data_unit_factory
+            data_unit_factory=self.data_unit_factory,
         )
 
     def current_uid(self):

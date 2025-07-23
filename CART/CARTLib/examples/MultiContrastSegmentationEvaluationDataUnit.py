@@ -13,14 +13,15 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
     Dynamically discovers all case_data keys containing "volume", loads them,
     and uses one as the primary for geometry alignment.
     """
+
     SEGMENTATION_KEY = "segmentation"
     COMPLETED_KEY = "completed"
 
     def __init__(
-            self,
-            case_data: dict[str, str],
-            data_path: Path,
-            scene: Optional[slicer.vtkMRMLScene] = slicer.mrmlScene
+        self,
+        case_data: dict[str, str],
+        data_path: Path,
+        scene: Optional[slicer.vtkMRMLScene] = slicer.mrmlScene,
     ):
         super().__init__(case_data, data_path, scene)
 
@@ -39,7 +40,9 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
         self.volume_paths: dict[str, Path] = {
             key: self.data_path / self.case_data[key] for key in self.volume_keys
         }
-        self.segmentation_path: Path = self.data_path / self.case_data[self.SEGMENTATION_KEY]
+        self.segmentation_path: Path = (
+            self.data_path / self.case_data[self.SEGMENTATION_KEY]
+        )
 
         # Prepare storage for loaded nodes
         self.volume_nodes: dict[str, slicer.vtkMRMLScalarVolumeNode] = {}
@@ -116,9 +119,10 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
         # Align segmentation to primary volume geometry
         seg_node.SetReferenceImageGeometryParameterFromVolumeNode(primary_node)
 
-
         # Group in subject hierarchy
-        self.subject_id = create_subject(self.uid, self.segmentation_node, *self.volume_nodes.values())
+        self.subject_id = create_subject(
+            self.uid, self.segmentation_node, *self.volume_nodes.values()
+        )
 
     def _init_volume_nodes(self) -> slicer.vtkMRMLScalarVolumeNode:
         """

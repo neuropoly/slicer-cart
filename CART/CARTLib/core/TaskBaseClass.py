@@ -8,7 +8,7 @@ import slicer
 from .DataUnitBase import DataUnitBase
 
 # Generic type hint class for anything which is a subclass of DataUnitBase
-D = TypeVar('D', bound=DataUnitBase)
+D = TypeVar("D", bound=DataUnitBase)
 
 
 # Protocol signature which matches the DataUnitBase constructor; allows users to
@@ -16,12 +16,11 @@ D = TypeVar('D', bound=DataUnitBase)
 #  instead
 class DataUnitFactory(Protocol):
     def __call__(
-            self,
-            case_data: dict[str, str],
-            data_path: Path,
-            scene: Optional[slicer.vtkMRMLScene] = None
-    ) -> D:
-        ...
+        self,
+        case_data: dict[str, str],
+        data_path: Path,
+        scene: Optional[slicer.vtkMRMLScene] = None,
+    ) -> D: ...
 
 
 class TaskBaseClass(ABC, Generic[D]):
@@ -272,4 +271,3 @@ class TaskBaseClass(ABC, Generic[D]):
 #             "required_nodes": self.get_required_nodes(),
 #             "metadata": self.metadata,
 #         }
-

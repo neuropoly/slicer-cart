@@ -8,13 +8,13 @@ import slicer
 class DataUnitBase(ABC):
 
     def __init__(
-            self,
-            case_data: dict[str, str],
-            data_path: Path,
-            scene: Optional[slicer.vtkMRMLScene] = None
+        self,
+        case_data: dict[str, str],
+        data_path: Path,
+        scene: Optional[slicer.vtkMRMLScene] = None,
     ):
         """
-        Initialize a new data unit; you may want to add additional processing in 
+        Initialize a new data unit; you may want to add additional processing in
           subclasses.
 
         :param case_data: The contents of the cohort file for this specific case.
@@ -23,7 +23,7 @@ class DataUnitBase(ABC):
           directory for anything that needs to read from files on the disk.
         :param scene: A MRML scene, where nodes should be inserted into and
           managed within when the unit is in focus (actively being worked on)
-          
+
         """
         # Tracking parameters
         self.data_path: Path = data_path
@@ -111,7 +111,7 @@ class DataUnitBase(ABC):
         This is how your Task implementation should access data for display or processing.
 
         By default, this uses a backing dictionary, but you can override this in a subclass
-        
+
         Generally, the return type should be a Slicer Node, but this is not enforced.
 
         """

@@ -2,6 +2,7 @@ from pathlib import Path
 
 import slicer
 
+
 ## LOADING ##
 def load_volume(path: Path):
     """
@@ -58,12 +59,14 @@ def load_segmentation(path: Path):
     # Return the result
     return segment_node
 
+
 ## SAVING ##
 def save_volume_to_nifti(volume_node, path: Path):
     """
     Save a volume node to the specified path.
     """
     slicer.util.saveNode(volume_node, str(path))
+
 
 def save_segmentation_to_nifti(segment_node, volume_node, path: Path):
     """
@@ -74,9 +77,7 @@ def save_segmentation_to_nifti(segment_node, volume_node, path: Path):
     then save that.
     """
     # Convert the Segmentation back to a Label (for Nifti export)
-    label_node = slicer.mrmlScene.AddNewNodeByClass(
-        "vtkMRMLLabelMapVolumeNode"
-    )
+    label_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
     slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(
         segment_node, label_node, volume_node
     )

@@ -7,16 +7,10 @@ import ctk
 import qt
 import slicer
 from slicer.i18n import tr as _
-import json
-from datetime import datetime
-from pathlib import Path
-from typing import Optional
 
-import ctk
-import qt
-import slicer
-from slicer.i18n import tr as _
-from .MultiContrastSegmentationEvaluationDataUnit import MultiContrastSegmentationEvaluationDataUnit
+from .MultiContrastSegmentationEvaluationDataUnit import (
+    MultiContrastSegmentationEvaluationDataUnit,
+)
 from ..core.TaskBaseClass import TaskBaseClass, DataUnitFactory
 from ..utils.widgets import CARTSegmentationEditorWidget
 from ..utils.data import save_segmentation_to_nifti
@@ -25,15 +19,16 @@ from ..LayoutLogic import CaseIteratorLayoutLogic
 
 VERSION = 0.01
 
+
 # TODO Allow for the user to select "All" which will create a row instead of a single view
 class MultiContrastSegmentationEvaluationGUI:
-    def __init__(self, bound_task: 'MultiContrastSegmentationEvaluationTask'):
+    def __init__(self, bound_task: "MultiContrastSegmentationEvaluationTask"):
         self.bound_task = bound_task
         self.data_unit: Optional[MultiContrastSegmentationEvaluationDataUnit] = None
 
         # Layout logic for creating linked slice views
         self.layoutLogic = CaseIteratorLayoutLogic()
-        self.currentOrientation: str = 'Axial'
+        self.currentOrientation: str = "Axial"
 
         # Widgets we'll need to reference later:
         self.segmentEditorWidget: Optional[CARTSegmentationEditorWidget] = None
@@ -45,7 +40,6 @@ class MultiContrastSegmentationEvaluationGUI:
         """
         # Initialize the layout we'll insert everything into
         formLayout = qt.QFormLayout()
-
 
         # 2) Orientation buttons
         self._addOrientationButtons(formLayout)
@@ -97,9 +91,8 @@ class MultiContrastSegmentationEvaluationGUI:
         self.layoutLogic.create_linked_slice_views(
             volume_nodes=list(self.data_unit.volume_nodes.values()),
             label=self.data_unit.segmentation_node,
-            orientation=self.currentOrientation
+            orientation=self.currentOrientation,
         )
-
 
     ## USER PROMPTS ##
     def promptSelectOutput(self):
@@ -122,14 +115,22 @@ class MultiContrastSegmentationEvaluationGUI:
             notif = qt.QErrorMessage()
             if self.bound_task.can_save():
                 notif.setWindowTitle(_("REVERTING!"))
-                notif.showMessage(_("Cancelled out of window; falling back to previous "
-                                    "output directory "
-                                    f"({str(self.bound_task.output_dir)})"))
+                notif.showMessage(
+                    _(
+                        "Cancelled out of window; falling back to previous "
+                        "output directory "
+                        f"({str(self.bound_task.output_dir)})"
+                    )
+                )
                 notif.exec()
             else:
                 notif.setWindowTitle(_("NO OUTPUT!"))
-                notif.showMessage(_("No output directory selected! You will need to "
-                                    "specify this before segmentations can be saved."))
+                notif.showMessage(
+                    _(
+                        "No output directory selected! You will need to "
+                        "specify this before segmentations can be saved."
+                    )
+                )
                 notif.exec()
 
         # Update the save button to match the current saving capability
@@ -148,10 +149,12 @@ class MultiContrastSegmentationEvaluationGUI:
 
         # Add an output file selection widget
         outputFileEdit = ctk.ctkPathLineEdit()
-        outputFileEdit.setToolTip(_(
-            "The directory the modified segmentations (and corresponding "
-            "metadata) will be placed."
-        ))
+        outputFileEdit.setToolTip(
+            _(
+                "The directory the modified segmentations (and corresponding "
+                "metadata) will be placed."
+            )
+        )
         # Set the widget to only accept directories
         outputFileEdit.filters = ctk.ctkPathLineEdit.Dirs
         # Add it to our layout
@@ -187,12 +190,7 @@ class MultiContrastSegmentationEvaluationGUI:
         failurePrompt.showMessage(err_msg)
         failurePrompt.exec()
 
-
-    def _attemptOutputPathUpdate(
-            self,
-            prompt: qt.QDialog,
-            widget: ctk.ctkPathLineEdit
-    ):
+    def _attemptOutputPathUpdate(self, prompt: qt.QDialog, widget: ctk.ctkPathLineEdit):
         """
         Validates the output path provided by a user, only closing the
         associated prompt if it was valid.
@@ -237,11 +235,13 @@ class MultiContrastSegmentationEvaluationGUI:
         # sync segmentation editor
         self.segmentEditorWidget.setSegmentationNode(self.data_unit.segmentation_node)
         print(f"Orientation: {self.currentOrientation}")
-        print(f"list(data_unit.volume_nodes.values()) = {list(self.data_unit.volume_nodes.values())}")
+        print(
+            f"list(data_unit.volume_nodes.values()) = {list(self.data_unit.volume_nodes.values())}"
+        )
         self.layoutLogic.create_linked_slice_views(
             volume_nodes=list(self.data_unit.volume_nodes.values()),
             label=self.data_unit.segmentation_node,
-            orientation=self.currentOrientation
+            orientation=self.currentOrientation,
         )
         self._updatedSaveButtonState()
 
@@ -282,11 +282,17 @@ class MultiContrastSegmentationEvaluationGUI:
         # Ensure the button is active on when we're ready to save
         can_save = self.bound_task.can_save()
         self.saveButton.setEnabled(can_save)
-        tip = _("Saves the current segmentation!") if can_save \
-              else _("Cannot save: no valid output directory.")
+        tip = (
+            _("Saves the current segmentation!")
+            if can_save
+            else _("Cannot save: no valid output directory.")
+        )
         self.saveButton.setToolTip(tip)
 
-class MultiContrastSegmentationEvaluationTask(TaskBaseClass[MultiContrastSegmentationEvaluationDataUnit]):
+
+class MultiContrastSegmentationEvaluationTask(
+    TaskBaseClass[MultiContrastSegmentationEvaluationDataUnit]
+):
     def __init__(self, user: str):
         super().__init__(user)
         self.gui: Optional[MultiContrastSegmentationEvaluationGUI] = None
@@ -310,7 +316,7 @@ class MultiContrastSegmentationEvaluationTask(TaskBaseClass[MultiContrastSegment
         slicer.util.setSliceViewerLayers(
             background=data_unit.primary_volume_node,
             foreground=data_unit.segmentation_node,
-            fit=True
+            fit=True,
         )
         # If we have GUI, update it as well
         if self.gui:
@@ -385,8 +391,9 @@ class _MultiContrastOutputManager:
         self.output_dir = output_dir
         self.user = user
 
-    def save_segmentation(self, data_unit: MultiContrastSegmentationEvaluationDataUnit) \
-            -> Optional[str]:
+    def save_segmentation(
+        self, data_unit: MultiContrastSegmentationEvaluationDataUnit
+    ) -> Optional[str]:
         # Calculate the designation paths for our files
         segmentation_out, sidecar_out = self.get_output_destinations(data_unit)
 
@@ -408,8 +415,9 @@ class _MultiContrastOutputManager:
             # If any error occurred, return a string version of it for reporting
             return str(e)
 
-    def get_output_destinations(self, data_unit: MultiContrastSegmentationEvaluationDataUnit) -> \
-            (Path, Path):
+    def get_output_destinations(
+        self, data_unit: MultiContrastSegmentationEvaluationDataUnit
+    ) -> (Path, Path):
         """
         Get the output paths for the files managed by this manager
         :param data_unit: The data unit whose data will be saved
@@ -433,8 +441,7 @@ class _MultiContrastOutputManager:
 
     @staticmethod
     def _save_segmentation(
-            data_unit: MultiContrastSegmentationEvaluationDataUnit,
-            target_file: Path
+        data_unit: MultiContrastSegmentationEvaluationDataUnit, target_file: Path
     ):
         """
         Save the data unit's currently tracked segmentation to the designated
@@ -442,24 +449,24 @@ class _MultiContrastOutputManager:
         """
         # Extract the relevant node data from the data unit
         seg_node = data_unit.segmentation_node
-        vol_node = data_unit.primary_volume_node # THIS IS THE MAIN DIFFERENCE BETWEEN THIS MULTICONTRAST OUTPUT MANAGER
+        vol_node = (
+            data_unit.primary_volume_node
+        )  # THIS IS THE MAIN DIFFERENCE BETWEEN THIS MULTICONTRAST OUTPUT MANAGER
         # AND THE ORIGINAL OUTPUT MANAGER
 
         # Try to save the segmenattion using them
         save_segmentation_to_nifti(seg_node, vol_node, target_file)
 
     def _save_sidecar(
-            self,
-            data_unit: MultiContrastSegmentationEvaluationDataUnit,
-            target_file: Path
+        self, data_unit: MultiContrastSegmentationEvaluationDataUnit, target_file: Path
     ):
         # Check for an existing sidecar, and use it as our basis if it exists
-        fname = str(data_unit.segmentation_path).split('.')[0]
+        fname = str(data_unit.segmentation_path).split(".")[0]
 
         # Read in the existing side-car file first, if possible
         sidecar_file = Path(f"{fname}.json")
         if sidecar_file.exists():
-            with open(sidecar_file, 'r') as fp:
+            with open(sidecar_file) as fp:
                 sidecar_data = json.load(fp)
         else:
             sidecar_data = dict()
@@ -470,7 +477,7 @@ class _MultiContrastOutputManager:
             "Name": "Segmentation Review [CART]",
             "Author": self.user,
             "Version": VERSION,
-            "Date": entry_time.strftime('%Y-%m-%d %H:%M:%S')
+            "Date": entry_time.strftime("%Y-%m-%d %H:%M:%S"),
         }
 
         # Add a new entry to the side-car's contents
@@ -479,5 +486,5 @@ class _MultiContrastOutputManager:
         sidecar_data["GeneratedBy"] = generated_by
 
         # Write the sidecar file to our target file
-        with open(target_file, 'w') as fp:
+        with open(target_file, "w") as fp:
             json.dump(sidecar_data, fp, indent=2)

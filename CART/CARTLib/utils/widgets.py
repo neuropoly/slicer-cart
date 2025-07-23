@@ -6,7 +6,9 @@ import slicer
 import qSlicerSegmentationsModuleWidgetsPythonQt
 
 
-class CARTSegmentationEditorWidget(qSlicerSegmentationsModuleWidgetsPythonQt.qMRMLSegmentEditorWidget):
+class CARTSegmentationEditorWidget(
+    qSlicerSegmentationsModuleWidgetsPythonQt.qMRMLSegmentEditorWidget
+):
     """
     A "wrapper" for Segment Editor Modules's editor widget, to make it more
     user-friendly and easier to manage in the context of a CART task.
@@ -23,11 +25,7 @@ class CARTSegmentationEditorWidget(qSlicerSegmentationsModuleWidgetsPythonQt.qMR
 
     SEGMENT_EDITOR_NODE_KEY = "vtkMRMLSegmentEditorNode"
 
-    def __init__(
-            self,
-            tag: str = "CARTSegmentEditor",
-            scene = slicer.mrmlScene
-    ):
+    def __init__(self, tag: str = "CARTSegmentEditor", scene=slicer.mrmlScene):
         """
         Create a new segmentation editor widget.
 
@@ -61,8 +59,9 @@ class CARTSegmentationEditorWidget(qSlicerSegmentationsModuleWidgetsPythonQt.qMR
 
     def _set_up_editor_node(self):
         # Get a pre-existing node from the MRML scene if it exists
-        editor_node = \
-            self.scene.GetSingletonNode(self.tag, self.SEGMENT_EDITOR_NODE_KEY)
+        editor_node = self.scene.GetSingletonNode(
+            self.tag, self.SEGMENT_EDITOR_NODE_KEY
+        )
 
         # If we don't have one, create it ourselves
         if not editor_node:
@@ -89,4 +88,3 @@ class CARTSegmentationEditorWidget(qSlicerSegmentationsModuleWidgetsPythonQt.qMR
         self.setActiveEffect(None)
         # Uninstall keyboard shortcuts
         self.uninstallKeyboardShortcuts()
-
