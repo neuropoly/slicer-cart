@@ -110,9 +110,6 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
         Load all volumes and the segmentation into MRML nodes,
         sync geometry, and create a subject hierarchy.
         """
-        if not getattr(self, "validated", False):
-            raise ValueError(_("Data must be validated before initializing resources."))
-
         primary_node = self._init_volume_nodes()
         seg_node = self._init_segmentation_node()
 
