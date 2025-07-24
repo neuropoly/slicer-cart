@@ -61,7 +61,7 @@ class MultiContrastSegmentationEvaluationGUI:
         """
         hbox = qt.QHBoxLayout()
         for ori in Orientation.TRIO:
-            label = ori.as_slicer()
+            label = ori.slicer_node_label()
             btn = qt.QPushButton(label)
             btn.clicked.connect(lambda _, o=ori: self.onOrientationChanged(o))
             hbox.addWidget(btn)

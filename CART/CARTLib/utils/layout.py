@@ -29,7 +29,19 @@ class Orientation(Flag):
     # "TRIO" type for representing all common orientations simultaneously
     TRIO = AXI | SAG | COR
 
-    def as_slicer(self):
+    def slicer_node_label(self):
+        """
+        Returns the string representation for this orientation, formatted in the manner
+        required by Slicer's vtkMRMLSliceNode class.
+
+        As a vtkMRMLSliceNode can only handle one (singular) orientation at a time, we
+        raise an error if you try to generate the string representation for multiple
+        (plural) orientations at once
+        """
+        if not self.is_singular():
+            raise ValueError(
+                "No Slicer orientation string exists for non-singular Orientations!"
+            )
         return str(self).split('.')[1].capitalize()
 
     def is_singular(self):
@@ -161,7 +173,7 @@ class LayoutHandler:
             layout_xml += f' <item> <layout type="{orient_layout}">\n'
             for o in self.orientation:
                 # Set up our parameters to build the XML entry
-                ori = o.as_slicer()
+                ori = o.slicer_node_label()
                 name = f"{v.GetName()}--{ori}"
                 color = lookup_color(color_idx)
                 color_idx += 1
