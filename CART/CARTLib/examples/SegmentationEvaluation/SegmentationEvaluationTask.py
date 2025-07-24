@@ -8,9 +8,10 @@ import qt
 import slicer
 from slicer.i18n import tr as _
 from .SegmentationEvaluationDataUnit import SegmentationEvaluationDataUnit
-from ...core.TaskBaseClass import TaskBaseClass, DataUnitFactory
-from ...utils.widgets import CARTSegmentationEditorWidget
-from ...utils.data import save_segmentation_to_nifti
+
+from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
+from CARTLib.utils.widgets import CARTSegmentationEditorWidget
+from CARTLib.utils.data import save_segmentation_to_nifti
 
 
 VERSION = 0.01
