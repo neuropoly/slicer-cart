@@ -4,6 +4,7 @@ from typing import Optional
 import slicer
 from CARTLib.core.DataUnitBase import DataUnitBase
 from CARTLib.utils.data import load_segmentation, load_volume, create_subject
+from CARTLib.utils.layout import LayoutHandler, Orientation
 
 
 class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
@@ -15,6 +16,8 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
 
     SEGMENTATION_KEY = "segmentation"
     COMPLETED_KEY = "completed"
+
+    DEFAULT_ORIENTATION = Orientation.AXIAL
 
     def __init__(
         self,
@@ -57,6 +60,17 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
         # Load our resources
         self._initialize_resources()
 
+        # Layout manager for this data uni; as it has MRML nodes, it needs to be cleaned
+        #  up on a per-unit basis.
+        self.layout_handler: LayoutHandler = LayoutHandler(
+            list(self.volume_nodes.values()),
+            self.DEFAULT_ORIENTATION,
+        )
+
+    def set_orientation(self, ori: Orientation):
+        # Update our layout to match
+        self.layout_handler.set_orientation(ori)
+
     def to_dict(self) -> dict[str, str]:
         """Serialize back to case_data format."""
         output = {key: self.case_data[key] for key in self.volume_keys}
@@ -66,6 +80,7 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
 
     def focus_gained(self) -> None:
         """Show all volumes and segmentation when this unit gains focus."""
+        # Reveal all the data nodes again
         for node in self.volume_nodes.values():
             node.SetDisplayVisibility(True)
         self.segmentation_node.SetDisplayVisibility(True)
@@ -81,8 +96,13 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
     def clean(self) -> None:
         """Clean up the hierarchy node and its children."""
         super().clean()
+
+        # If we are bound to a subject, remove it from the scene
         if self.subject_id is not None:
             self.hierarchy_node.RemoveItem(self.subject_id)
+
+        # Ensure the layout handler is cleaned up as well
+        self.layout_handler.clean()
 
     def _validate(self) -> None:
         """
