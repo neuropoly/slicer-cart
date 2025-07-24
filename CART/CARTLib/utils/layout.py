@@ -119,6 +119,9 @@ class LayoutHandler:
             Optional[dict[str, tuple[slicer.vtkMRMLVolumeNode, Orientation]]]
         ) = None
 
+        # Tracked map of slice nodes, for re-use and clean-up
+        self._slice_node_map: dict[str, slicer.vtkMRMLSliceNode] = dict()
+
     ## Layout Handlers ##
     @property
     def layout(self) -> str:
@@ -224,6 +227,9 @@ class LayoutHandler:
             # Link the node's together, so moving one moves the rest
             composite_node.SetLinkedControl(True)
 
+            # Track the slice node for later
+            self._slice_node_map[l] = slice_node
+
         # Snap everything to IJK
         snap_all_to_ijk()
 
@@ -252,3 +258,9 @@ class LayoutHandler:
             <property name="viewcolor" action="default">{color}</property>
         </view></item>
         """
+
+    ## Memory Handling
+    def clean(self):
+        # Clear all slice nodes from the MRML scene
+        for n in self._slice_node_map.values():
+            slicer.mrmlScene.RemoveNode(n)

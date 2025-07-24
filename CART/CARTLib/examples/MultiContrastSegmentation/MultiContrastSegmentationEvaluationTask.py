@@ -25,9 +25,7 @@ class MultiContrastSegmentationEvaluationGUI:
         self.bound_task = bound_task
         self.data_unit: Optional[MultiContrastSegmentationEvaluationDataUnit] = None
 
-        # Layout logic for creating linked slice views
-        # self.layoutLogic = CaseIteratorLayoutLogic()
-        self.layoutHandler = None
+        # The currently selected orientation in the GUI; determine our viewer layout
         self.currentOrientation: Orientation = Orientation.AXIAL
 
         # Widgets we'll need to reference later:
@@ -85,16 +83,18 @@ class MultiContrastSegmentationEvaluationGUI:
     #
 
     def onOrientationChanged(self, orientation: Orientation) -> None:
-        # Update our currently tracked orientation + the layout handler's
+        # Update our currently tracked orientation
         self.currentOrientation = orientation
-        self.layoutHandler.set_orientation(orientation)
 
         # If we don't have a data unit at this point, end here
         if not self.data_unit:
             return
 
-        # Otherwise, apply the new orientation to our layout
-        self.layoutHandler.apply_layout()
+        # Update the data unit's orientation to match
+        self.data_unit.set_orientation(orientation)
+
+        # Apply the (likely updated) layout
+        self.data_unit.layout_handler.apply_layout()
 
     ## USER PROMPTS ##
     def promptSelectOutput(self):
@@ -241,11 +241,10 @@ class MultiContrastSegmentationEvaluationGUI:
             f"list(data_unit.volume_nodes.values()) = {list(self.data_unit.volume_nodes.values())}"
         )
 
-        self.layoutHandler = LayoutHandler(
-            list(self.data_unit.volume_nodes.values()),
-            self.currentOrientation
-        )
-        self.layoutHandler.apply_layout()
+        # Apply the data unit's layout to our viewer
+        self.data_unit.layout_handler.apply_layout()
+
+        # Update our save button state to reflect the data unit's state
         self._updatedSaveButtonState()
 
     def _save(self) -> None:
