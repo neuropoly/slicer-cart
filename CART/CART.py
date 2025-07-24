@@ -25,8 +25,7 @@ from CARTLib.examples.MultiContrastSegmentation.MultiContrastSegmentationEvaluat
 
 CURRENT_DIR = Path(__file__).parent
 CONFIGURATION_FILE_NAME = CURRENT_DIR / "configuration.json"
-this_file_path = Path(__file__).parent
-sample_data_path = this_file_path.parent / "sample_data"
+sample_data_path = CURRENT_DIR.parent / "sample_data"
 sample_data_cohort_csv = sample_data_path / "example_cohort.csv"
 
 
@@ -82,6 +81,11 @@ class CART(ScriptedLoadableModule):
 
         # Load our configuration
         config.load()
+
+        # Add CARTLib to the Python Path for ease of (re-)use
+        import sys
+        cartlib_path = (Path(__file__) / "CARTLib").resolve()
+        sys.path.append(str(cartlib_path))
 
 
 #
