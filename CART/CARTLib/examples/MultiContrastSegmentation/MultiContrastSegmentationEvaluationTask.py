@@ -11,10 +11,10 @@ from slicer.i18n import tr as _
 from .MultiContrastSegmentationEvaluationDataUnit import (
     MultiContrastSegmentationEvaluationDataUnit,
 )
-from ..core.TaskBaseClass import TaskBaseClass, DataUnitFactory
-from ..utils.widgets import CARTSegmentationEditorWidget
-from ..utils.data import save_segmentation_to_nifti
-from ..LayoutLogic import CaseIteratorLayoutLogic
+from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
+from CARTLib.utils.widgets import CARTSegmentationEditorWidget
+from CARTLib.utils.data import save_segmentation_to_nifti
+from CARTLib.LayoutLogic import CaseIteratorLayoutLogic
 
 
 VERSION = 0.01
