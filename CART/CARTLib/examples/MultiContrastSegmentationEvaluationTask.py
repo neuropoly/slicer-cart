@@ -7,15 +7,13 @@ import ctk
 import qt
 import slicer
 from slicer.i18n import tr as _
-
 from .MultiContrastSegmentationEvaluationDataUnit import (
     MultiContrastSegmentationEvaluationDataUnit,
 )
 from ..core.TaskBaseClass import TaskBaseClass, DataUnitFactory
-from ..utils.widgets import CARTSegmentationEditorWidget
 from ..utils.data import save_segmentation_to_nifti
-from ..LayoutLogic import CaseIteratorLayoutLogic
-
+from ..utils.layout import LayoutHandler, Orientation
+from ..utils.widgets import CARTSegmentationEditorWidget
 
 VERSION = 0.01
 
@@ -27,8 +25,9 @@ class MultiContrastSegmentationEvaluationGUI:
         self.data_unit: Optional[MultiContrastSegmentationEvaluationDataUnit] = None
 
         # Layout logic for creating linked slice views
-        self.layoutLogic = CaseIteratorLayoutLogic()
-        self.currentOrientation: str = "Axial"
+        # self.layoutLogic = CaseIteratorLayoutLogic()
+        self.layoutHandler = None
+        self.currentOrientation: Orientation = Orientation.AXIAL
 
         # Widgets we'll need to reference later:
         self.segmentEditorWidget: Optional[CARTSegmentationEditorWidget] = None
@@ -62,9 +61,10 @@ class MultiContrastSegmentationEvaluationGUI:
         Buttons to set Axial/Sagittal/Coronal for all slice views.
         """
         hbox = qt.QHBoxLayout()
-        for name in ("Axial", "Sagittal", "Coronal"):
-            btn = qt.QPushButton(name)
-            btn.clicked.connect(lambda _, o=name: self.onOrientationChanged(o))
+        for ori in Orientation.TRIO:
+            label = ori.as_slicer()
+            btn = qt.QPushButton(label)
+            btn.clicked.connect(lambda _, o=ori: self.onOrientationChanged(o))
             hbox.addWidget(btn)
         layout.addRow(qt.QLabel("View Orientation:"), hbox)
 
@@ -83,16 +83,17 @@ class MultiContrastSegmentationEvaluationGUI:
     # Handlers
     #
 
-    def onOrientationChanged(self, orientation: str) -> None:
+    def onOrientationChanged(self, orientation: Orientation) -> None:
+        # Update our currently tracked orientation + the layout handler's
         self.currentOrientation = orientation
+        self.layoutHandler.set_orientation(orientation)
+
+        # If we don't have a data unit at this point, end here
         if not self.data_unit:
             return
-        # recreate layout with new orientation
-        self.layoutLogic.create_linked_slice_views(
-            volume_nodes=list(self.data_unit.volume_nodes.values()),
-            label=self.data_unit.segmentation_node,
-            orientation=self.currentOrientation,
-        )
+
+        # Otherwise, apply the new orientation to our layout
+        self.layoutHandler.apply_layout()
 
     ## USER PROMPTS ##
     def promptSelectOutput(self):
@@ -238,11 +239,12 @@ class MultiContrastSegmentationEvaluationGUI:
         print(
             f"list(data_unit.volume_nodes.values()) = {list(self.data_unit.volume_nodes.values())}"
         )
-        self.layoutLogic.create_linked_slice_views(
-            volume_nodes=list(self.data_unit.volume_nodes.values()),
-            label=self.data_unit.segmentation_node,
-            orientation=self.currentOrientation,
+
+        self.layoutHandler = LayoutHandler(
+            list(self.data_unit.volume_nodes.values()),
+            self.currentOrientation
         )
+        self.layoutHandler.apply_layout()
         self._updatedSaveButtonState()
 
     def _save(self) -> None:
@@ -253,7 +255,7 @@ class MultiContrastSegmentationEvaluationGUI:
         if err_msg is None:
             msg = qt.QMessageBox()
             msg.setWindowTitle("Success!")
-            seg_out, _ = self.bound_task.output_manager.get_output_destinations(
+            seg_out, __ = self.bound_task.output_manager.get_output_destinations(
                 self.bound_task.data_unit
             )
             msg.setText(
