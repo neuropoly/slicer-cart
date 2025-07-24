@@ -13,7 +13,7 @@ from .MultiContrastSegmentationEvaluationDataUnit import (
 from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
 from CARTLib.utils.widgets import CARTSegmentationEditorWidget
 from CARTLib.utils.data import save_segmentation_to_nifti
-from CARTLib.LayoutLogic import CaseIteratorLayoutLogic
+from CARTLib.utils.layout import LayoutHandler, Orientation
 
 
 VERSION = 0.01
