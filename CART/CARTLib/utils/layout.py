@@ -32,6 +32,12 @@ class Orientation(Flag):
     def as_slicer(self):
         return str(self).split('.')[1].capitalize()
 
+    def is_singular(self):
+        return len(self) == 1
+
+    def is_plural(self):
+        return len(self) > 1
+
     # TODO: Remove once once we have Python 3.11+, as Flag's then have their own
     #  built-in "iter" method instead
     def __iter__(self):
