@@ -1,6 +1,17 @@
 # Generic Iterator Project Plan 
 
-## Basic Stucture
+## IDE Set Up
+
+### Source Directories
+
+As both Slicer and CART load libraries into Python's path post-init, most IDEs will not be able to recognize some of the import statements used by our codebase by default.
+
+To fix this, please mark the following directories as "source" folders in the Project's structure:
+
+* `{Slicer Installation Directory}/bin/Python`: exposes that installations versions of VTK, CTK, and QT, along with slicer's own utilities.
+* `{This Directory}/CART`; exposes CARTLib and its contents.
+
+## Basic Structure
 
 - **CARTLib**: The main library containing the base classes for defining the standard iterator and Task Workflow.
 - **CARTLib/Task**: Contains the base classes for defining a Task.
