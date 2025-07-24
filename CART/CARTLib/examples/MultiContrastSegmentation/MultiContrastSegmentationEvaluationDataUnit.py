@@ -2,9 +2,8 @@ from pathlib import Path
 from typing import Optional
 
 import slicer
-from ..core.DataUnitBase import DataUnitBase
-from ..utils.data import load_segmentation, load_volume, create_subject
-from slicer.i18n import tr as _
+from ...core.DataUnitBase import DataUnitBase
+from ...utils.data import load_segmentation, load_volume, create_subject
 
 
 class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):

@@ -17,9 +17,9 @@ from CARTLib.core.DataUnitBase import DataUnitBase
 from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
 
 # TODO: Remove this explicit import
-from CARTLib.OrganLabellingDemo import OrganLabellingDemoTask
-from CARTLib.examples.SegmentationEvaluationTask import SegmentationEvaluationTask
-from CARTLib.examples.MultiContrastSegmentationEvaluationTask import (
+from CARTLib.examples.OrganLabellingDemo.OrganLabellingDemo import OrganLabellingDemoTask
+from CARTLib.examples.SegmentationEvaluation.SegmentationEvaluationTask import SegmentationEvaluationTask
+from CARTLib.examples.MultiContrastSegmentation.MultiContrastSegmentationEvaluationTask import (
     MultiContrastSegmentationEvaluationTask,
 )
 

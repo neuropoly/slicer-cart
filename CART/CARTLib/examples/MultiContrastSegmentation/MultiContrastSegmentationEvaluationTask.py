@@ -7,66 +7,92 @@ import ctk
 import qt
 import slicer
 from slicer.i18n import tr as _
-from .SegmentationEvaluationDataUnit import SegmentationEvaluationDataUnit
-from ..core.TaskBaseClass import TaskBaseClass, DataUnitFactory
-from ..utils.widgets import CARTSegmentationEditorWidget
-from ..utils.data import save_segmentation_to_nifti, save_volume_to_nifti
+
+from .MultiContrastSegmentationEvaluationDataUnit import (
+    MultiContrastSegmentationEvaluationDataUnit,
+)
+from ...core.TaskBaseClass import TaskBaseClass, DataUnitFactory
+from ...utils.widgets import CARTSegmentationEditorWidget
+from ...utils.data import save_segmentation_to_nifti
+from ...LayoutLogic import CaseIteratorLayoutLogic
 
 
 VERSION = 0.01
 
 
-class SegmentationEvaluationGUI:
-    def __init__(self, bound_task: "SegmentationEvaluationTask"):
-        # Track the task, so we can reference it later
+# TODO Allow for the user to select "All" which will create a row instead of a single view
+class MultiContrastSegmentationEvaluationGUI:
+    def __init__(self, bound_task: "MultiContrastSegmentationEvaluationTask"):
         self.bound_task = bound_task
+        self.data_unit: Optional[MultiContrastSegmentationEvaluationDataUnit] = None
 
-        # Segmentation editor widget
+        # Layout logic for creating linked slice views
+        self.layoutLogic = CaseIteratorLayoutLogic()
+        self.currentOrientation: str = "Axial"
+
+        # Widgets we'll need to reference later:
         self.segmentEditorWidget: Optional[CARTSegmentationEditorWidget] = None
+        self.saveButton: Optional[qt.QPushButton] = None
 
-        # The manual "save" button; whether it is enabled/disabled depends on
-        #  the current state of our bound task
-        self.saveButton = None
-
-    ## GUI CONSTRUCTION ##
     def setup(self) -> qt.QFormLayout:
         """
-        Build the GUI's contents, returning the resulting layout for use
+        Build the GUI's contents, returning the resulting layout for use.
         """
         # Initialize the layout we'll insert everything into
         formLayout = qt.QFormLayout()
 
-        # Add the output selection button
-        self.addOutputSelectionButton(formLayout)
+        # 2) Orientation buttons
+        self._addOrientationButtons(formLayout)
 
-        # Add the segmentation editor widget
-        self.addSegmentationEditor(formLayout)
+        # 3) Segmentation editor
+        self.segmentEditorWidget = CARTSegmentationEditorWidget()
+        formLayout.addRow(self.segmentEditorWidget)
 
-        # Save button
-        self.addSaveButton(formLayout)
+        # 4) Save controls
+        self._addOutputSelectionButton(formLayout)
+        self._addSaveButton(formLayout)
 
-        # Prompt the user for an output directory
+        # TODO Make this more general and allow for a "None" selection where it saves to original input location
         self.promptSelectOutput()
 
         return formLayout
 
-    def addOutputSelectionButton(self, formLayout):
-        # Create the save button
-        outputChangeButton = qt.QPushButton("Change Output Directory")
-        formLayout.addRow(outputChangeButton)
-        outputChangeButton.clicked.connect(self.promptSelectOutput)
+    def _addOrientationButtons(self, layout: qt.QFormLayout) -> None:
+        """
+        Buttons to set Axial/Sagittal/Coronal for all slice views.
+        """
+        hbox = qt.QHBoxLayout()
+        for name in ("Axial", "Sagittal", "Coronal"):
+            btn = qt.QPushButton(name)
+            btn.clicked.connect(lambda _, o=name: self.onOrientationChanged(o))
+            hbox.addWidget(btn)
+        layout.addRow(qt.QLabel("View Orientation:"), hbox)
 
-    def addSegmentationEditor(self, formLayout):
-        # Build the editor widget
-        self.segmentEditorWidget = CARTSegmentationEditorWidget()
-        formLayout.addRow(self.segmentEditorWidget)
+    def _addOutputSelectionButton(self, layout: qt.QFormLayout) -> None:
+        btn = qt.QPushButton("Change Output Directory")
+        btn.clicked.connect(self.promptSelectOutput)
+        layout.addRow(btn)
 
-    def addSaveButton(self, formLayout):
-        # Create the save button
-        saveButton = qt.QPushButton("Save")
-        formLayout.addRow(saveButton)
-        saveButton.clicked.connect(self._save)
-        self.saveButton = saveButton
+    def _addSaveButton(self, layout: qt.QFormLayout) -> None:
+        btn = qt.QPushButton("Save")
+        btn.clicked.connect(self._save)
+        layout.addRow(btn)
+        self.saveButton = btn
+
+    #
+    # Handlers
+    #
+
+    def onOrientationChanged(self, orientation: str) -> None:
+        self.currentOrientation = orientation
+        if not self.data_unit:
+            return
+        # recreate layout with new orientation
+        self.layoutLogic.create_linked_slice_views(
+            volume_nodes=list(self.data_unit.volume_nodes.values()),
+            label=self.data_unit.segmentation_node,
+            orientation=self.currentOrientation,
+        )
 
     ## USER PROMPTS ##
     def promptSelectOutput(self):
@@ -164,33 +190,10 @@ class SegmentationEvaluationGUI:
         failurePrompt.showMessage(err_msg)
         failurePrompt.exec()
 
-    ## GUI SYNCHRONIZATION ##
-    def enter(self):
-        # Ensure the segmentation editor widget it set up correctly
-        self.segmentEditorWidget.enter()
-
-    def exit(self):
-        # Ensure the segmentation editor widget handles itself before hiding
-        self.segmentEditorWidget.exit()
-
-    def _updatedSaveButtonState(self):
-        # Ensure the button is active on when we're ready to save
-        can_save = self.bound_task.can_save()
-        self.saveButton.setEnabled(can_save)
-
-        # Change the tooltip of the button to inform the user what's wrong
-
-        if can_save:
-            tooltip_text = _("Saves the current segmentation!")
-        else:
-            tooltip_text = _("Cannot save currently; no output directory set!")
-        self.saveButton.setToolTip(tooltip_text)
-
-    ## TASK LINKS ##
     def _attemptOutputPathUpdate(self, prompt: qt.QDialog, widget: ctk.ctkPathLineEdit):
         """
         Validates the output path provided by a user, only closing the
-         associated prompt if it was valid.
+        associated prompt if it was valid.
         """
         # Strip whitespace to avoid a "space" path
         output_path_str = widget.currentPath.strip()
@@ -223,107 +226,108 @@ class SegmentationEvaluationGUI:
         else:
             prompt.accept()
 
-    def update(self, data_unit: SegmentationEvaluationDataUnit):
+    def update(self, data_unit: MultiContrastSegmentationEvaluationDataUnit) -> None:
         """
-        Update the GUI to match the contents of the new data unit.
-
-        Currently only selects the volume + segmentation node associated with
-         the provided data node, allowing the user to immediately start editing.
+        Called whenever a new data-unit is in focus.
+        Populate the volume combo, select primary, and fire off initial layers.
         """
-        # As the volume node is tied to the segmentation node, this will also
-        #  set the selected volume node automagically for us!
-        self.segmentEditorWidget.setSegmentationNode(data_unit.segmentation_node)
+        self.data_unit = data_unit
+        # sync segmentation editor
+        self.segmentEditorWidget.setSegmentationNode(self.data_unit.segmentation_node)
+        print(f"Orientation: {self.currentOrientation}")
+        print(
+            f"list(data_unit.volume_nodes.values()) = {list(self.data_unit.volume_nodes.values())}"
+        )
+        self.layoutLogic.create_linked_slice_views(
+            volume_nodes=list(self.data_unit.volume_nodes.values()),
+            label=self.data_unit.segmentation_node,
+            orientation=self.currentOrientation,
+        )
+        self._updatedSaveButtonState()
 
-    def _save(self):
-        """
-        Wrapper for task saving, which just enables us to prompt the user
-        on success/failure
-        """
-        # Attempt to save
-        err_msg = self.bound_task.save()
+    def _save(self) -> None:
+        err = self.bound_task.save()
+        self.saveCompletePrompt(err)
 
-        # If successful, prompt the user to acknowledge
-        self.saveCompletePrompt(err_msg)
-
-    def saveCompletePrompt(self, err_msg):
-        # If theirs no error message, present a "success!" prompt
+    def saveCompletePrompt(self, err_msg: Optional[str]) -> None:
         if err_msg is None:
-            msgBox = qt.QMessageBox()
-            msgBox.setWindowTitle("Success!")
-            seg_out, __ = self.bound_task.output_manager.get_output_destinations(
+            msg = qt.QMessageBox()
+            msg.setWindowTitle("Success!")
+            seg_out, _ = self.bound_task.output_manager.get_output_destinations(
                 self.bound_task.data_unit
             )
-            msgBox.setText(
-                f"The segmentation for '{self.bound_task.data_unit.uid}' "
-                f"was successfully saved!\n\n"
-                f"Saved to: {str(seg_out.resolve())}!"
+            msg.setText(
+                f"Segmentation '{self.bound_task.data_unit.uid}' saved to:\n{seg_out.resolve()}"
             )
-            msgBox.addButton(_("Confirm"), qt.QMessageBox.AcceptRole)
-            msgBox.exec()
-
-        # Otherwise, display an error prompt.
+            msg.addButton(_("Confirm"), qt.QMessageBox.AcceptRole)
+            msg.exec()
         else:
             errBox = qt.QErrorMessage()
             errBox.setWindowTitle("ERROR!")
             errBox.showMessage(err_msg)
             errBox.exec()
 
+    ## GUI SYNCHRONIZATION ##
+    def enter(self) -> None:
+        # Ensure the segmentation editor widget it set up correctly
+        if self.segmentEditorWidget:
+            self.segmentEditorWidget.enter()
 
-class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
+    def exit(self) -> None:
+        # Ensure the segmentation editor widget handles itself before hiding
+        if self.segmentEditorWidget:
+            self.segmentEditorWidget.exit()
+
+    def _updatedSaveButtonState(self) -> None:
+        # Ensure the button is active on when we're ready to save
+        can_save = self.bound_task.can_save()
+        self.saveButton.setEnabled(can_save)
+        tip = (
+            _("Saves the current segmentation!")
+            if can_save
+            else _("Cannot save: no valid output directory.")
+        )
+        self.saveButton.setToolTip(tip)
+
+
+class MultiContrastSegmentationEvaluationTask(
+    TaskBaseClass[MultiContrastSegmentationEvaluationDataUnit]
+):
     def __init__(self, user: str):
         super().__init__(user)
-        # Variable for tracking the active GUI instance
-        self.gui: Optional[SegmentationEvaluationGUI] = None
-
-        # Variable for tracking the output directory
+        self.gui: Optional[MultiContrastSegmentationEvaluationGUI] = None
         self.output_dir: Optional[Path] = None
+        self.output_manager: Optional[_MultiContrastOutputManager] = None
+        self.data_unit: Optional[MultiContrastSegmentationEvaluationDataUnit] = None
 
-        # Output manager to handling saving/loading of modified segmentations
-        self.output_manager: _OutputManager = None
-
-        # Placeholder to track the currently-in-use Data Unit
-        self.data_unit = None
-
-    def setup(self, container: qt.QWidget):
+    def setup(self, container: qt.QWidget) -> None:
         print(f"Running {self.__class__.__name__} setup!")
-
-        # Initialize the GUI instance for this task
-        self.gui = SegmentationEvaluationGUI(self)
-
-        # Build its GUI and install it into the container widget
-        gui_layout = self.gui.setup()
-        container.setLayout(gui_layout)
-
-        # Update this new GUI with our current data unit
-        self.gui.update(self.data_unit)
-
-        # "Enter" the gui to ensure it is loaded correctly
+        self.gui = MultiContrastSegmentationEvaluationGUI(self)
+        layout = self.gui.setup()
+        container.setLayout(layout)
+        if self.data_unit:
+            self.gui.update(self.data_unit)
         self.gui.enter()
 
-    def receive(self, data_unit: SegmentationEvaluationDataUnit):
+    def receive(self, data_unit: MultiContrastSegmentationEvaluationDataUnit) -> None:
         # Track the data unit for later
         self.data_unit = data_unit
-
-        # Bring the volume and associated segmentation into view again
-        # TODO: Only do this if a GUI exists
+        # Display primary volume + segmentation overlay
         slicer.util.setSliceViewerLayers(
-            background=self.data_unit.volume_node,
-            foreground=self.data_unit.segmentation_node,
-            label=self.data_unit.uid,
+            background=data_unit.primary_volume_node,
+            foreground=data_unit.segmentation_node,
             fit=True,
         )
-
         # If we have GUI, update it as well
         if self.gui:
-            self.gui.update(self.data_unit)
+            self.gui.update(data_unit)
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         # Break the cyclical link with our GUI so garbage collection can run
         self.gui = None
 
     def save(self) -> Optional[str]:
         if self.can_save():
-            # Have the output manager save the result
             return self.output_manager.save_segmentation(self.data_unit)
         return None
 
@@ -343,13 +347,11 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
         if self.gui:
             self.gui.saveCompletePrompt(result)
 
-    def enter(self):
-        # If we have a GUI, enter it
+    def enter(self) -> None:
         if self.gui:
             self.gui.enter()
 
-    def exit(self):
-        # If we have a GUI, exit it
+    def exit(self) -> None:
         if self.gui:
             self.gui.exit()
 
@@ -359,7 +361,7 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
         We currently only support one data unit type, so we only provide it to
          the user
         """
-        return {"Single Segmentation": SegmentationEvaluationDataUnit}
+        return {"Segmentation": MultiContrastSegmentationEvaluationDataUnit}
 
     ## Utils ##
     def set_output_dir(self, new_path: Path) -> Optional[str]:
@@ -379,24 +381,18 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
         # If that all ran, update our data path to the new data path
         self.output_dir = new_path
         print(f"Output path set to: {self.output_dir}")
-
-        # Create a new output manager with this directory
-        self.output_manager = _OutputManager(self.output_dir, self.user)
-
+        self.output_manager = _MultiContrastOutputManager(self.output_dir, self.user)
         return None
 
 
-class _OutputManager:
-    """
-    Manages the output of the Segmentation Evaluation task
-    """
-
+class _MultiContrastOutputManager:
+    # TODO Make this more general as it is nearly identical to the original "OutputManager"
     def __init__(self, output_dir: Path, user: str):
         self.output_dir = output_dir
         self.user = user
 
     def save_segmentation(
-        self, data_unit: SegmentationEvaluationDataUnit
+        self, data_unit: MultiContrastSegmentationEvaluationDataUnit
     ) -> Optional[str]:
         # Calculate the designation paths for our files
         segmentation_out, sidecar_out = self.get_output_destinations(data_unit)
@@ -420,7 +416,7 @@ class _OutputManager:
             return str(e)
 
     def get_output_destinations(
-        self, data_unit: SegmentationEvaluationDataUnit
+        self, data_unit: MultiContrastSegmentationEvaluationDataUnit
     ) -> (Path, Path):
         """
         Get the output paths for the files managed by this manager
@@ -445,7 +441,7 @@ class _OutputManager:
 
     @staticmethod
     def _save_segmentation(
-        data_unit: SegmentationEvaluationDataUnit, target_file: Path
+        data_unit: MultiContrastSegmentationEvaluationDataUnit, target_file: Path
     ):
         """
         Save the data unit's currently tracked segmentation to the designated
@@ -453,13 +449,16 @@ class _OutputManager:
         """
         # Extract the relevant node data from the data unit
         seg_node = data_unit.segmentation_node
-        vol_node = data_unit.volume_node
+        vol_node = (
+            data_unit.primary_volume_node
+        )  # THIS IS THE MAIN DIFFERENCE BETWEEN THIS MULTICONTRAST OUTPUT MANAGER
+        # AND THE ORIGINAL OUTPUT MANAGER
 
         # Try to save the segmenattion using them
         save_segmentation_to_nifti(seg_node, vol_node, target_file)
 
     def _save_sidecar(
-        self, data_unit: SegmentationEvaluationDataUnit, target_file: Path
+        self, data_unit: MultiContrastSegmentationEvaluationDataUnit, target_file: Path
     ):
         # Check for an existing sidecar, and use it as our basis if it exists
         fname = str(data_unit.segmentation_path).split(".")[0]

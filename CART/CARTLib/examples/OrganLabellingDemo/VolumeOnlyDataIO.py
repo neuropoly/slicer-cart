@@ -5,7 +5,7 @@ import slicer
 from slicer.ScriptedLoadableModule import *
 from slicer.i18n import tr as _
 
-from .core.DataUnitBase import DataUnitBase
+from ...core.DataUnitBase import DataUnitBase
 
 
 class VolumeOnlyDataUnit(DataUnitBase, ScriptedLoadableModuleLogic):
