@@ -25,10 +25,6 @@ class SegmentationEvaluationGUI:
         # Segmentation editor widget
         self.segmentEditorWidget: Optional[CARTSegmentationEditorWidget] = None
 
-        # The manual "save" button; whether it is enabled/disabled depends on
-        #  the current state of our bound task
-        self.saveButton = None
-
     ## GUI CONSTRUCTION ##
     def setup(self) -> qt.QFormLayout:
         """
@@ -42,9 +38,6 @@ class SegmentationEvaluationGUI:
 
         # Add the segmentation editor widget
         self.addSegmentationEditor(formLayout)
-
-        # Save button
-        self.addSaveButton(formLayout)
 
         # Prompt the user for an output directory
         self.promptSelectOutput()
@@ -61,13 +54,6 @@ class SegmentationEvaluationGUI:
         # Build the editor widget
         self.segmentEditorWidget = CARTSegmentationEditorWidget()
         formLayout.addRow(self.segmentEditorWidget)
-
-    def addSaveButton(self, formLayout):
-        # Create the save button
-        saveButton = qt.QPushButton("Save")
-        formLayout.addRow(saveButton)
-        saveButton.clicked.connect(self._save)
-        self.saveButton = saveButton
 
     ## USER PROMPTS ##
     def promptSelectOutput(self):
@@ -107,9 +93,6 @@ class SegmentationEvaluationGUI:
                     )
                 )
                 notif.exec()
-
-        # Update the save button to match the current saving capability
-        self._updatedSaveButtonState()
 
     def _buildOutputDirPrompt(self):
         prompt = qt.QDialog()
@@ -173,19 +156,6 @@ class SegmentationEvaluationGUI:
     def exit(self):
         # Ensure the segmentation editor widget handles itself before hiding
         self.segmentEditorWidget.exit()
-
-    def _updatedSaveButtonState(self):
-        # Ensure the button is active on when we're ready to save
-        can_save = self.bound_task.can_save()
-        self.saveButton.setEnabled(can_save)
-
-        # Change the tooltip of the button to inform the user what's wrong
-
-        if can_save:
-            tooltip_text = _("Saves the current segmentation!")
-        else:
-            tooltip_text = _("Cannot save currently; no output directory set!")
-        self.saveButton.setToolTip(tooltip_text)
 
     ## TASK LINKS ##
     def _attemptOutputPathUpdate(self, prompt: qt.QDialog, widget: ctk.ctkPathLineEdit):
@@ -325,8 +295,15 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
     def save(self) -> Optional[str]:
         if self.can_save():
             # Have the output manager save the result
-            return self.output_manager.save_segmentation(self.data_unit)
-        return None
+            result = self.output_manager.save_segmentation(self.data_unit)
+            # If we have a GUI, have it provide the appropriate response to the user
+            if self.gui:
+                self.gui.saveCompletePrompt(result)
+            # Return the result for further use
+            return result
+        else:
+            # TODO: Prompt if we can not save for some reason to inform the user
+            return "Could not save!"
 
     def can_save(self) -> bool:
         """
@@ -338,11 +315,6 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
         :return: True if we are ready to save, false otherwise
         """
         return self.output_dir and self.output_dir.exists() and self.output_dir.is_dir()
-
-    def autosave(self) -> Optional[str]:
-        result = super().autosave()
-        if self.gui:
-            self.gui.saveCompletePrompt(result)
 
     def enter(self):
         # If we have a GUI, enter it

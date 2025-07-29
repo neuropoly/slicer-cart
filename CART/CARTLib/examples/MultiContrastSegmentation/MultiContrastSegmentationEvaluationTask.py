@@ -30,7 +30,6 @@ class MultiContrastSegmentationEvaluationGUI:
 
         # Widgets we'll need to reference later:
         self.segmentEditorWidget: Optional[CARTSegmentationEditorWidget] = None
-        self.saveButton: Optional[qt.QPushButton] = None
 
     def setup(self) -> qt.QFormLayout:
         """
@@ -48,7 +47,6 @@ class MultiContrastSegmentationEvaluationGUI:
 
         # 4) Save controls
         self._addOutputSelectionButton(formLayout)
-        self._addSaveButton(formLayout)
 
         # TODO Make this more general and allow for a "None" selection where it saves to original input location
         self.promptSelectOutput()
@@ -71,12 +69,6 @@ class MultiContrastSegmentationEvaluationGUI:
         btn = qt.QPushButton("Change Output Directory")
         btn.clicked.connect(self.promptSelectOutput)
         layout.addRow(btn)
-
-    def _addSaveButton(self, layout: qt.QFormLayout) -> None:
-        btn = qt.QPushButton("Save")
-        btn.clicked.connect(self._save)
-        layout.addRow(btn)
-        self.saveButton = btn
 
     #
     # Handlers
@@ -102,8 +94,10 @@ class MultiContrastSegmentationEvaluationGUI:
         Prompt the user to select an output directory.
 
         The prompt will validate that the chosen output directory is valid,
-         and lock the save button if the user cancel's out of it without
-         selecting such a directory.
+        and lock the save button if the user cancel's out of it without
+        selecting such a directory.
+
+        # TODO: Re-add save button disabling.
         """
         # Initialize the prompt
         prompt = self._buildOutputDirPrompt()
@@ -134,9 +128,6 @@ class MultiContrastSegmentationEvaluationGUI:
                     )
                 )
                 notif.exec()
-
-        # Update the save button to match the current saving capability
-        self._updatedSaveButtonState()
 
     def _buildOutputDirPrompt(self):
         prompt = qt.QDialog()
@@ -244,13 +235,6 @@ class MultiContrastSegmentationEvaluationGUI:
         # Apply the data unit's layout to our viewer
         self.data_unit.layout_handler.apply_layout()
 
-        # Update our save button state to reflect the data unit's state
-        self._updatedSaveButtonState()
-
-    def _save(self) -> None:
-        err = self.bound_task.save()
-        self.saveCompletePrompt(err)
-
     def saveCompletePrompt(self, err_msg: Optional[str]) -> None:
         if err_msg is None:
             msg = qt.QMessageBox()
@@ -279,17 +263,6 @@ class MultiContrastSegmentationEvaluationGUI:
         # Ensure the segmentation editor widget handles itself before hiding
         if self.segmentEditorWidget:
             self.segmentEditorWidget.exit()
-
-    def _updatedSaveButtonState(self) -> None:
-        # Ensure the button is active on when we're ready to save
-        can_save = self.bound_task.can_save()
-        self.saveButton.setEnabled(can_save)
-        tip = (
-            _("Saves the current segmentation!")
-            if can_save
-            else _("Cannot save: no valid output directory.")
-        )
-        self.saveButton.setToolTip(tip)
 
 
 class MultiContrastSegmentationEvaluationTask(
@@ -330,8 +303,17 @@ class MultiContrastSegmentationEvaluationTask(
 
     def save(self) -> Optional[str]:
         if self.can_save():
-            return self.output_manager.save_segmentation(self.data_unit)
-        return None
+            # Have the output manager save the result
+            result = self.output_manager.save_segmentation(self.data_unit)
+            # If we have a GUI, have it provide the appropriate response to the user
+            if self.gui:
+                self.gui.saveCompletePrompt(result)
+            # Return the result for further use
+            return result
+        else:
+            # TODO: Prompt if we can not save for some reason to inform the user
+            print("*" * 100)
+            return "Could not save!"
 
     def can_save(self) -> bool:
         """
@@ -343,11 +325,6 @@ class MultiContrastSegmentationEvaluationTask(
         :return: True if we are ready to save, false otherwise
         """
         return self.output_dir and self.output_dir.exists() and self.output_dir.is_dir()
-
-    def autosave(self) -> Optional[str]:
-        result = super().autosave()
-        if self.gui:
-            self.gui.saveCompletePrompt(result)
 
     def enter(self) -> None:
         if self.gui:

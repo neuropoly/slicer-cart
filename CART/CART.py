@@ -385,17 +385,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Hide this by default, only showing it when we're ready to iterate
         iteratorWidget.setVisible(False)
 
-        # Next + previous buttons in a horizontal layout
-        buttonLayout = qt.QHBoxLayout()
-        self.previousButton = qt.QPushButton(_("Previous"))
-        self.previousButton.toolTip = _("Return to the previous case.")
-
-        self.nextButton = qt.QPushButton(_("Next"))
-        self.nextButton.toolTip = _("Move onto the next case.")
-
-        # Add them to the layout "backwards" so previous is on the left
-        buttonLayout.addWidget(self.previousButton)
-        buttonLayout.addWidget(self.nextButton)
+        # Previous, Save, and Next buttons, in a horizontal layout
+        buttonLayout = self.buildIteratorButtonPanel()
         # Add the button layout to the main vertical layout
         self.taskLayout.addLayout(buttonLayout)
 
@@ -410,9 +401,34 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Make the groupbox accessible elsewhere, so it can be made visible later
         self.iteratorWidget = iteratorWidget
 
-        # Connections
-        self.nextButton.clicked.connect(self.nextCase)
-        self.previousButton.clicked.connect(self.previousCase)
+    def buildIteratorButtonPanel(self):
+        # Button should be laid out left-to-right
+        buttonLayout = qt.QHBoxLayout()
+
+        # "Previous" Button
+        previousButton = qt.QPushButton(_("Previous"))
+        previousButton.toolTip = _("Return to the previous case.")
+        previousButton.clicked.connect(self.previousCase)
+
+        # "Save" Button
+        saveButton = qt.QPushButton(_("Save"))
+        saveButton.toolTip = _("Save the task for the current case.")
+        saveButton.clicked.connect(self.saveTask)
+
+        # "Next" Button
+        nextButton = qt.QPushButton(_("Next"))
+        nextButton.toolTip = _("Move onto the next case.")
+        nextButton.clicked.connect(self.nextCase)
+
+        # Add them to the layout in our desired order
+        for b in [previousButton, saveButton, nextButton]:
+            buttonLayout.addWidget(b)
+
+        # Track them for later
+        self.previousButton = previousButton
+        self.nextButton = nextButton
+
+        return buttonLayout
 
     ## Connected Functions ##
 
@@ -850,6 +866,16 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Update relevant GUI elements
         self.updateTaskGUI()
         self.updateButtons()
+
+    def saveTask(self):
+        try:
+            result = self.logic.current_task_instance.save()
+            if not result:
+                print("Saved!")
+            else:
+                print(result)
+        except Exception as e:
+            self.pythonExceptionPrompt(e)
 
     ## Management ##
     def disableGUIWhileLoading(self):
