@@ -83,25 +83,38 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
             case_data, "Volume", force_present=True
         )
 
-        # Raise an error if there were no volume keys; at least one should be present
+        # We need at least one volume key; otherwise theirs nothing to reference against
         if len(self.volume_keys) < 1:
             raise ValueError("At least one feature in the cohort must be a volume!")
 
-        # Identify the primary key, moving it to the front if needed
+        # Parse the volume paths
+        self.volume_paths = {
+            (k): (data_path / v if (v := case_data.get(k, "")) is not "" else None)
+            for k in self.volume_keys
+        }
+
+        # We need at least one non-blank path to reference against
+        valid_paths = {k: v for k, v in self.volume_paths.items() if v is not None}
+        if len(valid_paths) < 1:
+            raise ValueError(f"No valid volumes were found for case '{self.uid}'")
+
+        # Set the primary volume to reference segmentations against
+        # KO: Note that this will select a non-primary volume if all primary volumes are
+        #  blank; not the most intuitive, but much better than just crashing
         self.primary_volume_key = next(
-            (k for k in self.volume_keys if "primary" in k.lower()),
-            self.volume_keys[0],
+            # Prefer a key explicitly designated as "primary" if possible
+            (k for k in valid_paths.keys() if "primary" in k.lower()),
+            # Failing that, select the first valid volume instead
+            next(iter(valid_paths.keys())),
         )
+
+        # Move the primary key to the front of our list
+        print(self.primary_volume_key)
         self.volume_keys.remove(self.primary_volume_key)
         self.volume_keys = [
             self.primary_volume_key,
             *self.volume_keys
         ]
-
-        # Parse the volume paths
-        self.volume_paths = {
-            k: data_path / case_data[k] for k in self.volume_keys
-        }
 
     def parse_segmentations(self, case_data, data_path):
         # Parse our segmentation keys
@@ -238,13 +251,18 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
         store in resources, and identify the primary.
         """
         for key, path in self.volume_paths.items():
+            # If the volume is blank, skip it
+            if path is None:
+                continue
+            # Attempt to load the volume and track it
             node = load_volume(path)
             node.SetName(f"{self.uid}_{key}")
             self.volume_nodes[key] = node
             self.resources[key] = node
+
+            # If this is our primary volume, track it outright for ease of reference
             if key == self.primary_volume_key:
                 self.primary_volume_node = node
-        return self.primary_volume_node
 
     def _init_segmentation_nodes(self) -> None:
         """
