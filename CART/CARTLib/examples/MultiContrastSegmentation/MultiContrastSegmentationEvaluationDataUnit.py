@@ -53,8 +53,9 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
 
         # Markup-related parameters
         self.markup_keys: list[str] = []
+        self.markup_paths: dict[str, Path] = dict()
         self.markup_nodes: dict[str, slicer.vtkMRMLMarkupsFiducialNode] = dict()
-        self.parse_markups(case_data)
+        self.parse_markups(case_data, data_path)
 
         # Load everything into memory
         self._initialize_resources()
@@ -142,10 +143,17 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
             for k in self.segmentation_keys
         }
 
-    def parse_markups(self, case_data):
+    def parse_markups(self, case_data, data_path):
+        # Get our list of
         self.markup_keys = extract_case_keys_by_prefix(
             case_data, "Markup", force_present=False
         )
+
+        # Initialize our markup paths
+        self.markup_paths: dict[str, Path] = {
+            (k): (data_path / v if (v := case_data.get(k, "")) != "" else None)
+            for k in self.markup_keys
+        }
 
     def get_primary_segmentation_path(self) -> Optional[Path]:
         """
@@ -331,10 +339,11 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
         Load each markup path into a markups node, name it,
         store in resources, and identify the primary.
         """
-        for key in self.markup_keys:
-            path = self.data_path / self.case_data[key]
-            if not path.exists():
-                raise ValueError(f"Markup file does not exist: {path}")
+        for key, path in self.markup_paths.items():
+            # If the markup was blank, skip it
+            if path is None:
+                continue
+            # Try to load all markups from the file
             nodes = load_markups(path)
             for i, node in enumerate(nodes):
                 if not isinstance(node, slicer.vtkMRMLMarkupsFiducialNode):
