@@ -26,7 +26,7 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
     COMPLETED_KEY = "completed"
     COMPLETED_BY_KEY = "completed_by"
 
-    DEFAULT_ORIENTATION = Orientation.AXIAL
+    DEFAULT_ORIENTATION = Orientation.TRIO
 
     def __init__(
         self,
@@ -79,7 +79,7 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
         }
         # KO: Here we use the walrus operator to assign during a comparison
         self.segmentation_paths: dict[str, Path] = {
-            (k):(data_path / v if (v := case_data.get(k, None)) is not None else None)
+            (k):(data_path / v if (v := case_data.get(k, "")) is not "" else None)
             for k in self.segmentation_keys
         }
 
@@ -185,8 +185,10 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
         and refers to a file.
         """
         rel_path = self.case_data.get(key)
+        # If the path wasn't specified, we assume the user wants it skipped/created
         if not rel_path:
-            raise ValueError(f"Case {self.uid} missing required entry '{key}'.")
+            return
+        # If there was a path, ensure it exists and is a file
         full_path = self.data_path / rel_path
         if not full_path.exists():
             raise ValueError(f"Path for '{key}' does not exist: {full_path}")
@@ -238,13 +240,17 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
             seg_path = self.segmentation_paths.get(key)
             if seg_path and seg_path.exists():
                 node = load_segmentation(seg_path)
-            else:
-                # create an empty segmentation node
+            elif key == self.primary_segmentation_key:
+                # Assume the user always wants a segment associated w/ the primary key
                 node = create_empty_segmentation_node(
                     f"{self.uid}_{key}",
                     reference_volume=primary_vol,
                     scene=self.scene,
                 )
+            else:
+                # If neither of the above, skip
+                continue
+
 
             node.SetName(f"{self.uid}_{key}")
             node.SetReferenceImageGeometryParameterFromVolumeNode(primary_vol)
