@@ -89,7 +89,7 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
 
         # Parse the volume paths
         self.volume_paths = {
-            (k): (data_path / v if (v := case_data.get(k, "")) is not "" else None)
+            (k): (data_path / v if (v := case_data.get(k, "")) != "" else None)
             for k in self.volume_keys
         }
 
@@ -138,7 +138,7 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
 
         # Initialize our segmentation paths
         self.segmentation_paths: dict[str, Path] = {
-            (k): (data_path / v if (v := case_data.get(k, "")) is not "" else None)
+            (k): (data_path / v if (v := case_data.get(k, "")) != "" else None)
             for k in self.segmentation_keys
         }
 
