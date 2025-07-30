@@ -84,7 +84,7 @@ def snap_all_to_ijk():
 
 ## Color Helpers ##
 @cache
-def lookup_color(idx: int):
+def layout_color(idx: int) -> str:
     """
     Get the RGB string from Slicer's default lookup table.
 
@@ -99,11 +99,28 @@ def lookup_color(idx: int):
 
     # Get the RGB tuple from the lookup table
     rgb_tuple = tuple(
-        [int(round(v * 255)) for v in lookup_table.GetTableValue(idx)[:-1]]
+        [int(round(v * 255)) for v in lookup_color(idx)]
     )
 
     # Return its string representation
     return "#%0.2X%0.2X%0.2X" % rgb_tuple
+
+@cache
+def lookup_color(idx: int) -> tuple[int, int, int]:
+    """
+    Get the RGB tuple from Slicer's default lookup table.
+
+    Cached to avoid multiple string iterations lagging iteration in slower computers.
+    """
+    # Assert the index is valid (greater than 0)
+    assert idx >= 0, "Cannot choose a color using a negative index!"
+
+    # Get the lookup table from our color scheme
+    colors = slicer.util.getNode("GenericColors")
+    lookup_table = colors.GetLookupTable()
+
+    # Get the RGB tuple from the lookup table
+    return tuple(lookup_table.GetTableValue(idx)[:-1])
 
 
 ## Viewer Layout Management ##
@@ -175,7 +192,7 @@ class LayoutHandler:
                 # Set up our parameters to build the XML entry
                 ori = o.slicer_node_label()
                 name = f"{v.GetName()}--{ori}"
-                color = lookup_color(color_idx)
+                color = layout_color(color_idx)
                 color_idx += 1
 
                 # Generate the corresponding XML entry and add it to our overall schema
