@@ -26,7 +26,7 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
     COMPLETED_KEY = "completed"
     COMPLETED_BY_KEY = "completed_by"
 
-    DEFAULT_ORIENTATION = Orientation.AXIAL
+    DEFAULT_ORIENTATION = Orientation.TRIO
 
     def __init__(
         self,
@@ -36,75 +36,124 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
     ) -> None:
         super().__init__(case_data, data_path, scene)
 
-        # --- Discover volume and segmentation keys ---
+        # Volume-related parameters
+        self.primary_volume_key: str = ""
+        self.volume_keys: list[str] = []
+        self.volume_paths: dict[str, Path] = dict()
+        self.volume_nodes: dict[str, slicer.vtkMRMLScalarVolumeNode] = dict()
+        self.parse_volumes(case_data, data_path)
+
+        # Segmentation-related parameters
+        self.primary_segmentation_key: str = ""
+        self.segmentation_keys: list[str] = []
+        self.segmentation_paths: dict[str, Path] = dict()
+        self.segmentation_nodes: dict[str, slicer.vtkMRMLSegmentationNode] = dict()
+        self.primary_segmentation_node: Optional[slicer.vtkMRMLSegmentationNode] = None
+        self.parse_segmentations(case_data, data_path)
+
+        # Markup-related parameters
+        self.markup_keys: list[str] = []
+        self.markup_paths: dict[str, Path] = dict()
+        self.markup_nodes: dict[str, slicer.vtkMRMLMarkupsFiducialNode] = dict()
+        self.parse_markups(case_data, data_path)
+
+        # Load everything into memory
+        self._initialize_resources()
+
+        # Create a subject associated with this data unit
+        self.hierarchy_node = scene.GetSubjectHierarchyNode()
+        self.subject_id = create_subject(
+            self.uid,
+            *self.segmentation_nodes.values(),
+            *self.volume_nodes.values(),
+            *self.markup_nodes.values(),
+        )
+
+        self.is_complete = case_data.get(self.COMPLETED_KEY, False)
+
+        # Layout manager for this data unit; as it has MRML nodes, it needs to be
+        # cleaned up on a per-unit basis.
+        self.layout_handler: LayoutHandler = LayoutHandler(
+            list(self.volume_nodes.values()),
+            self.DEFAULT_ORIENTATION,
+        )
+
+    def parse_volumes(self, case_data, data_path):
+        # Get the keys from the case data
         self.volume_keys = extract_case_keys_by_prefix(
             case_data, "Volume", force_present=True
         )
 
-        self.segmentation_keys = extract_case_keys_by_prefix(
-            case_data, "Segmentation", force_present=False
-        )
+        # We need at least one volume key; otherwise theirs nothing to reference against
+        if len(self.volume_keys) < 1:
+            raise ValueError("At least one feature in the cohort must be a volume!")
 
-        self.markup_keys = extract_case_keys_by_prefix(
-            case_data, "Markup", force_present=False
-        )
-        # Fallback to a single default key if none found
-        if not self.segmentation_keys:
-            self.segmentation_keys = [self.DEFAULT_SEGMENTATION_KEY]
+        # Parse the volume paths
+        self.volume_paths = {
+            (k): (data_path / v if (v := case_data.get(k, "")) != "" else None)
+            for k in self.volume_keys
+        }
 
-        # --- Determine primaries ---
+        # We need at least one non-blank path to reference against
+        valid_paths = {k: v for k, v in self.volume_paths.items() if v is not None}
+        if len(valid_paths) < 1:
+            raise ValueError(f"No valid volumes were found for case '{self.uid}'")
+
+        # Set the primary volume to reference segmentations against
+        # KO: Note that this will select a non-primary volume if all primary volumes are
+        #  blank; not the most intuitive, but much better than just crashing
         self.primary_volume_key = next(
-            (k for k in self.volume_keys if "primary" in k.lower()),
-            self.volume_keys[0],
+            # Prefer a key explicitly designated as "primary" if possible
+            (k for k in valid_paths.keys() if "primary" in k.lower()),
+            # Failing that, select the first valid volume instead
+            next(iter(valid_paths.keys())),
         )
-        self.primary_segmentation_key = next(
-            (k for k in self.segmentation_keys if "primary" in k.lower()),
-            self.segmentation_keys[0],
-        )
-        # Move primaries to the front of the list so they are auto-selected by the GUI
+
+        # Move the primary key to the front of our list
+        print(self.primary_volume_key)
         self.volume_keys.remove(self.primary_volume_key)
         self.volume_keys = [
             self.primary_volume_key,
             *self.volume_keys
         ]
+
+    def parse_segmentations(self, case_data, data_path):
+        # Parse our segmentation keys
+        self.segmentation_keys = extract_case_keys_by_prefix(
+            case_data, "Segmentation", force_present=False
+        )
+
+        # If we don't have segmentations, assume the user wants to create one instead
+        if not self.segmentation_keys:
+            self.segmentation_keys = [self.DEFAULT_SEGMENTATION_KEY]
+        self.primary_segmentation_key = next(
+            (k for k in self.segmentation_keys if "primary" in k.lower()),
+            self.segmentation_keys[0],
+        )
+        # Move primaries to the front of the list so they are auto-selected by the GUI
         self.segmentation_keys.remove(self.primary_segmentation_key)
         self.segmentation_keys = [
             self.primary_segmentation_key,
             *self.segmentation_keys
         ]
 
-        # --- Build file paths ---
-        self.volume_paths: dict[str, Path] = {
-            k: data_path / case_data[k] for k in self.volume_keys
-        }
-        # KO: Here we use the walrus operator to assign during a comparison
+        # Initialize our segmentation paths
         self.segmentation_paths: dict[str, Path] = {
-            (k):(data_path / v if (v := case_data.get(k, None)) is not None else None)
+            (k): (data_path / v if (v := case_data.get(k, "")) != "" else None)
             for k in self.segmentation_keys
         }
 
-        # --- Node storage ---
-        self.volume_nodes: dict[str, slicer.vtkMRMLScalarVolumeNode] = {}
-        self.segmentation_nodes: dict[str, slicer.vtkMRMLSegmentationNode] = {}
-        self.markup_nodes: dict[str, slicer.vtkMRMLMarkupsFiducialNode] = {}
-        self.primary_volume_node: Optional[slicer.vtkMRMLScalarVolumeNode] = None
-        self.primary_segmentation_node: Optional[slicer.vtkMRMLSegmentationNode] = None
-
-        # subject hierarchy
-        self.hierarchy_node = scene.GetSubjectHierarchyNode()
-        self.subject_id: Optional[int] = None
-
-        self.is_complete = case_data.get(self.COMPLETED_KEY, False)
-
-        # --- Load everything ---
-        self._initialize_resources()
-
-        # Layout manager for this data uni; as it has MRML nodes, it needs to be cleaned
-        #  up on a per-unit basis.
-        self.layout_handler: LayoutHandler = LayoutHandler(
-            list(self.volume_nodes.values()),
-            self.DEFAULT_ORIENTATION,
+    def parse_markups(self, case_data, data_path):
+        # Get our list of
+        self.markup_keys = extract_case_keys_by_prefix(
+            case_data, "Markup", force_present=False
         )
+
+        # Initialize our markup paths
+        self.markup_paths: dict[str, Path] = {
+            (k): (data_path / v if (v := case_data.get(k, "")) != "" else None)
+            for k in self.markup_keys
+        }
 
     def get_primary_segmentation_path(self) -> Optional[Path]:
         """
@@ -185,8 +234,10 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
         and refers to a file.
         """
         rel_path = self.case_data.get(key)
+        # If the path wasn't specified, we assume the user wants it skipped/created
         if not rel_path:
-            raise ValueError(f"Case {self.uid} missing required entry '{key}'.")
+            return
+        # If there was a path, ensure it exists and is a file
         full_path = self.data_path / rel_path
         if not full_path.exists():
             raise ValueError(f"Path for '{key}' does not exist: {full_path}")
@@ -198,56 +249,57 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
         Load volume nodes and segmentation nodes, align geometry,
         and register under a single subject in the hierarchy.
         """
-        primary_vol = self._init_volume_nodes()
-        self._init_segmentation_nodes(primary_vol)
-
+        self._init_volume_nodes()
+        self._init_segmentation_nodes()
         self._init_markups_nodes()
-
-        # Group under one hierarchy item
-        self.subject_id = create_subject(
-            self.uid,
-            *self.segmentation_nodes.values(),
-            *self.volume_nodes.values(),
-            *self.markup_nodes.values(),
-        )
 
     def _init_volume_nodes(self) -> slicer.vtkMRMLScalarVolumeNode:
         """
         Load each volume path into a volume node, name it,
         store in resources, and identify the primary.
         """
-        for key in self.volume_keys:
-            path = self.volume_paths[key]
+        for key, path in self.volume_paths.items():
+            # If the volume is blank, skip it
+            if path is None:
+                continue
+            # Attempt to load the volume and track it
             node = load_volume(path)
             node.SetName(f"{self.uid}_{key}")
             self.volume_nodes[key] = node
             self.resources[key] = node
+
+            # If this is our primary volume, track it outright for ease of reference
             if key == self.primary_volume_key:
                 self.primary_volume_node = node
-        return self.primary_volume_node  # primary
 
-    def _init_segmentation_nodes(
-        self, primary_vol: slicer.vtkMRMLScalarVolumeNode
-    ) -> None:
+    def _init_segmentation_nodes(self) -> None:
         """
         For each segmentation key, load if file exists; otherwise create empty node.
         Then pick the primary segmentation.
         """
+        # If we don't have a primary volume yet, this method was called too early
+        if not self.primary_volume_node:
+            raise ValueError(
+                "Cannot initialize segmentation nodes prior to volume nodes!"
+            )
 
         for i, key in enumerate(self.segmentation_keys):
             seg_path = self.segmentation_paths.get(key)
             if seg_path and seg_path.exists():
                 node = load_segmentation(seg_path)
-            else:
-                # create an empty segmentation node
+            elif key == self.primary_segmentation_key:
+                # Assume the user always wants a segment associated w/ the primary key
                 node = create_empty_segmentation_node(
                     f"{self.uid}_{key}",
-                    reference_volume=primary_vol,
+                    reference_volume=self.primary_volume_node,
                     scene=self.scene,
                 )
+            else:
+                # If neither of the above, skip
+                continue
 
             node.SetName(f"{self.uid}_{key}")
-            node.SetReferenceImageGeometryParameterFromVolumeNode(primary_vol)
+            node.SetReferenceImageGeometryParameterFromVolumeNode(self.primary_volume_node)
             # Set the colors of each segmentation
             if key == self.primary_segmentation_key:
                 node.GetDisplayNode().SetOpacity(1.0)
@@ -287,10 +339,11 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
         Load each markup path into a markups node, name it,
         store in resources, and identify the primary.
         """
-        for key in self.markup_keys:
-            path = self.data_path / self.case_data[key]
-            if not path.exists():
-                raise ValueError(f"Markup file does not exist: {path}")
+        for key, path in self.markup_paths.items():
+            # If the markup was blank, skip it
+            if path is None:
+                continue
+            # Try to load all markups from the file
             nodes = load_markups(path)
             for i, node in enumerate(nodes):
                 if not isinstance(node, slicer.vtkMRMLMarkupsFiducialNode):
