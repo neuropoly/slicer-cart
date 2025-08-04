@@ -7,6 +7,7 @@ Also adds some streamlining methods for common operations (i.e. creating a view 
 Heavily derived from SlicerCaseIterators `CaseIteratorLayoutLogic` class; however, this
 has been restructured to be more general purpose and less prone to memory leaks.
 """
+
 from enum import auto, Flag
 from functools import cache
 from typing import Optional
@@ -42,7 +43,7 @@ class Orientation(Flag):
             raise ValueError(
                 "No Slicer orientation string exists for non-singular Orientations!"
             )
-        return str(self).split('.')[1].capitalize()
+        return str(self).split(".")[1].capitalize()
 
     def is_singular(self):
         return len(self) == 1
@@ -69,7 +70,7 @@ class Orientation(Flag):
 CART_TO_SLICER_ORIENTATION = {
     Orientation.AXI: "Axial",
     Orientation.SAG: "Sagittal",
-    Orientation.COR: "Coronal"
+    Orientation.COR: "Coronal",
 }
 
 
@@ -95,15 +96,14 @@ def layout_color(idx: int) -> str:
 
     # Get the lookup table from our color scheme
     colors = slicer.util.getNode("GenericColors")
-    lookup_table = colors.GetLookupTable()
+    _ = colors.GetLookupTable()
 
     # Get the RGB tuple from the lookup table
-    rgb_tuple = tuple(
-        [int(round(v * 255)) for v in lookup_color(idx)]
-    )
+    rgb_tuple = tuple([int(round(v * 255)) for v in lookup_color(idx)])
 
     # Return its string representation
     return "#%0.2X%0.2X%0.2X" % rgb_tuple
+
 
 @cache
 def lookup_color(idx: int) -> tuple[int, int, int]:
@@ -128,31 +128,40 @@ class LayoutHandler:
     def __init__(
         self,
         volume_nodes: list[slicer.vtkMRMLVolumeNode],
+        primary_volume_node: Optional[slicer.vtkMRMLVolumeNode] = None,
         orientation: Orientation = Orientation.AXIAL,
-        horizontal_layout: bool = True
+        horizontal_layout: bool = True,
+        foreground_opacity: float = 1.0,
     ):
         """
         Layout handler which manages the viewers for a set of volume nodes for you.
 
         :param volume_nodes: The list of volume nodes this layout should manage our
             viewer layout for.
+        :param primary_volume_node: The primary volume node to use as background in all views.
+            If None, the first volume node is used as primary.
         :param orientation: The orientation(s) that the layout should account for.
         :param horizontal_layout: Whether the views for each volume node should be laid
             out horizontally (left-to-right). If false, they are displayed vertically
             (top-to-bottom) instead.
+        :param foreground_opacity: The opacity for foreground volumes when primary is background.
         """
         # Attributes
         self.volume_nodes = volume_nodes
+        self.primary_volume_node = primary_volume_node or (
+            volume_nodes[0] if volume_nodes else None
+        )
         self.orientation = orientation
         self.horizontal_layout = horizontal_layout
+        self.foreground_opacity = foreground_opacity
 
         # Pseudo-cached XML layout; use `layout` instead
         self._layout: Optional[str] = None
 
         # Tracked map of view names -> volume and orientation tuples
-        self._view_name_map: (
-            Optional[dict[str, tuple[slicer.vtkMRMLVolumeNode, Orientation]]]
-        ) = None
+        self._view_name_map: Optional[
+            dict[str, tuple[slicer.vtkMRMLVolumeNode, Orientation]]
+        ] = None
 
         # Tracked map of slice nodes, for re-use and clean-up
         self._slice_node_map: dict[str, slicer.vtkMRMLSliceNode] = dict()
@@ -237,42 +246,83 @@ class LayoutHandler:
         # Have slicer process the new layout XML
         slicer.app.processEvents()
 
-        # TODO: Add background handling
-
         # Build up our slice nodes for each of the views we have in our layout.
         layout_manager = slicer.app.layoutManager()
-        for l, (v, o) in self._view_name_map.items():
+        for layout_name, (vol_node, ori) in self._view_name_map.items():
             # Grab the corresponding widget in our layout
-            slice_widget = layout_manager.sliceWidget(l)
+            slice_widget = layout_manager.sliceWidget(layout_name)
 
-            # Ensure that only the volume node is shown in that widget
-            # TODO: Implement a "shared back-ground" solution
+            # Set up background and foreground volumes
             composite_node = slice_widget.mrmlSliceCompositeNode()
-            composite_node.SetBackgroundVolumeID(v.GetID())
-            composite_node.SetForegroundVolumeID("")
+
+            # Always use primary volume as background
+            if self.primary_volume_node:
+                composite_node.SetBackgroundVolumeID(self.primary_volume_node.GetID())
+
+                # If the current volume is different from primary, set it as foreground
+                if vol_node != self.primary_volume_node:
+                    composite_node.SetForegroundVolumeID(vol_node.GetID())
+                    composite_node.SetForegroundOpacity(self.foreground_opacity)
+                else:
+                    # If it's the primary volume view, no foreground needed
+                    composite_node.SetForegroundVolumeID("")
+            else:
+                # Fallback: if no primary volume, use the current volume as background
+                composite_node.SetBackgroundVolumeID(vol_node.GetID())
+                composite_node.SetForegroundVolumeID("")
 
             # Get the slice node which manages the slice the widget views
             slice_node = slice_widget.mrmlSliceNode()
 
             # Ensure it matches its associated volume's orientation and rotation.
-            slice_node.SetOrientation(o)
-            slice_node.RotateToVolumePlane(v)
+            slice_node.SetOrientation(ori)
+            # Use the volume for rotation, not the orientation
+            rotation_volume = self.primary_volume_node or vol_node
+            slice_node.RotateToVolumePlane(rotation_volume)
             slice_widget.fitSliceToBackground()
 
             # Link the node's together, so moving one moves the rest
             composite_node.SetLinkedControl(True)
 
             # Track the slice node for later
-            self._slice_node_map[l] = slice_node
+            self._slice_node_map[layout_name] = slice_node
 
         # Snap everything to IJK
         snap_all_to_ijk()
+
+    def set_foreground_opacity(self, opacity: float):
+        """
+        Update the foreground opacity for all views and refresh the display.
+
+        :param opacity: New opacity value (0.0 to 1.0)
+        """
+        self.foreground_opacity = max(0.0, min(1.0, opacity))
+
+        # Update all existing composite nodes
+        layout_manager = slicer.app.layoutManager()
+        for view_name in self._view_name_map.keys():
+            slice_widget = layout_manager.sliceWidget(view_name)
+            if slice_widget:
+                composite_node = slice_widget.mrmlSliceCompositeNode()
+                if composite_node and composite_node.GetForegroundVolumeID():
+                    composite_node.SetForegroundOpacity(self.foreground_opacity)
+
+    def set_primary_volume(self, primary_volume_node: slicer.vtkMRMLVolumeNode):
+        """
+        Update the primary volume node and refresh the layout.
+
+        :param primary_volume_node: New primary volume node to use as background
+        """
+        self.primary_volume_node = primary_volume_node
+        # Reapply the layout to update all views
+        self.apply_layout()
 
     def _invalidates_layout(func):
         """
         Decorator which denotes that the current layout ceases to be valid when the
         decorated function is called.
         """
+
         def wrapper(self, *args, **kwargs):
             self._layout = None
             func(self, *args, **kwargs)

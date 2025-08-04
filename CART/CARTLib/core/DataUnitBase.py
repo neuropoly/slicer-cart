@@ -11,7 +11,8 @@ class DataUnitBase(ABC):
         self,
         case_data: dict[str, str],
         data_path: Path,
-        scene: Optional[slicer.vtkMRMLScene] = None,
+        scene: slicer.vtkMRMLScene = slicer.mrmlScene,  # Scene is NOT optional.
+        # Default scene is the global MRML scene, which is always available.
     ):
         """
         Initialize a new data unit; you may want to add additional processing in

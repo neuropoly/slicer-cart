@@ -16,9 +16,13 @@ from CARTLib.core.DataManager import DataManager
 from CARTLib.core.DataUnitBase import DataUnitBase
 from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
 
-# TODO: Remove this explicit import
-from CARTLib.examples.OrganLabellingDemo.OrganLabellingDemo import OrganLabellingDemoTask
-from CARTLib.examples.SegmentationEvaluation.SegmentationEvaluationTask import SegmentationEvaluationTask
+
+from CARTLib.examples.SegmentationEvaluation.SegmentationEvaluationTask import (
+    SegmentationEvaluationTask,
+)
+from CARTLib.examples.RegistrationReview.RegistrationReviewTask import (
+    RegistrationReviewTask,
+)
 from CARTLib.examples.MultiContrastSegmentation.MultiContrastSegmentationEvaluationTask import (
     MultiContrastSegmentationEvaluationTask,
 )
@@ -84,6 +88,7 @@ class CART(ScriptedLoadableModule):
 
         # Add CARTLib to the Python Path for ease of (re-)use
         import sys
+
         cartlib_path = (Path(__file__) / "CARTLib").resolve()
         sys.path.append(str(cartlib_path))
 
@@ -131,9 +136,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # TODO: Dynamically load this dictionary instead
         self.task_map = {
-            "Organ Labels": OrganLabellingDemoTask,
             "Segmentation": SegmentationEvaluationTask,
             "MultiContrast Segmentation": MultiContrastSegmentationEvaluationTask,
+            "Registration Review": RegistrationReviewTask,
         }
 
     def setup(self) -> None:
@@ -344,7 +349,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         previewButton = qt.QPushButton(_("Preview"))
         previewButton.setToolTip(
             _(
-            """
+                """
             Reads the contents of the cohort.csv for review, without starting the task
             """
             )
@@ -1045,6 +1050,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         self.cohort_path = new_path
         config.last_used_cohort_file = new_path
         config.save()
+        self.rebuild_data_manager()
         return True
 
     def set_data_path(self, new_path: Path) -> (bool, Optional[str]):
@@ -1062,6 +1068,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         self.data_path = new_path
         config.last_used_data_path = new_path
         config.save()
+        self.rebuild_data_manager()
         print(f"Data path set to: {self.data_path}")
 
         return True, None

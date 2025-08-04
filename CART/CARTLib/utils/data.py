@@ -1,7 +1,9 @@
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 import slicer
+
+from CARTLib.core.DataUnitBase import DataUnitBase
 
 
 ## LOADING ##
@@ -235,3 +237,92 @@ def create_empty_segmentation_node(
     seg_node.SetReferenceImageGeometryParameterFromVolumeNode(reference_volume)
 
     return seg_node
+
+
+def parse_volumes(
+    case_data: dict[str, Any], data_path: Path
+) -> tuple[list[str], dict[str, Path], str]:
+    # Get the keys from the case data
+    volume_keys = extract_case_keys_by_prefix(case_data, "Volume", force_present=True)
+
+    # We need at least one volume key; otherwise theirs nothing to reference against
+    if len(volume_keys) < 1:
+        raise ValueError("At least one feature in the cohort must be a volume!")
+
+    # Parse the volume paths
+
+    volume_paths: dict[str, Optional[Path]] = {
+        (k): (data_path / v if (v := case_data.get(k, "")) != "" else None)
+        for k in volume_keys
+    }
+
+    # We need at least one non-blank path to reference against
+    valid_paths: dict[str, Path] = {
+        k: v for k, v in volume_paths.items() if v is not None
+    }
+    if len(valid_paths) < 1:
+        raise ValueError(
+            f"No valid volumes were found for case '{case_data.get('uid', 'UNKNOWN')}'!"
+        )
+
+    # Set the primary volume to reference segmentations against
+    # KO: Note that this will select a non-primary volume if all primary volumes are
+    #  blank; not the most intuitive, but much better than just crashing
+    primary_volume_key = next(
+        # Prefer a key explicitly designated as "primary" if possible
+        (k for k in valid_paths.keys() if "primary" in k.lower()),
+        # Failing that, select the first valid volume instead
+        next(iter(valid_paths.keys())),
+    )
+
+    # Move the primary key to the front of our list
+    print(primary_volume_key)
+    volume_keys.remove(primary_volume_key)
+    volume_keys = [primary_volume_key, *volume_keys]
+    return volume_keys, volume_paths, primary_volume_key
+
+
+def parse_segmentations(
+    case_data, data_path, DEFAULT_SEGMENTATION_KEY="default_segmentation"
+) -> tuple[list[str], dict[str, Path], str]:
+    # Parse our segmentation keys
+    segmentation_keys = extract_case_keys_by_prefix(
+        case_data, "Segmentation", force_present=False
+    )
+
+    # If we don't have segmentations, assume the user wants to create one instead
+    if not segmentation_keys:
+        segmentation_keys = [DEFAULT_SEGMENTATION_KEY]
+    primary_segmentation_key = next(
+        (k for k in segmentation_keys if "primary" in k.lower()),
+        segmentation_keys[0],
+    )
+    # Move primaries to the front of the list so they are auto-selected by the GUI
+    segmentation_keys.remove(primary_segmentation_key)
+    segmentation_keys = [primary_segmentation_key, *segmentation_keys]
+
+    # Initialize our segmentation paths
+    segmentation_paths: dict[str, Path] = {
+        (k): (data_path / v if (v := case_data.get(k, "")) != "" else None)
+        for k in segmentation_keys
+    }
+    valid_segmentation_paths = {
+        k: v for k, v in segmentation_paths.items() if v is not None
+    }
+    return segmentation_keys, valid_segmentation_paths, primary_segmentation_key
+
+
+def parse_markups(case_data, data_path) -> tuple[list[str], dict[str, Path]]:
+    # TODO Handle Case for allowing a "Primary" Markup even if we dont currently have a need.
+    # This would allow us to dry out this code combining all 3 parse_* functions
+
+    # Get our list of
+    markup_keys = extract_case_keys_by_prefix(case_data, "Markup", force_present=False)
+
+    # Initialize our markup paths
+    markup_paths: dict[str, Path] = {
+        (k): (data_path / v if (v := case_data.get(k, "")) != "" else None)
+        for k in markup_keys
+    }
+    valid_markup_paths = {k: v for k, v in markup_paths.items() if v is not None}
+    return markup_keys, valid_markup_paths

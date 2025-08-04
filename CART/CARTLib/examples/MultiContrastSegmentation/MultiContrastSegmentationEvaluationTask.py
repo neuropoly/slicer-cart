@@ -61,6 +61,11 @@ class MultiContrastSegmentationEvaluationGUI:
             btn = qt.QPushButton(label)
             btn.clicked.connect(lambda _, o=ori: self.onOrientationChanged(o))
             hbox.addWidget(btn)
+
+        btn = qt.QPushButton("All")
+        btn.clicked.connect(lambda: self.onOrientationChanged(Orientation.TRIO))
+        hbox.addWidget(btn)
+
         layout.addRow(qt.QLabel("View Orientation:"), hbox)
 
     def _addOutputSelectionButton(self, layout: qt.QFormLayout) -> None:

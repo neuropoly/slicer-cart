@@ -11,6 +11,9 @@ from CARTLib.utils.data import (
     load_markups,
     extract_case_keys_by_prefix,
     create_empty_segmentation_node,
+    parse_volumes,
+    parse_markups,
+    parse_segmentations,
 )
 from CARTLib.utils.layout import LayoutHandler, Orientation
 
@@ -26,36 +29,45 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
     COMPLETED_KEY = "completed"
     COMPLETED_BY_KEY = "completed_by"
 
-    DEFAULT_ORIENTATION = Orientation.TRIO
+    DEFAULT_ORIENTATION = Orientation.AXIAL
 
     def __init__(
         self,
         case_data: dict[str, str],
         data_path: Path,
-        scene: Optional[slicer.vtkMRMLScene] = slicer.mrmlScene,
+        scene: slicer.vtkMRMLScene = slicer.mrmlScene,  # Scene is NOT optional.
+        # Default scene is the global MRML scene, which is always available.
     ) -> None:
         super().__init__(case_data, data_path, scene)
 
         # Volume-related parameters
         self.primary_volume_key: str = ""
-        self.volume_keys: list[str] = []
-        self.volume_paths: dict[str, Path] = dict()
+
+        self.volume_keys: list[str]
+        self.volume_paths: dict[str, Path]
+        self.primary_volume_key: str
+        self.volume_keys, self.volume_paths, self.primary_volume_key = parse_volumes(
+            case_data, data_path
+        )
         self.volume_nodes: dict[str, slicer.vtkMRMLScalarVolumeNode] = dict()
-        self.parse_volumes(case_data, data_path)
 
         # Segmentation-related parameters
-        self.primary_segmentation_key: str = ""
-        self.segmentation_keys: list[str] = []
-        self.segmentation_paths: dict[str, Path] = dict()
+        self.segmentation_keys: list[str]
+        self.segmentation_paths: dict[str, Path]
+        self.primary_segmentation_key: str
+        (
+            self.segmentation_keys,
+            self.segmentation_paths,
+            self.primary_segmentation_key,
+        ) = parse_segmentations(case_data, data_path)
         self.segmentation_nodes: dict[str, slicer.vtkMRMLSegmentationNode] = dict()
         self.primary_segmentation_node: Optional[slicer.vtkMRMLSegmentationNode] = None
-        self.parse_segmentations(case_data, data_path)
 
         # Markup-related parameters
-        self.markup_keys: list[str] = []
-        self.markup_paths: dict[str, Path] = dict()
+        self.markup_keys: list[str]
+        self.markup_paths: dict[str, Path]
+        self.markup_keys, self.markup_paths = parse_markups(case_data, data_path)
         self.markup_nodes: dict[str, slicer.vtkMRMLMarkupsFiducialNode] = dict()
-        self.parse_markups(case_data, data_path)
 
         # Load everything into memory
         self._initialize_resources()
@@ -75,85 +87,9 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
         # cleaned up on a per-unit basis.
         self.layout_handler: LayoutHandler = LayoutHandler(
             list(self.volume_nodes.values()),
-            self.DEFAULT_ORIENTATION,
+            primary_volume_node=self.primary_volume_node,
+            orientation=self.DEFAULT_ORIENTATION,
         )
-
-    def parse_volumes(self, case_data, data_path):
-        # Get the keys from the case data
-        self.volume_keys = extract_case_keys_by_prefix(
-            case_data, "Volume", force_present=True
-        )
-
-        # We need at least one volume key; otherwise theirs nothing to reference against
-        if len(self.volume_keys) < 1:
-            raise ValueError("At least one feature in the cohort must be a volume!")
-
-        # Parse the volume paths
-        self.volume_paths = {
-            (k): (data_path / v if (v := case_data.get(k, "")) != "" else None)
-            for k in self.volume_keys
-        }
-
-        # We need at least one non-blank path to reference against
-        valid_paths = {k: v for k, v in self.volume_paths.items() if v is not None}
-        if len(valid_paths) < 1:
-            raise ValueError(f"No valid volumes were found for case '{self.uid}'")
-
-        # Set the primary volume to reference segmentations against
-        # KO: Note that this will select a non-primary volume if all primary volumes are
-        #  blank; not the most intuitive, but much better than just crashing
-        self.primary_volume_key = next(
-            # Prefer a key explicitly designated as "primary" if possible
-            (k for k in valid_paths.keys() if "primary" in k.lower()),
-            # Failing that, select the first valid volume instead
-            next(iter(valid_paths.keys())),
-        )
-
-        # Move the primary key to the front of our list
-        print(self.primary_volume_key)
-        self.volume_keys.remove(self.primary_volume_key)
-        self.volume_keys = [
-            self.primary_volume_key,
-            *self.volume_keys
-        ]
-
-    def parse_segmentations(self, case_data, data_path):
-        # Parse our segmentation keys
-        self.segmentation_keys = extract_case_keys_by_prefix(
-            case_data, "Segmentation", force_present=False
-        )
-
-        # If we don't have segmentations, assume the user wants to create one instead
-        if not self.segmentation_keys:
-            self.segmentation_keys = [self.DEFAULT_SEGMENTATION_KEY]
-        self.primary_segmentation_key = next(
-            (k for k in self.segmentation_keys if "primary" in k.lower()),
-            self.segmentation_keys[0],
-        )
-        # Move primaries to the front of the list so they are auto-selected by the GUI
-        self.segmentation_keys.remove(self.primary_segmentation_key)
-        self.segmentation_keys = [
-            self.primary_segmentation_key,
-            *self.segmentation_keys
-        ]
-
-        # Initialize our segmentation paths
-        self.segmentation_paths: dict[str, Path] = {
-            (k): (data_path / v if (v := case_data.get(k, "")) != "" else None)
-            for k in self.segmentation_keys
-        }
-
-    def parse_markups(self, case_data, data_path):
-        # Get our list of
-        self.markup_keys = extract_case_keys_by_prefix(
-            case_data, "Markup", force_present=False
-        )
-
-        # Initialize our markup paths
-        self.markup_paths: dict[str, Path] = {
-            (k): (data_path / v if (v := case_data.get(k, "")) != "" else None)
-            for k in self.markup_keys
-        }
 
     def get_primary_segmentation_path(self) -> Optional[Path]:
         """
@@ -253,7 +189,7 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
         self._init_segmentation_nodes()
         self._init_markups_nodes()
 
-    def _init_volume_nodes(self) -> slicer.vtkMRMLScalarVolumeNode:
+    def _init_volume_nodes(self) -> None:
         """
         Load each volume path into a volume node, name it,
         store in resources, and identify the primary.
@@ -284,7 +220,7 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
             )
 
         for i, key in enumerate(self.segmentation_keys):
-            seg_path = self.segmentation_paths.get(key)
+            seg_path = self.segmentation_paths.get(key, None)
             if seg_path and seg_path.exists():
                 node = load_segmentation(seg_path)
             elif key == self.primary_segmentation_key:
@@ -299,7 +235,9 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
                 continue
 
             node.SetName(f"{self.uid}_{key}")
-            node.SetReferenceImageGeometryParameterFromVolumeNode(self.primary_volume_node)
+            node.SetReferenceImageGeometryParameterFromVolumeNode(
+                self.primary_volume_node
+            )
             # Set the colors of each segmentation
             if key == self.primary_segmentation_key:
                 node.GetDisplayNode().SetOpacity(1.0)
@@ -321,7 +259,7 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
                     lookup_table = colors.GetLookupTable()
                     segment.SetColor(
                         # Trim the last element (alpha)
-                        *lookup_table.GetTableValue(i+2)[:-1]
+                        *lookup_table.GetTableValue(i + 2)[:-1]
                     )
                 else:
                     print(

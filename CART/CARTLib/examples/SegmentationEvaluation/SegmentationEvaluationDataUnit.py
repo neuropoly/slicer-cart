@@ -16,7 +16,8 @@ class SegmentationEvaluationDataUnit(DataUnitBase):
         self,
         case_data: dict[str, str],
         data_path: Path,
-        scene: Optional[slicer.vtkMRMLScene] = slicer.mrmlScene,
+        scene: slicer.vtkMRMLScene = slicer.mrmlScene,  # Scene is NOT optional.
+        # Default scene is the global MRML scene, which is always available.
     ):
         super().__init__(case_data, data_path, scene)
 
