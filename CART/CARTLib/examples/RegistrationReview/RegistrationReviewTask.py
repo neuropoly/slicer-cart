@@ -227,7 +227,7 @@ class RegistrationReviewGUI:
         result = prompt.exec()
 
         # If the user cancelled out of the prompt, notify them
-        if not result.acepted:
+        if result != qt.QDialog.Accepted:
             notif = qt.QErrorMessage()
             if self.bound_task.can_save():
                 notif.setWindowTitle(_("REVERTING!"))
