@@ -210,7 +210,7 @@ class CARTSegmentationEditorWidget(
                 proxy = _NodeComboBoxProxy(c)
                 # Use it to replace the original widget in the UI
                 self.layout().replaceWidget(c, proxy)
-                c.setParent(None)
+                c.setVisible(False)
                 # Return it, ending the search here
                 return proxy
 
