@@ -390,7 +390,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Hide this by default, only showing it when we're ready to iterate
         iteratorWidget.setVisible(False)
 
-        # Previous, Save, and Next buttons, in a horizontal layout
+        # Iterator buttons, in a horizontal layout
         buttonLayout = self.buildIteratorButtonPanel()
         # Add the button layout to the main vertical layout
         self.taskLayout.addLayout(buttonLayout)
@@ -410,10 +410,15 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Button should be laid out left-to-right
         buttonLayout = qt.QHBoxLayout()
 
+        # "Prior Incomplete" Button
+        priorIncompleteButton = qt.QPushButton(_("Prior Incomplete"))
+        priorIncompleteButton.toolTip = _("Jump back to a previous case which has not been completed yet.")
+        priorIncompleteButton.clicked.connect(lambda: self.previousCase(True))
+
         # "Previous" Button
         previousButton = qt.QPushButton(_("Previous"))
         previousButton.toolTip = _("Return to the previous case.")
-        previousButton.clicked.connect(self.previousCase)
+        previousButton.clicked.connect(lambda: self.previousCase(False))
 
         # "Save" Button
         saveButton = qt.QPushButton(_("Save"))
@@ -423,15 +428,23 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # "Next" Button
         nextButton = qt.QPushButton(_("Next"))
         nextButton.toolTip = _("Move onto the next case.")
-        nextButton.clicked.connect(self.nextCase)
+        nextButton.clicked.connect(lambda: self.nextCase(False))
+
+        # "Next Incomplete" Button
+        nextIncompleteButton = qt.QPushButton(_("Next Incomplete"))
+        nextIncompleteButton.toolTip = \
+            _("Jump back to the next case which has not been completed yet.")
+        nextIncompleteButton.clicked.connect(lambda: self.nextCase(True))
 
         # Add them to the layout in our desired order
-        for b in [previousButton, saveButton, nextButton]:
+        for b in [priorIncompleteButton, previousButton, saveButton, nextButton, nextIncompleteButton]:
             buttonLayout.addWidget(b)
 
         # Track them for later
+        self.priorIncompleteButton = priorIncompleteButton
         self.previousButton = previousButton
         self.nextButton = nextButton
+        self.nextIncompleteButton = nextIncompleteButton
 
         return buttonLayout
 
@@ -661,8 +674,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Disable navigation buttons if only in preview mode
         if self.isPreviewMode and not self.isTaskMode:
-            self.previousButton.setEnabled(False)
-            self.nextButton.setEnabled(False)
+            self.enablePriorButtons(False)
+            self.enableNextButtons(False)
 
         # Always (re)build the table if in preview or task mode
         self.buildCohortTable()
@@ -688,17 +701,20 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.currentCaseNameLabel.text = new_label
 
         # Check if we have a next case, and enable/disable the button accordingly
-        self.nextButton.setEnabled(self.logic.has_next_case())
+        self.enableNextButtons(self.logic.has_next_case())
 
         # Check if we have a previous case, and enable/disable the button accordingly
-        self.previousButton.setEnabled(self.logic.has_previous_case())
+        self.enablePriorButtons(self.logic.has_previous_case())
 
         # Highlight the following (previous or next) row to indicate the current case
         self.highlightRow(self.logic.data_manager.current_case_index)
 
-    def nextCase(self):
+    def nextCase(self, skip_complete: bool = False) :
         """
-        Request the iterator step into the next case
+        Request the iterator step into the next case.
+
+        :param skip_complete: Whether to skip over already completed
+            cases wherever possible
         """
         # Disable the GUI until the next case has loaded
         self.disableGUIWhileLoading()
@@ -713,7 +729,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.unHighlightRow(self.logic.data_manager.current_case_index)
 
             # Step into the next case
-            self.logic.next_case()
+            self.logic.next_case(skip_complete)
 
             # Update our GUI to match the new state
             self.updateIteratorGUI()
@@ -723,7 +739,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             # Re-enable the GUI
             self.enableGUIAfterLoad()
 
-    def previousCase(self):
+    def previousCase(self, skip_complete: bool = False):
         # Disable the GUI until the previous case has loaded
         self.disableGUIWhileLoading()
 
@@ -737,8 +753,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             # Remove highlight from the current row
             self.unHighlightRow(self.logic.data_manager.current_case_index)
 
-            # Step into the next case
-            self.logic.previous_case()
+            # Step into the previous case
+            self.logic.previous_case(skip_complete)
 
             # Update our GUI to match the new state
             self.updateIteratorGUI()
@@ -804,6 +820,13 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             # Expand the task GUI and enable it, if it wasn't already
             self.taskGUI.collapsed = False
             self.taskGUI.setEnabled(True)
+
+            # Attempt to read a data unit
+            # KO: This needs to be done after GUI init, as many task's (including our
+            #  segmentation review) will either load configurations and/or prompt the
+            #  user for things required to determine whether a task is "complete" or
+            #  not for a given case.
+            self.logic.load_initial_unit()
 
             # Load the cohort csv data into the table, if it wasn't already
             self.updateCohortTable()
@@ -883,6 +906,14 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.pythonExceptionPrompt(e)
 
     ## Management ##
+    def enablePriorButtons(self, state: bool):
+        for b in [self.priorIncompleteButton, self.previousButton]:
+            b.setEnabled(state)
+
+    def enableNextButtons(self, state: bool):
+        for b in [self.nextButton, self.nextIncompleteButton]:
+            b.setEnabled(state)
+
     def disableGUIWhileLoading(self):
         """
         Disable our entire GUI.
@@ -1156,11 +1187,13 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         """
         Initialize a new Task instance using current settings.
 
-        :return: The Task instance, None if one cannot be created.
+        The task will NOT receive a data unit at this point; that is deferred until after the GUI is built, in case
+        the task needs to prompt the user for details which help determine if a given data unit is complete or not
+        (i.e. output directories); see `CARTLogic:load_first_unit` for details.
         """
         # Safety gate: if we're not ready to start a task, return None
         if not self.is_ready():
-            return None
+            return
 
         # Rebuild our data manager
         self.rebuild_data_manager()
@@ -1176,11 +1209,17 @@ class CARTLogic(ScriptedLoadableModuleLogic):
 
         # Act as though CART has just been reloaded so the task can initialize
         #  properly
-        self.current_task_instance.enter()
+        self.enter()
 
+    def load_initial_unit(self):
+        """
+        Attempts to load the first data unit into memory and update our task with it
+        """
         # Pass our first data unit to the task
-        new_unit = self.select_current_case()
-        self.current_task_instance.receive(new_unit)
+        data_unit = self.data_manager.first()
+        # TODO: Add a configuration option for skipping to first incomplete unit
+        # data_unit = self.data_manager.first_incomplete(self.current_task_instance)
+        self.current_task_instance.receive(data_unit)
 
     def enter(self):
         """
@@ -1251,15 +1290,20 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # Return it for further user
         return current_unit
 
-    def next_case(self) -> Optional[DataUnitBase]:
+    def next_case(self, skip_complete: bool = False) -> Optional[DataUnitBase]:
         """
         Try to step into the next case managed by the cohort, pulling it
-          into memory if needed.
+        into memory if needed.
+
+        :param skip_complete: Whether to skip over already completed cases
 
         :return: The next valid case. 'None' if no valid case could be found.
         """
-        # Get the next valid case
-        next_unit = self.data_manager.next()
+        # Grab the next data unit
+        if skip_complete:
+            next_unit = self.data_manager.next_incomplete(self.current_task_instance)
+        else:
+            next_unit = self.data_manager.next()
 
         # Pass it to the current task, so it can update anything it needs to
         self._update_task_with_new_case(next_unit)
@@ -1267,15 +1311,20 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # Return it; the data manager is self-managing, no need to do any further checks
         return next_unit
 
-    def previous_case(self):
+    def previous_case(self, skip_complete: bool = False):
         """
         Try to step into the previous case managed by the cohort, pulling it
-          into memory if needed.
+        into memory if needed.
+
+        :param skip_complete: Whether completed cases should be skipped over
 
         :return: The previous valid case. 'None' if no valid case could be found.
         """
         # Get the previous valid case
-        previous_case = self.data_manager.previous()
+        if skip_complete:
+            previous_case = self.data_manager.prior_incomplete(self.current_task_instance)
+        else:
+            previous_case = self.data_manager.previous()
 
         # Pass it to the current task, so it can update anything it needs to
         self._update_task_with_new_case(previous_case)

@@ -31,9 +31,12 @@ class MultiContrastOutputManager:
     Now includes CSV tracking for centralized logging of all completed data.
     """
 
+    UID_KEY = "uid"
+    AUTHOR_KEY = "author"
+
     HEADERS = [
-        "uid",
-        "author",
+        UID_KEY,
+        AUTHOR_KEY,
         "timestamp",
         "output_mode",
         "segmentation_path",
@@ -64,13 +67,14 @@ class MultiContrastOutputManager:
         self.output_dir = output_dir
 
         # Set up CSV logging
-        self.csv_log_path = self._setup_csv_log_path(csv_log_path)
-        self._ensure_csv_headers()
+        self.csv_log_path: Path = self._setup_csv_log_path(csv_log_path)
+        self.csv_log: dict[tuple[str, str], dict[str, str]] = self._init_csv_log()
 
         # Validate configuration
         if output_mode == OutputMode.PARALLEL_DIRECTORY and not output_dir:
             raise ValueError("output_dir is required for PARALLEL_DIRECTORY mode")
 
+    ## CSV LOGGING ##
     def _setup_csv_log_path(self, csv_log_path: Optional[Path]) -> Path:
         """Set up the CSV log file path."""
         if csv_log_path:
@@ -83,17 +87,43 @@ class MultiContrastOutputManager:
             # For overwrite mode or when no output dir, use current working directory
             return Path.cwd() / f"segmentation_review_log_{self.user}.csv"
 
-    def _ensure_csv_headers(self):
-        """Ensure the CSV log file exists with proper headers."""
-        if not self.csv_log_path.exists():
-            # Create the CSV file with headers
+    def _init_csv_log(self) -> dict[tuple[str, str], dict[str, str]]:
+        """
+        Load the CSV file designated by the user into memory; if one doesn't exist
+        create it instead.
+        """
+        # If the CSV file already exists, load it
+        if self.csv_log_path.exists():
+            # Read existing entries
+            csv_log = dict()
+            if self.csv_log_path.exists():
+                with open(self.csv_log_path, newline="") as csvfile:
+                    reader = csv.DictReader(csvfile)
+                    for i, row in enumerate(reader):
+                        # Confirm the row has a UID; if not, skip it
+                        uid = row.get('uid', None)
+                        if not uid:
+                            print(f"WARNING: Skipping entry #{i} in {self.csv_log_path}, lacked a valid UID")
+                        # Generate a unique uid + author combo to use as our key
+                        author = row.get('author', None)
+                        # KO: In Python, as long as the contents of a tuple are hashable,
+                        # the tuple is hashable as well!
+                        csv_log[(uid, author)] = row
 
+            return csv_log
+
+        # Otherwise, make a new file and return an empty to-be-filled dictionary
+        else:
             # Create parent directory if it doesn't exist
             self.csv_log_path.parent.mkdir(parents=True, exist_ok=True)
 
+            # Create an empty CSV file with appropriate headers
             with open(self.csv_log_path, "w", newline="") as csvfile:
                 writer = csv.DictWriter(csvfile, fieldnames=self.HEADERS)
                 writer.writeheader()
+
+            # Return an empty dictionary, as we don't have anything yet
+            return dict()
 
     def save_segmentation(
         self, data_unit: MultiContrastSegmentationEvaluationDataUnit
@@ -134,10 +164,10 @@ class MultiContrastOutputManager:
         """Log the completed processing to CSV file."""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Prepare the log entry
+        # Create a new log entry for this UID Author pair
         log_entry = {
-            "uid": data_unit.uid,
-            "author": self.user,
+            self.UID_KEY: data_unit.uid,
+            self.AUTHOR_KEY: self.user,
             "timestamp": timestamp,
             "output_mode": self.output_mode.value,
             "segmentation_path": str(segmentation_path.resolve()),
@@ -150,55 +180,14 @@ class MultiContrastOutputManager:
             "processing_notes": f"Segmentation review completed using {self.output_mode.value} mode",
         }
 
-        # Check if entry already exists and update or append
-        self._update_or_append_csv_entry(log_entry)
+        # Set/Replace the corresponding entry in our CSV log
+        self.csv_log[(data_unit.uid, self.user)] = log_entry
 
-    def _update_or_append_csv_entry(self, new_entry: dict[str, Any]):
-        """Update existing CSV entry or append new one.
-
-        This checks for existing entries based on 'uid' and 'author'.
-        Therefor it is imposible to have multiple entries for the same uid and author.
-        """
-        temp_file = self.csv_log_path.with_suffix(".tmp")
-        entry_updated = False
-
-        try:
-            # Read existing entries
-            existing_entries = []
-            if self.csv_log_path.exists():
-                with open(self.csv_log_path, newline="") as csvfile:
-                    reader = csv.DictReader(csvfile)
-                    for row in reader:
-                        if (
-                            row["uid"] == new_entry["uid"]
-                            and row["author"] == new_entry["author"]
-                        ):
-                            # Update existing entry
-                            existing_entries.append(new_entry)
-                            entry_updated = True
-                        else:
-                            existing_entries.append(row)
-
-            # If no existing entry was found, add the new one
-            if not entry_updated:
-                existing_entries.append(new_entry)
-
-            # Write all entries to temp file
-            with open(temp_file, "w", newline="") as csvfile:
-                if existing_entries:
-                    fieldnames = existing_entries[0].keys()
-                    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-                    writer.writeheader()
-                    writer.writerows(existing_entries)
-
-            # Replace original file with temp file
-            temp_file.replace(self.csv_log_path)
-
-        except Exception as e:
-            # Clean up temp file if something went wrong
-            if temp_file.exists():
-                temp_file.unlink()
-            raise e
+        # Write the (now updated) log to the corresponding file
+        with open(self.csv_log_path, "w", newline="") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=self.HEADERS)
+            writer.writeheader()
+            writer.writerows(self.csv_log.values())
 
     def get_output_destinations(
         self, data_unit: MultiContrastSegmentationEvaluationDataUnit
@@ -210,21 +199,21 @@ class MultiContrastOutputManager:
             Tuple of (segmentation_path, sidecar_path)
         """
         if self.output_mode == OutputMode.PARALLEL_DIRECTORY:
-            return self._get_parallel_destinations(data_unit)
+            return self._get_parallel_destinations(data_unit.uid)
         elif self.output_mode == OutputMode.OVERWRITE_ORIGINAL:
             return self._get_overwrite_destinations(data_unit)
         else:
             raise ValueError(f"Unknown output mode: {self.output_mode}")
 
     def _get_parallel_destinations(
-        self, data_unit: MultiContrastSegmentationEvaluationDataUnit
+        self, uid: str
     ) -> tuple[Path, Path]:
         """Get destinations for parallel directory mode."""
         # Define the target output directory
-        target_dir = self.output_dir / f"{data_unit.uid}/anat/"
+        target_dir = self.output_dir / f"{uid}/anat/"
 
         # File name, before extensions
-        fname = f"{data_unit.uid}_{self.user}_seg"
+        fname = f"{uid}_{self.user}_seg"
 
         # Define the target output file paths
         segmentation_out = target_dir / f"{fname}.nii.gz"
@@ -382,3 +371,23 @@ class MultiContrastOutputManager:
                 f"Segmentation '{data_unit.uid}' saved over original file.\n\n"
                 f"Processing logged to: {self.csv_log_path.resolve()}"
             )
+
+    def is_case_completed(self, case_data: dict[str, str]):
+        # If we have a logging CSV, just check against it
+        if self.csv_log:
+            uid = case_data["uid"]
+            author = self.user
+            if self.csv_log.get((uid, author), None) is not None:
+                return True
+            return False
+
+        # Fallback; check against the files on disk instead
+        if self.output_mode == OutputMode.PARALLEL_DIRECTORY:
+            # If we're saving to a parallel directory, simply check if the output file exist
+            uid = case_data['uid']
+            a, b = self._get_parallel_destinations(uid)
+            return a.exists() and b.exists()
+
+        # If we're in overwrite mode and don't have a log, assume they want to go through everything
+        return False
+

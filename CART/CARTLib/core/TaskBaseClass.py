@@ -117,9 +117,9 @@ class TaskBaseClass(ABC, Generic[D]):
         self.save()
         print("Auto-save was successful!")
 
-    def isTaskComplete(self, data_unit: D) -> bool:
+    def isTaskComplete(self, case_data: dict[str: str]) -> bool:
         """
-        Checks whether a DataUnit has been completed or not. How you choose to
+        Checks whether a case has been completed or not. How you choose to
         determine this is up to you (probably based on whether appropriate
         output exists).
 

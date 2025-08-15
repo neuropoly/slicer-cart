@@ -1,10 +1,10 @@
 import csv
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional
 
 from .DataUnitBase import DataUnitBase
-from .TaskBaseClass import DataUnitFactory
+from .TaskBaseClass import DataUnitFactory, TaskBaseClass
 
 
 class DataManager:
@@ -185,11 +185,94 @@ class DataManager:
         # Return the new unit
         return new_unit
 
+    def next_incomplete(self, task: TaskBaseClass, from_idx: int = None) -> DataUnitBase:
+        """
+        Advance to the next case which hasn't been completed for the provided task and get its corresponding DataUnit.
+
+        :param task: The task to query for whether the case has been completed yet or not
+        :param from_idx: The index you want to search *past*.
+            Setting this to -1 will search all cases.
+            If not provided, will search all cases past the currently selected one.
+
+        :return: The next incomplete data unit; None if it doesn't exist/is invalid.
+            If all subsequent cases are valid, just returns the next data unit instead.
+        """
+        # If the user didn't provide a starting index, set it to our current index
+        if not from_idx:
+            from_idx = self.current_case_index
+
+        # Step to the "next" case
+        idx = from_idx + 1
+
+        # Iterate until we run out of cases
+        while idx < len(self.case_data):
+            case = self.case_data[idx]
+            if not task.isTaskComplete(case):
+                return self.select_unit_at(idx)
+            idx += 1
+        # Fallback; if all subsequent cases are completed, print a warning and return the
+        # next case instead
+        print("WARNING: All cases were completed, falling back to next")
+        return self.next()
+
+    def prior_incomplete(self, task: TaskBaseClass, from_idx: int = None) -> DataUnitBase:
+        """
+        Step back to the most recent prior case which hasn't been completed for the
+        provided task, and get its corresponding DataUnit.
+
+        :param task: The task to query for whether the case has been completed yet or not
+        :param from_idx: The index you want to search *from*.
+            Setting this to -1 will search all cases, starting from the last
+            If not provided, will search all cases prior to the currently selected one.
+
+        :return: The previous incomplete data unit; None if it doesn't exist/is invalid.
+            If all subsequent cases are valid, just returns the previous data unit instead.
+        """
+        # If the user didn't provide a starting index, set it to our current index
+        if not from_idx:
+            from_idx = self.current_case_index
+        # If it was -1, set it explicitly to the last index to "act" like Python's indexing
+        elif from_idx == -1:
+            from_idx = len(self.case_data)
+
+        # Step to the "previous" case
+        idx = from_idx - 1
+
+        # Iterate until we run out of cases
+        while idx > -1:
+            case = self.case_data[idx]
+            if not task.isTaskComplete(case):
+                return self.select_unit_at(idx)
+            idx -= 1
+
+        # Fallback; if all prior cases are completed, print a warning and return the
+        # previous case instead
+        print("WARNING: All cases were completed, falling back to previous!")
+        return self.previous()
+
+    def first(self) -> DataUnitBase:
+        # Wrapper to jump to the very first data unit
+        self.current_case_index = 0
+        return self.current_data_unit()
+
+    def first_incomplete(self, task: TaskBaseClass) -> DataUnitBase:
+        # Wrapper function for the somewhat unintuitive "find the first" syntax
+        return self.next_incomplete(task, -1)
+
+    def last(self) -> DataUnitBase:
+        # Wrapper to jump to the last first data unit
+        self.current_case_index = len(self.case_data) - 1
+        return self.current_data_unit()
+
+    def last_incomplete(self, task: TaskBaseClass) -> DataUnitBase:
+        # Wrapper function for the somewhat unintuitive "find the last" syntax
+        return self.prior_incomplete(task, -1)
+
     def next(self) -> DataUnitBase:
         """
         Advance to the next case, and get its corresponding DataUnit.
 
-        :return: The previous data unit; None if it doesn't exist/is invalid
+        :return: The next data unit; None if it doesn't exist/is invalid
         """
         new_index = self.current_case_index + 1
         return self.select_unit_at(new_index)
