@@ -253,7 +253,7 @@ class DataManager:
     def first(self) -> DataUnitBase:
         # Wrapper to jump to the very first data unit
         self.current_case_index = 0
-        return self.current_data_unit()
+        return self.select_current_unit()
 
     def first_incomplete(self, task: TaskBaseClass) -> DataUnitBase:
         # Wrapper function for the somewhat unintuitive "find the first" syntax
@@ -262,7 +262,7 @@ class DataManager:
     def last(self) -> DataUnitBase:
         # Wrapper to jump to the last first data unit
         self.current_case_index = len(self.case_data) - 1
-        return self.current_data_unit()
+        return self.select_current_unit()
 
     def last_incomplete(self, task: TaskBaseClass) -> DataUnitBase:
         # Wrapper function for the somewhat unintuitive "find the last" syntax
