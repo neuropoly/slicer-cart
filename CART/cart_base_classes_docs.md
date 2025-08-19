@@ -2,7 +2,7 @@
 
 ## Overview
 
-CART (Collaborative Annotation and Review Tool) provides a set of abstract base classes for creating streamlined annotation workflows in 3D Slicer. The framework enables efficient iteration through medical imaging cohorts with customizable tasks and flexible data loading strategies.
+CART (Case Annotation and Review Tool) provides a set of abstract base classes for creating streamlined annotation workflows in 3D Slicer. The framework enables efficient iteration through medical imaging cohorts with customizable tasks and flexible data loading strategies.
 
 ## Contributors
 
