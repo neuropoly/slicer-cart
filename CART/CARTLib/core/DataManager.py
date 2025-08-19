@@ -58,7 +58,13 @@ class DataManager:
         return self._get_data_unit.cache_info().maxsize
 
     def set_data_source(self, source: Path):
-        # TODO: Validate the input before running
+        # Confirm the source path exists; if it doesn't,
+        # reject it and do nothing
+        if not source.exists():
+            raise ValueError(f"Data source '{source}' does not exist.")
+        if not source.is_dir():
+            raise ValueError(f"Data source '{source}' is not a directory.")
+
         self.data_source = source
 
         # Clear our cache, as it's almost certainly no longer valid

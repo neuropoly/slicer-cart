@@ -5,7 +5,8 @@ from typing import Generic, Optional, TypeVar, Protocol
 
 import qt
 import slicer
-from .DataUnitBase import DataUnitBase
+
+from CARTLib.core.DataUnitBase import DataUnitBase
 
 # Generic type hint class for anything which is a subclass of DataUnitBase
 D = TypeVar("D", bound=DataUnitBase)
@@ -124,9 +125,8 @@ class TaskBaseClass(ABC, Generic[D]):
         output exists).
 
         This is used for a number of functions, namely:
-          * TODO: Starting at the first case the user has yet to complete
-          * TODO: Skipping over already completed cases
-          * TODO: Deciding whether to cache a case the user just moved past
+          * Starting at the first case the user has yet to complete
+          * Skipping over already completed cases
         """
         return False
 
@@ -221,53 +221,3 @@ class TaskBaseClass(ABC, Generic[D]):
 
     # TODO: Add standardized metadata which can be referenced by CART to
     #  build a task list.
-
-
-# TODO: Remove, this is for reference only.
-# class TaskBase(ABC):
-#     """
-#     Abstract base class for tasks that can be performed on cases.
-#     # TODO Make this connect to TaskConfiguration so you initialize it with a TaskConfiguration instance.
-#     """
-#
-#     def __init__(self, task_id: str, task_name: str, description: str = "") -> None:
-#         self.task_id = task_id
-#         self.task_name = task_name
-#         self.description = description
-#         self.logger = logging.getLogger(f"{__class__.__name__}.{task_id}")
-#
-#         self.is_active = False
-#         self.metadata: dict[str, Any] = {}
-#
-#     @abstractmethod
-#     def setup(self, case: DataUnitBase) -> bool:
-#         ...
-#
-#     @abstractmethod
-#     def execute(self, case: DataUnitBase) -> bool:
-#         ...
-#
-#     @abstractmethod
-#     def validate(self, case: DataUnitBase) -> bool:
-#         ...
-#
-#     @abstractmethod
-#     def cleanup(self, case: DataUnitBase) -> None:
-#         ...
-#
-#     @abstractmethod
-#     def save_results(self, case: DataUnitBase) -> bool:
-#         ...
-#
-#     def get_required_nodes(self) -> list[str]:
-#         return []
-#
-#     def get_task_metadata(self) -> dict[str, Any]:
-#         return {
-#             "task_id": self.task_id,
-#             "task_name": self.task_name,
-#             "description": self.description,
-#             "is_active": self.is_active,
-#             "required_nodes": self.get_required_nodes(),
-#             "metadata": self.metadata,
-#         }
