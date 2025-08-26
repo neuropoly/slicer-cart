@@ -11,9 +11,11 @@ from .MultiContrastOutputManager import OutputMode, MultiContrastOutputManager
 from .MultiContrastSegmentationEvaluationDataUnit import (
     MultiContrastSegmentationEvaluationDataUnit,
 )
+from .MultiContrastSegmentationConfig import MultiContrastSegmentationConfig
 from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
 from CARTLib.utils.widgets import CARTSegmentationEditorWidget
 from CARTLib.utils.layout import Orientation
+from CARTLib.utils.config import UserConfig
 
 
 class MultiContrastSegmentationEvaluationGUI:
@@ -34,6 +36,9 @@ class MultiContrastSegmentationEvaluationGUI:
         # Initialize the layout we'll insert everything into
         formLayout = qt.QFormLayout()
 
+        # 1). Configuration button
+        self._addConfigButton(formLayout)
+
         # 2) Orientation buttons
         self._addOrientationButtons(formLayout)
 
@@ -48,6 +53,17 @@ class MultiContrastSegmentationEvaluationGUI:
         self.promptSelectOutputMode()
 
         return formLayout
+
+    def _addConfigButton(self, layout: qt.QFormLayout):
+        # A button to open the Configuration dialog, which changes how CART operates
+        configButton = qt.QPushButton(_("Configure"))
+        configButton.toolTip = _("Change how CART is configured to iterate through your data.")
+
+        # Clicking the config button shows the Config prompt
+        configButton.clicked.connect(self.bound_task.config.show_gui)
+
+        # Add it to our layout
+        layout.addRow(configButton)
 
     def _addOrientationButtons(self, layout: qt.QFormLayout) -> None:
         """
@@ -272,8 +288,10 @@ class MultiContrastSegmentationEvaluationGUI:
 
         # Set default filename if none exists
         if not self.csvLogEdit.currentPath.strip():
-            # Generate default filename based on user and current date
-            default_name = f"segmentation_review_log_{self.bound_task.user}_{datetime.now().strftime('%Y%m%d')}.csv"
+            # Generate default filename based on username and current date
+            username = self.bound_task.username
+            current_datetime = datetime.now().strftime('%Y%m%d')
+            default_name = f"segmentation_review_log_{username}_{current_datetime}.csv"
             dialog.selectFile(default_name)
         else:
             # Use existing path as starting point
@@ -409,14 +427,24 @@ class MultiContrastSegmentationEvaluationGUI:
 class MultiContrastSegmentationEvaluationTask(
     TaskBaseClass[MultiContrastSegmentationEvaluationDataUnit]
 ):
-    def __init__(self, user: str):
+
+    def __init__(self, user: UserConfig):
         super().__init__(user)
+
+        # Local Attributes
         self.gui: Optional[MultiContrastSegmentationEvaluationGUI] = None
         self.output_mode: OutputMode = OutputMode.PARALLEL_DIRECTORY
         self.output_dir: Optional[Path] = None
         self.output_manager: Optional[MultiContrastOutputManager] = None
         self.data_unit: Optional[MultiContrastSegmentationEvaluationDataUnit] = None
         self.csv_log_path: Optional[Path] = None  # Optional custom CSV log path
+
+        # Configuration
+        self.config: MultiContrastSegmentationConfig = (
+            MultiContrastSegmentationConfig(
+                parent_config=self.user
+            )
+        )
 
     def setup(self, container: qt.QWidget) -> None:
         print(f"Running {self.__class__.__name__} setup!")
@@ -450,6 +478,10 @@ class MultiContrastSegmentationEvaluationTask(
             background=data_unit.primary_volume_node,
             foreground=data_unit.primary_segmentation_node,
             fit=True,
+        )
+        # Hide the segmentation node if requested by the user's config
+        self.data_unit.set_primary_segments_visible(
+            self.config.show_on_load
         )
         # If we have GUI, update it as well
         if self.gui:

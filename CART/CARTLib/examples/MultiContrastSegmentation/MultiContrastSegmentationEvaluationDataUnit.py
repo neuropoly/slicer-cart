@@ -300,3 +300,12 @@ class MultiContrastSegmentationEvaluationDataUnit(DataUnitBase):
         if self.subject_id is not None:
             self.hierarchy_node.SetItemExpanded(self.subject_id, new_state)
             self.hierarchy_node.SetItemDisplayVisibility(self.subject_id, new_state)
+
+    def set_primary_segments_visible(self, new_state: bool) -> None:
+        """
+        Sets the visibility of all child segments for the primary segmentation
+        :param new_state: Whether they segment should be visible or not
+        """
+        display_node = self.primary_segmentation_node.GetDisplayNode()
+
+        display_node.SetAllSegmentsVisibility(new_state)

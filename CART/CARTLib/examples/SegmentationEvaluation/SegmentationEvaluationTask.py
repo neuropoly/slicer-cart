@@ -354,7 +354,7 @@ class SegmentationEvaluationTask(TaskBaseClass[SegmentationEvaluationDataUnit]):
         print(f"Output path set to: {self.output_dir}")
 
         # Create a new output manager with this directory
-        self.output_manager = _OutputManager(self.output_dir, self.user)
+        self.output_manager = _OutputManager(self.output_dir, self.username)
 
         return None
 

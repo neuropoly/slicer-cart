@@ -1,21 +1,17 @@
 import csv
 import json
 from datetime import datetime
-from pathlib import Path
-from typing import Optional, Dict, Any
 from enum import Enum
+from pathlib import Path
+from typing import Optional
 
-import ctk
 import qt
 import slicer
-from slicer.i18n import tr as _
 from .MultiContrastSegmentationEvaluationDataUnit import (
     MultiContrastSegmentationEvaluationDataUnit,
 )
-from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
-from CARTLib.utils.widgets import CARTSegmentationEditorWidget
 from CARTLib.utils.data import save_segmentation_to_nifti
-from CARTLib.utils.layout import LayoutHandler, Orientation
+from CARTLib.utils.config import UserConfig
 
 VERSION = 0.01
 
@@ -48,7 +44,7 @@ class MultiContrastOutputManager:
 
     def __init__(
         self,
-        user: str,
+        user: UserConfig,
         output_mode: OutputMode,
         output_dir: Optional[Path] = None,
         csv_log_path: Optional[Path] = None,
@@ -57,7 +53,7 @@ class MultiContrastOutputManager:
         Initialize the output manager.
 
         Args:
-            user: Username for the author field in sidecar files
+            user: User profile configuration
             output_mode: OutputMode enum value (PARALLEL_DIRECTORY or OVERWRITE_ORIGINAL)
             output_dir: Required for PARALLEL_DIRECTORY mode, ignored for OVERWRITE_ORIGINAL
             csv_log_path: Optional path to CSV log file. If None, will be auto-generated.
@@ -74,6 +70,11 @@ class MultiContrastOutputManager:
         if output_mode == OutputMode.PARALLEL_DIRECTORY and not output_dir:
             raise ValueError("output_dir is required for PARALLEL_DIRECTORY mode")
 
+    ## ALIASES ##
+    @property
+    def username(self) -> str:
+        return self.user.username
+
     ## CSV LOGGING ##
     def _setup_csv_log_path(self, csv_log_path: Optional[Path]) -> Path:
         """Set up the CSV log file path."""
@@ -85,7 +86,7 @@ class MultiContrastOutputManager:
             return self.output_dir / "segmentation_review_log.csv"
         else:
             # For overwrite mode or when no output dir, use current working directory
-            return Path.cwd() / f"segmentation_review_log_{self.user}.csv"
+            return Path.cwd() / f"segmentation_review_log_{self.username}.csv"
 
     def _init_csv_log(self) -> dict[tuple[str, str], dict[str, str]]:
         """
@@ -167,7 +168,7 @@ class MultiContrastOutputManager:
         # Create a new log entry for this UID Author pair
         log_entry = {
             self.UID_KEY: data_unit.uid,
-            self.AUTHOR_KEY: self.user,
+            self.AUTHOR_KEY: self.username,
             "timestamp": timestamp,
             "output_mode": self.output_mode.value,
             "segmentation_path": str(segmentation_path.resolve()),
@@ -181,7 +182,7 @@ class MultiContrastOutputManager:
         }
 
         # Set/Replace the corresponding entry in our CSV log
-        self.csv_log[(data_unit.uid, self.user)] = log_entry
+        self.csv_log[(data_unit.uid, self.username)] = log_entry
 
         # Write the (now updated) log to the corresponding file
         with open(self.csv_log_path, "w", newline="") as csvfile:
@@ -213,7 +214,7 @@ class MultiContrastOutputManager:
         target_dir = self.output_dir / f"{uid}/anat/"
 
         # File name, before extensions
-        fname = f"{uid}_{self.user}_seg"
+        fname = f"{uid}_{self.username}_seg"
 
         # Define the target output file paths
         segmentation_out = target_dir / f"{fname}.nii.gz"
@@ -275,7 +276,7 @@ class MultiContrastOutputManager:
         entry_time = datetime.now()
         new_entry = {
             "Name": "Segmentation Review [CART]",
-            "Author": self.user,
+            "Author": self.username,
             "Version": VERSION,
             "Date": entry_time.strftime("%Y-%m-%d %H:%M:%S"),
             "OutputMode": self.output_mode.value,
@@ -376,7 +377,7 @@ class MultiContrastOutputManager:
         # If we have a logging CSV, just check against it
         if self.csv_log:
             uid = case_data["uid"]
-            author = self.user
+            author = self.username
             if self.csv_log.get((uid, author), None) is not None:
                 return True
             return False

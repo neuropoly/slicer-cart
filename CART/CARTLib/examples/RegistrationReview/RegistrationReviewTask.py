@@ -509,14 +509,14 @@ class RegistrationReviewTask(TaskBaseClass[RegistrationReviewDataUnit]):
             # Prepare the data to save
             review_data = {
                 self.UID_KEY: self.data_unit.uid,
-                self.USER_KEY: self.user,
+                self.USER_KEY: self.username,
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 self.STATUS_KEY: self.REVIEW_COMPLETE,
                 "registration_classification": self.gui.selectedClassification,
             }
 
             # Replace/add the entry to our CSV log
-            self.csv_log[(self.data_unit.uid, self.user)] = review_data
+            self.csv_log[(self.data_unit.uid, self.username)] = review_data
 
             # Write the updated data back to our CSV log file
             with open(self.csv_log_path, "w", newline="") as csvfile:
@@ -543,7 +543,7 @@ class RegistrationReviewTask(TaskBaseClass[RegistrationReviewDataUnit]):
             with open(self.csv_log_path, newline="") as csvfile:
                 reader = csv.DictReader(csvfile)
                 for row in reader:
-                    if row.get("uid") == uid and row.get("user") == self.user:
+                    if row.get("uid") == uid and row.get(self.USER_KEY) == self.username:
                         return row
             return None
         except Exception as e:
@@ -621,7 +621,7 @@ class RegistrationReviewTask(TaskBaseClass[RegistrationReviewDataUnit]):
             return False
 
         # Check if we have an entry for this user and UID
-        case_entry = self.csv_log.get((self.data_unit.uid, self.user), None)
+        case_entry = self.csv_log.get((self.data_unit.uid, self.username), None)
         # If not, the task hasn't been completed
         if not case_entry:
             return False
