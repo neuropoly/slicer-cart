@@ -148,6 +148,44 @@ Once you have created an appropriate cohort file for your task, you can select i
 > [!NOTE]  
 > File resources in a cohort can be absolute OR relative; for the latter, the root path is treated as the path you selected as the [Data Path](#data-selection) during initial CART setup.
 
+
+### Auto-generating a Cohort File
+
+If your data is organized in a structured format (like BIDS), CART can help you automatically generate the cohort CSV file. This feature becomes available once you have selected a valid **Data Path**.
+
+To launch the generator, click the **"Auto-generate cohort file"** button next to the "Cohort File" selector. If you already have a cohort file selected, this button will change to **"Edit cohort file"**, allowing you to modify it using the same tool.
+
+
+#### The Generator Interface 
+
+The generator window provides a powerful interface for building your cohort from scratch or editing an existing one.
+
+* **Main Table**: The central view displays your data. Each **row** represents a case (e.g., a subject), and each **column** represents a resource (e.g., a specific image file).
+* **Row/Column Toggling**: You can use the checkboxes in the first column and the header row to include or exclude specific cases or entire resource columns from the final saved file.
+
+#### Creating and Filtering Columns
+
+The primary function of this tool is to populate the resource columns by scanning the files within your Data Path. This is done using the "Column Creating, Filtering and Editing" panel.
+
+
+**To create a new column:**
+
+1.  Ensure the **"Target Column"** dropdown is set to "Create New Column".
+2.  In the **"New Column Name"** field, enter a descriptive name for the resource (e.g., `volume_t2w`, `segmentation_prostate`).
+3.  Use the **"Filenames MUST Contain"** field to specify unique text that identifies the files for this column. For example, to find T2-weighted images, you might enter `T2w.nii.gz`. You can add multiple comma-separated filters.
+4.  Optionally, use the **"Filenames MUST NOT Contain"** field to exclude files that match your inclusion criteria but should be ignored (e.g., `_brain_mask`).
+5.  Click the **"Create New Column from Filters"** button. The table will update with a new column populated with the file paths that match your rules.
+
+**Other Management Features:**
+
+* **Edit Filters**: Select an existing column from the "Target Column" dropdown to view and modify its filters.
+* **Rename a Column**: **Double-click** on any column header (except `uid`) to rename it.
+* **Delete a Column**: Select a column from the "Target Column" dropdown and click the **"Delete Column"** button.
+
+#### Saving Your Cohort
+
+Once you are satisfied with your cohort configuration, click **"Save and Apply"**. The file will be saved inside a `cohort_files` directory within your main Data Path. You can then proceed to select it and run your task. By default, a new file (`cohort.csv`, `cohort1.csv`, etc.) is created, but you can check the **"Override selected Cohort File"** box to save changes to the currently loaded file instead.
+
 ### Running the Task
 
 Once you have selected all the parameters prior, click "Confirm" to begin! How CART proceeds past this point depends on the task you selected; see their respective documentation for details.
