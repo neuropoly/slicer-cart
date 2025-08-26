@@ -155,7 +155,7 @@ If your data is organized in a structured format (like BIDS), CART can help you 
 
 
 > [!NOTE]  
-> Cohort generation and editing will only be enabled if the [Data Path](#data-selection) points to a "valid" dataset. **Currently, CART only supports pseudo-BIDS compliant datasets. (Datasets containing matching `/derivatives` and `raw` cases)** 
+> Cohort generation and editing will only be enabled if the [Data Path](#data-selection) points to a "valid" dataset. **Currently, CART only supports pseudo-BIDS compliant datasets. (Datasets containing matching `/derivatives` and `raw` cases | subjects)** 
 
 
 To launch the generator, click the **"Auto-generate cohort file"** button next to the "Cohort File" selector. If you already have a cohort file selected, this button will change to **"Edit cohort file"**, allowing you to modify it using the same tool.
