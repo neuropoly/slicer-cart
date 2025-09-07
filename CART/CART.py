@@ -12,11 +12,11 @@ from slicer.ScriptedLoadableModule import *
 from slicer.i18n import tr as _
 from slicer.util import VTKObservationMixin
 
-from CARTLib.utils.config import GLOBAL_CONFIG, UserConfig
 from CARTLib.core.DataManager import DataManager
 from CARTLib.core.DataUnitBase import DataUnitBase
 from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
-
+from CARTLib.core.CohortGenerator import CohortGeneratorWindow
+from CARTLib.utils.config import GLOBAL_CONFIG, ProfileConfig
 
 from CARTLib.examples.SegmentationEvaluation.SegmentationEvaluationTask import (
     SegmentationEvaluationTask,
@@ -136,24 +136,23 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         ScriptedLoadableModuleWidget.setup(self)
 
         ## Setup ##
-
         # The collapsible button to contain everything in
         mainGUI = ctk.ctkCollapsibleButton()
         # Not the best translation, but it'll do...
         mainGUI.text = "CART " + _("Setup")
         mainLayout = qt.QFormLayout(mainGUI)
 
-        # User selection/registration
-        self.buildUserUI(mainLayout)
+        # Profile selection/registration
+        self.buildProfileUI(mainLayout)
 
-        # Cohort Selection
-        self.buildCohortUI(mainLayout)
+        # Task UI
+        self.buildTaskUI(mainLayout)
 
         # Base Path input UI
         self.buildBasePathUI(mainLayout)
 
-        # Task UI
-        self.buildTaskUI(mainLayout)
+        # Cohort Selection
+        self.buildCohortUI(mainLayout)
 
         # Button panel
         self.buildButtonPanel(mainLayout)
@@ -215,7 +214,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         logic instance to avoid feedback loops.
         """
         affected_widgets = [
-            self.userSelectButton,
+            self.profileSelectButton,
             self.cohortFileSelectionButton,
             self.dataPathSelectionWidget,
             self.taskOptions
@@ -232,27 +231,36 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def sync_with_logic(self):
         # Block our widgets from emitting signals while we run
         with self.block_signals():
-            # Update the user selection widget with the contents of the logic instance
-            users = self.logic.get_available_usernames()
-            self.userSelectButton.clear()
-            self.userSelectButton.addItems(users)
+            # Update the profile selection widget with the contents of the logic instance
+            profile_labels = self.logic.get_profile_labels()
+            self.profileSelectButton.clear()
+            self.profileSelectButton.addItems(profile_labels)
 
-            # Select the user currently selected by the logic
+            # Select the profile currently selected by the logic
             try:
-                user_idx = users.index(self.logic.active_username)
-                self.userSelectButton.currentIndex = user_idx
+                self.profileSelectButton.currentText = self.logic.active_profile_label
             except ValueError:
-                # Value error indicates the user was not in the list, which is fine
+                # Value error indicates the profile was not in the list, which is fine
                 pass
 
             # Pull the currently selected cohort file next
-            self.cohortFileSelectionButton.currentPath = self.logic.cohort_path
+            if self.logic.cohort_path is None:
+                self.cohortFileSelectionButton.currentPath = ""
+            else:
+                self.cohortFileSelectionButton.currentPath = self.logic.cohort_path
 
             # Pull the currently selected data path next
-            self.dataPathSelectionWidget.currentPath = self.logic.data_path
+            if self.logic.data_path is None:
+                self.dataPathSelectionWidget.currentPath = ""
+            else:
+                self.dataPathSelectionWidget.currentPath = str(self.logic.data_path)
 
             # Finally, attempt to update our task from the config
-            self.taskOptions.currentText = self.logic.task_id
+            if self.logic.task_id:
+                self.taskOptions.currentText = self.logic.task_id
+            else:
+                # Setting the text to "" fails for ComboBoxes which aren't editable
+                self.taskOptions.setCurrentIndex(-1)
 
             # Update our button state to match the new setup
             self.updateButtons()
@@ -282,76 +290,55 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.taskGUI.setEnabled(True)
 
     ## GUI builders ##
-    def buildUserUI(self, mainLayout: qt.QFormLayout):
+    def buildProfileUI(self, mainLayout: qt.QFormLayout):
         """
-        Builds the GUI for the user management section of the Widget
+        Builds the GUI for the profile management section of the Widget
         :return:
         """
         # HBox to ensure everything is draw horizontally
-        userHBox = qt.QHBoxLayout()
+        profileHBox = qt.QHBoxLayout()
 
         # Insert this layout in the "main" GUI
-        mainLayout.addRow(_("User:"), userHBox)
+        mainLayout.addRow(_("Profile:"), profileHBox)
 
-        # Prior users list
-        userSelectButton = qt.QComboBox()
-        userSelectButton.placeholderText = _("[Not Selected]")
+        # Existing profiles list
+        profileSelectButton = qt.QComboBox()
+        profileSelectButton.placeholderText = _("[Not Selected]")
 
-        # Set the name of the button to the "UserSelectionButton"
-        userSelectButton.toolTip = _("Select a previous user.")
+        # Provide an informative tooltip
+        profileSelectButton.toolTip = _("Select an existing profile.")
 
         # When the user selects an existing entry, update the program to match
-        userSelectButton.activated.connect(self.userSelected)
+        profileSelectButton.activated.connect(self.profileSelected)
 
         # Add it to the HBox
-        userHBox.addWidget(userSelectButton)
+        profileHBox.addWidget(profileSelectButton)
 
         # Make the spacing between widgets (the button and dropdown) 0
-        userHBox.spacing = 0
+        profileHBox.spacing = 0
 
-        # New user button
+        # New profile button
         # TODO: Make this a QToolButton instead
-        newUserButton = qt.QPushButton("+")
+        newProfileButton = qt.QPushButton("+")
 
         # When the button is pressed, prompt them to fill out a form
-        newUserButton.clicked.connect(self.promptNewUser)
+        newProfileButton.clicked.connect(self.promptNewProfile)
 
         # Force its size to not change dynamically
-        newUserButton.setSizePolicy(qt.QSizePolicy.Fixed, qt.QSizePolicy.Fixed)
+        newProfileButton.setSizePolicy(qt.QSizePolicy.Fixed, qt.QSizePolicy.Fixed)
 
         # Force it to be square
         # KO: We can't just use "resize" here, because either Slicer or QT
         #  overrides it later; really appreciate 2 hours of debugging to figure
         #  that out!
-        newUserButton.setMaximumWidth(CARTWidget.MICRO_BUTTON_WIDTH)
-        newUserButton.setMaximumHeight(CARTWidget.MICRO_BUTTON_HEIGHT)
+        newProfileButton.setMaximumWidth(CARTWidget.MICRO_BUTTON_WIDTH)
+        newProfileButton.setMaximumHeight(CARTWidget.MICRO_BUTTON_HEIGHT)
 
         # Add it to the layout!
-        userHBox.addWidget(newUserButton)
+        profileHBox.addWidget(newProfileButton)
 
-        # Make the user selection button accessible
-        self.userSelectButton = userSelectButton
-
-    def buildCohortUI(self, mainLayout: qt.QFormLayout):
-        # Directory selection button
-        cohortFileSelectionButton = ctk.ctkPathLineEdit()
-
-        # Set file filters to only show readable file types
-        cohortFileSelectionButton.filters = ctk.ctkPathLineEdit.Files
-        cohortFileSelectionButton.nameFilters = [
-            "CSV files (*.csv)",
-        ]
-
-        # When the cohort is changed, update accordingly
-        cohortFileSelectionButton.currentPathChanged.connect(self.onCohortChanged)
-
-        # TODO: Optionally set a default filter
-
-        # Add it to our layout
-        mainLayout.addRow(_("Cohort File:"), cohortFileSelectionButton)
-
-        # Make the button easy-to-access
-        self.cohortFileSelectionButton = cohortFileSelectionButton
+        # Make the profile selection button accessible
+        self.profileSelectButton = profileSelectButton
 
     def buildBasePathUI(self, mainLayout: qt.QFormLayout):
         """
@@ -373,8 +360,39 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Make it accessible
         self.dataPathSelectionWidget = dataPathSelectionWidget
 
+    def buildCohortUI(self, mainLayout: qt.QFormLayout):
+        # Auto-generator window button
+        self.cohortGeneratorButton = qt.QPushButton(_("Auto-generate cohort file"))
+        self.cohortGeneratorButton.setStyleSheet("background-color: green;")
+
+        # Directory selection button
+        cohortFileSelectionButton = ctk.ctkPathLineEdit()
+
+        # Set file filters to only show readable file types
+        cohortFileSelectionButton.filters = ctk.ctkPathLineEdit.Files
+        cohortFileSelectionButton.nameFilters = [
+            "CSV files (*.csv)",
+        ]
+
+        # When the cohort is changed, update accordingly
+        cohortFileSelectionButton.currentPathChanged.connect(self.onCohortChanged)
+
+        # When clicked, open the auto-generator window
+        self.cohortGeneratorButton.clicked.connect(self.onCohortGeneratorButtonClicked)
+
+        # Create a horizontal layout to hold the file selection and the button
+        hLayout = qt.QHBoxLayout()
+        hLayout.addWidget(cohortFileSelectionButton)
+        hLayout.addWidget(self.cohortGeneratorButton)
+
+        # Add the horizontal layout to our main form layout as a single row
+        mainLayout.addRow(_("Cohort File:"), hLayout)
+
+        # Make it accessible
+        self.cohortFileSelectionButton = cohortFileSelectionButton
+
     def buildTaskUI(self, mainLayout: qt.QFormLayout):
-        # Prior users list
+        # Task selection list
         taskOptions = qt.QComboBox()
         taskOptions.placeholderText = _("[Not Selected]")
 
@@ -413,7 +431,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         configButton.toolTip = _("Change how CART is configured to iterate through your data.")
 
         # Clicking the config button shows the Config prompt
-        configButton.clicked.connect(self.logic.config.show_gui)
+        # KO: The lambda is needed, as it forced the "config" state to be re-evaluated
+        #  (if it wasn't, this call would ignore changes to the selected profile)
+        configButton.clicked.connect(lambda: self.logic.config.show_gui())
 
         # A button which confirms the current settings and attempts to start
         #  task iteration!
@@ -509,39 +529,40 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     ## Connected Functions ##
 
     ### Setup Widgets ###
-    def promptNewUser(self):
+    def promptNewProfile(self):
         """
-        Prompt the user to fill out details for a new user profile.
+        Prompt the user to fill out details for a new profile.
 
         If successful, also updates the logic to match
         """
         try:
-            # Get the username for the new user profile; None if no
-            # user was created.
-            new_username = GLOBAL_CONFIG.promptNewUser(
+            # Get the label for the new profile; None if no
+            # profile was created.
+            new_label = GLOBAL_CONFIG.promptNewProfile(
                 self.logic.config
             )
-            # If a valid username was returned, update our logic to match
-            if new_username:
-                self.logic.active_username = new_username
+            # If a valid label was returned, update our logic to match
+            if new_label:
+                self.logic.active_profile_label = new_label
                 self.sync_with_logic()
                 # Save the config to entrench this new state
                 GLOBAL_CONFIG.save()
         except Exception as exc:
             self.pythonExceptionPrompt(exc)
 
-    def userSelected(self):
-        # Update the logic with this newly selected user
-        new_username = self.userSelectButton.currentText
-        self.logic.active_username = new_username
+    def profileSelected(self):
+        # Update the logic with this newly selected profile
+        new_label = self.profileSelectButton.currentText
+        self.logic.active_profile_label = new_label
 
         # Rebuild the GUI to match
         self.sync_with_logic()
+        print(self.logic.config.backing_dict)
 
         # Update the button states to match our current state
         self.updateButtons()
 
-    def _refreshUserList(self):
+    def _refreshProfileList(self):
         """
         Rebuild the list in the GUI from scratch, ensuring everything is
         maintained in order.
@@ -551,18 +572,18 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
          last. Therefore, this song and dance is needed
         """
         # Clear all entries
-        self.userSelectButton.clear()
+        self.profileSelectButton.clear()
 
         # Rebuild its contents from scratch
-        self.userSelectButton.addItems(self.logic.get_available_usernames())
+        self.profileSelectButton.addItems(self.logic.get_profile_labels())
 
         # Select the first (most recent) entry in the list
-        self.userSelectButton.currentIndex = 0
+        self.profileSelectButton.currentIndex = 0
 
     def onDataPathChanged(self):
         """
         Handles changes to the base path selection.
-        Falls back the previous base path if the user specified an empty space.
+        Falls back the previous base path if the user provided an empty space.
         """
         # Get the current path from the GUI
         current_path = self.dataPathSelectionWidget.currentPath
@@ -573,13 +594,20 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # If the data path is now empty, reset to the previous path and end early
         if not current_path:
             print("Error: Base path was empty, retaining previous base path.")
-            self.dataPathSelectionWidget.currentPath = str(self.logic._data_path)
+            if self.logic.data_path is None:
+                path_str = ""
+            else:
+                path_str = str(self.logic.data_path)
+            self.dataPathSelectionWidget.currentPath = path_str
             self.updateButtons()
             return
 
         try:
             # Try to update the logic's path to match
             self.logic.data_path = Path(current_path)
+
+            # TODO: Find a way to signal when this is changed so our CohortGenerator
+            #  widget can be updated appropriately.
         except Exception as exc:
             # Show the user an error
             self.pythonExceptionPrompt(exc)
@@ -587,13 +615,31 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             # In both cases, synchronize with our logic after
             self.sync_with_logic()
 
-    def onCohortChanged(self):
-        # Get the currently selected cohort file from the widget
-        new_cohort = Path(self.cohortFileSelectionButton.currentPath)
+    def onCohortChanged(self, new_cohort_path=None):
+        """
+        Handles cohort file changes from the ctkPathLineEdit widget or internal calls.
+        Ensures the path is converted to a Path object before being passed to the logic.
+        """
+
+        print("COHORT PATH CHANGED")
+        # If an existing cohort file is loaded from config, indicate edit instead of generation
+        if self.cohortFileSelectionButton.currentPath != "":
+            self.cohortGeneratorButton.setText("Edit cohort file")
+
+        if new_cohort_path is None:
+            new_cohort_path = self.cohortFileSelectionButton.currentPath
 
         # Attempt to update the cohort in our logic instance
         try:
-            self.logic.cohort_path = new_cohort
+            # If the provided path is empty, stop here.
+            if not new_cohort_path:
+                self.destroyCohortTable()
+                return
+
+            # Set the logic's cohort path
+            self.logic.cohort_path = new_cohort_path
+
+            print(f"Successfully set cohort to {self.logic.cohort_path}")
 
             # Disable cohort preview until the user wants it again
             self.isPreviewMode = False
@@ -653,6 +699,40 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         finally:
             # Regardless of what happens, ensure we are synced to our logic
             self.sync_with_logic()
+
+    def onCohortGeneratorButtonClicked(self):
+        # Before trying to create a prompt, confirm we have a valid setup
+        if not self.dataPathSelectionWidget.currentPath:
+            # We can't generate a cohort without a dataset to reference
+            raise ValueError("Cannot edit a Cohort without a backing data path!")
+        elif not self.cohortFileSelectionButton.currentPath:
+            # If we don't have an initial cohort file, make one from scratch
+            from CARTLib.utils.bids import generate_blank_cohort
+            new_cohort = generate_blank_cohort(self.logic.data_path)
+            self.cohortFileSelectionButton.setCurrentPath(new_cohort)
+
+        # Load the cohort's contents into memory
+        self.logic.load_cohort()
+
+        # Open the cohort generator window, passing in the current data path and cohort (if any)
+        case_data = self.logic.data_manager.case_data
+        cohortGeneratorWindow = CohortGeneratorWindow(
+            self,
+            data_path=self.logic.data_path,
+            profile=self.logic.config,
+            cohort_data=case_data,
+            cohort_path=self.logic.cohort_path
+        )
+        cohortGeneratorWindowResult = cohortGeneratorWindow.exec_()
+
+        if cohortGeneratorWindowResult == qt.QDialog.Accepted:
+            if not self.logic.data_manager:
+                self.logic.rebuild_data_manager()
+            self.logic.data_manager.case_data = cohortGeneratorWindow.logic.cohort_data
+            self.logic.cohort_path = cohortGeneratorWindow.logic.selected_cohort_path
+            self.onCohortChanged(self.logic.cohort_path)
+            self.cohortGeneratorButton.setText("Edit cohort file")
+            self.cohortFileSelectionButton.setCurrentPath(str(cohortGeneratorWindow.logic.selected_cohort_path))
 
     def buildCohortTable(self):
 
@@ -965,7 +1045,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def pythonExceptionPrompt(self, exc: Exception):
         """
-
         Prompts the user with the contents of an exception. Also logs the
          stack-trace to console for debugging purposes
 
@@ -1063,11 +1142,8 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         """Called when the logic class is instantiated. Can be used for initializing member variables."""
         ScriptedLoadableModuleLogic.__init__(self)
 
-        # Current username
-        self._active_username: str = None
-
         # Current configuration
-        self.config: UserConfig = None
+        self.config: ProfileConfig = None
 
         # Path to the cohort file currently in use
         self._cohort_path: Path = None
@@ -1096,75 +1172,72 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         self.data_unit_factory: Optional[DataUnitFactory] = None
 
         # Load our last state from the config file
-        self._load_user_state(GLOBAL_CONFIG.last_user)
+        self._load_profile_state(GLOBAL_CONFIG.last_profile)
 
-    ## User Management ##
+    ## Profile Management ##
     @property
-    def active_username(self) -> str:
-        return self._active_username
+    def active_profile_label(self) -> str:
+        return self.config.label
 
-    @active_username.setter
-    def active_username(self, new_name: str):
-        # Validate the specified user is valid first
+    @active_profile_label.setter
+    def active_profile_label(self, new_name: str):
+        # Validate the specified profile label is valid first
         stripped_name = new_name.strip()
 
         if not stripped_name:
-            raise ValueError("Cannot set the active user to blank!")
+            raise ValueError("Cannot set the active profile label to blank!")
 
         if not stripped_name in GLOBAL_CONFIG.profiles.keys():
-            raise ValueError(f"Cannot select user '{stripped_name}'; they don't have a profile!")
+            raise ValueError(f"Cannot select profile '{stripped_name}', as it does not exist!")
 
-        # Set the user's profile as our own
-        self._active_username = stripped_name
-
-        # Sync ourselves with this new user
-        self._load_user_state(self._active_username)
+        # Sync ourselves with this new profile
+        self._load_profile_state(stripped_name)
 
         # Clear any active task, as its no longer relevant
         self.clear_task()
 
-        # Update the config to designate that this user is now the most recent
-        GLOBAL_CONFIG.last_user = stripped_name
+        # Update the config to designate that this profile is now the most recent
+        GLOBAL_CONFIG.last_profile = stripped_name
 
-    def _load_user_state(self, username: str):
+    def _load_profile_state(self, profile_label: str):
         """
         Attempt to load our last state from the configuration file
         """
-        # If a previous user doesn't exist, leave as-is
-        if not username:
-            raise ValueError("Cannot load a blank user!")
+        # If a previous profile doesn't exist, leave as-is
+        if not profile_label:
+            raise ValueError("Cannot load a blank profile!")
 
-        # Try to load that user's configuration
-        self.config = GLOBAL_CONFIG.get_user_config(username)
+        # Try to fetch that profile's configuration
+        new_config = GLOBAL_CONFIG.get_profile_config(profile_label)
 
         # If there is not corresponding config, terminate here
-        if self.config is None:
-            raise ValueError(f"No profile exists for username '{username}'")
+        if new_config is None:
+            raise ValueError(f"No profile exists for label '{profile_label}'")
 
         # Try to synchronize the config's state with our own
-        self._active_username = username
+        self.config = new_config
         self._data_path = self.config.last_used_data_path
         self._cohort_path = self.config.last_used_cohort_file
         self._task_id = self.config.last_used_task
         self.select_default_data_factory()
 
-    def get_available_usernames(self) -> list[str]:
+    def get_profile_labels(self) -> list[str]:
         # Simple wrapper for our config
         return [str(x) for x in GLOBAL_CONFIG.profiles.keys()]
 
-    def new_user_profile(self, username: str) -> UserConfig:
+    def new_profile(self, label: str) -> ProfileConfig:
         """
-        Attempts to create a new user w/ the provided username,
-        using the previously active user's profile as reference.
+        Attempts to create a new profile w/ the provided label,
+        using the previously active profile as reference.
 
         We also immediately change to this new profile to give the
         user some feedback
         """
         # We always copy from the current profile by default
-        new_profile = GLOBAL_CONFIG.new_user_profile(
-            username, reference_profile=self.config
+        new_profile = GLOBAL_CONFIG.new_profile(
+            label, reference_profile=self.config
         )
-        self._load_user_state(username)
+        self._load_profile_state(label)
         return new_profile
 
     ## Cohort File Management ##
@@ -1173,7 +1246,11 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         return self._cohort_path
 
     @cohort_path.setter
-    def cohort_path(self, new_path: Path):
+    def cohort_path(self, new_path):
+        # If the input is not a path, try to cast it as one
+        if not isinstance(new_path, Path):
+            new_path = Path(new_path)
+
         # Confirm the file exists
         if not new_path.exists():
             raise ValueError(f"Cohort file '{new_path}' does not exist!")
@@ -1191,6 +1268,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # If all checks pass, update our state
         self._cohort_path = new_path
         self.clear_task()
+        self.rebuild_data_manager()
 
         # Update the config to match
         self.config.last_used_cohort_file = new_path
@@ -1212,7 +1290,10 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         return self._data_path
 
     @data_path.setter
-    def data_path(self, new_path: Path):
+    def data_path(self, new_path):
+        if not isinstance(new_path, Path):
+            new_path = Path(new_path)
+
         # Confirm the directory exists
         if not new_path.exists():
             raise ValueError(f"Data path '{new_path}' does not exist!")
@@ -1309,9 +1390,9 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         Check if we're ready to run a task!
         :return: True if so, False otherwise.
         """
-        # We can't proceed if we don't have a selected user
-        if not self.active_username:
-            print("Missing a valid user!")
+        # We can't proceed if we don't have a selected profile
+        if not self.active_profile_label:
+            print("Missing a valid profile!")
             return False
         # We can't proceed if a data path has not been specified
         elif not self.data_path:
@@ -1444,7 +1525,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # Pass it to the current task, so it can update anything it needs to
         self._update_task_with_new_case(current_unit)
 
-        # Return it for further user
+        # Return it for further use
         return current_unit
 
     def next_case(self, skip_complete: bool = False) -> Optional[DataUnitBase]:

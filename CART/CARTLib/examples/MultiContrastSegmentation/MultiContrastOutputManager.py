@@ -11,7 +11,7 @@ from .MultiContrastSegmentationEvaluationDataUnit import (
     MultiContrastSegmentationEvaluationDataUnit,
 )
 from CARTLib.utils.data import save_segmentation_to_nifti
-from CARTLib.utils.config import UserConfig
+from CARTLib.utils.config import ProfileConfig
 
 VERSION = 0.01
 
@@ -44,7 +44,7 @@ class MultiContrastOutputManager:
 
     def __init__(
         self,
-        user: UserConfig,
+        profile: ProfileConfig,
         output_mode: OutputMode,
         output_dir: Optional[Path] = None,
         csv_log_path: Optional[Path] = None,
@@ -53,12 +53,12 @@ class MultiContrastOutputManager:
         Initialize the output manager.
 
         Args:
-            user: User profile configuration
+            profile: Profile configuration
             output_mode: OutputMode enum value (PARALLEL_DIRECTORY or OVERWRITE_ORIGINAL)
             output_dir: Required for PARALLEL_DIRECTORY mode, ignored for OVERWRITE_ORIGINAL
             csv_log_path: Optional path to CSV log file. If None, will be auto-generated.
         """
-        self.user = user
+        self.profile = profile
         self.output_mode = output_mode
         self.output_dir = output_dir
 
@@ -72,8 +72,8 @@ class MultiContrastOutputManager:
 
     ## ALIASES ##
     @property
-    def username(self) -> str:
-        return self.user.username
+    def profile_label(self) -> str:
+        return self.profile.label
 
     ## CSV LOGGING ##
     def _setup_csv_log_path(self, csv_log_path: Optional[Path]) -> Path:
@@ -86,7 +86,7 @@ class MultiContrastOutputManager:
             return self.output_dir / "segmentation_review_log.csv"
         else:
             # For overwrite mode or when no output dir, use current working directory
-            return Path.cwd() / f"segmentation_review_log_{self.username}.csv"
+            return Path.cwd() / f"segmentation_review_log_{self.profile_label}.csv"
 
     def _init_csv_log(self) -> dict[tuple[str, str], dict[str, str]]:
         """
@@ -168,7 +168,7 @@ class MultiContrastOutputManager:
         # Create a new log entry for this UID Author pair
         log_entry = {
             self.UID_KEY: data_unit.uid,
-            self.AUTHOR_KEY: self.username,
+            self.AUTHOR_KEY: self.profile_label,
             "timestamp": timestamp,
             "output_mode": self.output_mode.value,
             "segmentation_path": str(segmentation_path.resolve()),
@@ -182,7 +182,7 @@ class MultiContrastOutputManager:
         }
 
         # Set/Replace the corresponding entry in our CSV log
-        self.csv_log[(data_unit.uid, self.username)] = log_entry
+        self.csv_log[(data_unit.uid, self.profile_label)] = log_entry
 
         # Write the (now updated) log to the corresponding file
         with open(self.csv_log_path, "w", newline="") as csvfile:
@@ -214,7 +214,7 @@ class MultiContrastOutputManager:
         target_dir = self.output_dir / f"{uid}/anat/"
 
         # File name, before extensions
-        fname = f"{uid}_{self.username}_seg"
+        fname = f"{uid}_{self.profile_label}_seg"
 
         # Define the target output file paths
         segmentation_out = target_dir / f"{fname}.nii.gz"
@@ -276,7 +276,7 @@ class MultiContrastOutputManager:
         entry_time = datetime.now()
         new_entry = {
             "Name": "Segmentation Review [CART]",
-            "Author": self.username,
+            "Author": self.profile_label,
             "Version": VERSION,
             "Date": entry_time.strftime("%Y-%m-%d %H:%M:%S"),
             "OutputMode": self.output_mode.value,
@@ -377,7 +377,7 @@ class MultiContrastOutputManager:
         # If we have a logging CSV, just check against it
         if self.csv_log:
             uid = case_data["uid"]
-            author = self.username
+            author = self.profile_label
             if self.csv_log.get((uid, author), None) is not None:
                 return True
             return False

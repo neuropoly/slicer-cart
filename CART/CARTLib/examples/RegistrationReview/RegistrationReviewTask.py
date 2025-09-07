@@ -445,8 +445,8 @@ class RegistrationReviewTask(TaskBaseClass[RegistrationReviewDataUnit]):
         "registration_classification",
     ]
 
-    def __init__(self, user: str):
-        super().__init__(user)
+    def __init__(self, profile: str):
+        super().__init__(profile)
 
         # Variable for tracking the active GUI instance
         self.gui: Optional["RegistrationReviewGUI"] = None
@@ -509,14 +509,14 @@ class RegistrationReviewTask(TaskBaseClass[RegistrationReviewDataUnit]):
             # Prepare the data to save
             review_data = {
                 self.UID_KEY: self.data_unit.uid,
-                self.USER_KEY: self.username,
+                self.USER_KEY: self.profile_label,
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 self.STATUS_KEY: self.REVIEW_COMPLETE,
                 "registration_classification": self.gui.selectedClassification,
             }
 
             # Replace/add the entry to our CSV log
-            self.csv_log[(self.data_unit.uid, self.username)] = review_data
+            self.csv_log[(self.data_unit.uid, self.profile_label)] = review_data
 
             # Write the updated data back to our CSV log file
             with open(self.csv_log_path, "w", newline="") as csvfile:
@@ -543,7 +543,7 @@ class RegistrationReviewTask(TaskBaseClass[RegistrationReviewDataUnit]):
             with open(self.csv_log_path, newline="") as csvfile:
                 reader = csv.DictReader(csvfile)
                 for row in reader:
-                    if row.get("uid") == uid and row.get(self.USER_KEY) == self.username:
+                    if row.get("uid") == uid and row.get(self.USER_KEY) == self.profile_label:
                         return row
             return None
         except Exception as e:
@@ -621,7 +621,7 @@ class RegistrationReviewTask(TaskBaseClass[RegistrationReviewDataUnit]):
             return False
 
         # Check if we have an entry for this user and UID
-        case_entry = self.csv_log.get((self.data_unit.uid, self.username), None)
+        case_entry = self.csv_log.get((self.data_unit.uid, self.profile_label), None)
         # If not, the task hasn't been completed
         if not case_entry:
             return False

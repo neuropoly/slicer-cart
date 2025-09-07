@@ -7,7 +7,7 @@ import qt
 import slicer
 
 from CARTLib.core.DataUnitBase import DataUnitBase
-from CARTLib.utils.config import UserConfig
+from CARTLib.utils.config import ProfileConfig
 
 # Generic type hint class for anything which is a subclass of DataUnitBase
 D = TypeVar("D", bound=DataUnitBase)
@@ -38,7 +38,7 @@ class TaskBaseClass(ABC, Generic[D]):
     itself.!
     """
 
-    def __init__(self, user: UserConfig):
+    def __init__(self, profile: ProfileConfig):
         """
         Basic constructor.
 
@@ -48,21 +48,21 @@ class TaskBaseClass(ABC, Generic[D]):
         TODO: Swap Optional for newer Optional syntax ('D | None');
          currently only on Python 3.10 and up (which Slicer 5.8 doesn't have)
         """
-        # Track the user for later; we often want to stratify our task by which
-        #  user is running it
-        self.user: UserConfig = user
+        # Track the profile for later; we often want to stratify our task by
+        # the profile that is running it.
+        self.profile: ProfileConfig = profile
 
         # Create a logger to track the goings-on of this task.
         self.logger = logging.getLogger(f"{__class__.__name__}")
 
     # Aliases for commonly accessed attributes
     @property
-    def username(self) -> str:
-        return self.user.username
+    def profile_label(self) -> str:
+        return self.profile.label
 
     @property
-    def user_role(self) -> str:
-        return self.user.role
+    def profile_role(self) -> str:
+        return self.profile.role
 
     @abstractmethod
     def setup(self, container: qt.QWidget):

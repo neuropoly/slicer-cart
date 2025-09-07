@@ -2,7 +2,7 @@ import json
 from abc import ABC, abstractmethod, ABCMeta
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generic, Optional, TypeVar
+from typing import Generic, Optional, TypeVar, Union
 
 import qt
 
@@ -302,16 +302,16 @@ class ConfigDialog(qt.QDialog, ABC, Generic[DICT_CONFIG_TYPE], metaclass=_ABCQDi
 
 
 ## Backing Config Managers ##
-class UserConfig(DictBackedConfig):
+class ProfileConfig(DictBackedConfig):
     """
-    Configuration manager for a CART user profile.
+    Configuration manager for a CART profile.
 
-    Tracks the user's settings, allowing for them to be
-    swapped on the fly.
+    Tracks the profile's settings, allowing for profiles of
+    settings to be swapped on the fly.
     """
     DEFAULT_ROLE = "N/A"
 
-    def __init__(self, username: str, backing_dict: dict, parent_config: "CARTConfig"):
+    def __init__(self, label: str, backing_dict: dict, parent_config: "CARTConfig"):
         # Init w/o a parent config initially
         super().__init__()
 
@@ -320,26 +320,29 @@ class UserConfig(DictBackedConfig):
         self._backing_dict = backing_dict
         self.parent_config: "CARTConfig" = parent_config
 
-        # As each user gets its own config entry, its label is our username instead
-        self.config_label = username
+        # As each profile gets its own config entry, each with a unique label
+        self.config_label = label
 
     @classmethod
     def default_config_label(cls) -> str:
-        # Users are stored in a profile dict, and use their own username
-        # within that instead of a shared label.
+        # Profiles are stored in a profile dict, and use their own label
+        # within said dict instead of a shared label.
         pass
 
     @property
-    def username(self):
+    def label(self):
         return self.config_label
 
     ## Last Used Settings ##
     LAST_USED_COHORT_KEY = "last_used_cohort_file"
 
     @property
-    def last_used_cohort_file(self) -> Path:
-        val = Path(self._backing_dict.get(self.LAST_USED_COHORT_KEY, ""))
-        return val
+    def last_used_cohort_file(self) -> Union[Path, None]:
+        val = self._backing_dict.get(self.LAST_USED_COHORT_KEY, None)
+        if val is None:
+            return None
+        # noinspection PyUnreachableCode
+        return Path(val)
 
     @last_used_cohort_file.setter
     def last_used_cohort_file(self, new_path: Path):
@@ -349,9 +352,12 @@ class UserConfig(DictBackedConfig):
     LAST_USED_DATA_KEY = "last_used_data_path"
 
     @property
-    def last_used_data_path(self) -> Path:
-        val = Path(self._backing_dict.get(self.LAST_USED_DATA_KEY, ""))
-        return val
+    def last_used_data_path(self) -> Union[Path, None]:
+        val = self._backing_dict.get(self.LAST_USED_DATA_KEY, None)
+        if val is None:
+            return None
+        # noinspection PyUnreachableCode
+        return Path(val)
 
     @last_used_data_path.setter
     def last_used_data_path(self, new_path: Path):
@@ -369,7 +375,7 @@ class UserConfig(DictBackedConfig):
     def last_used_task(self, new_task: str):
         self._backing_dict[self.LAST_USED_TASK_KEY] = new_task
 
-    ## User Role ##
+    ## Profile Role ##
     ROLE_KEY = "role"
 
     @property
@@ -383,7 +389,7 @@ class UserConfig(DictBackedConfig):
 
     @property
     def valid_roles(self) -> list[str]:
-        return self.parent_config.user_roles
+        return self.parent_config.profile_roles
 
     ## Autosaving Management ##
     SAVE_ON_ITER_KEY = "save_on_iter"
@@ -418,14 +424,14 @@ class UserConfig(DictBackedConfig):
     ## Utils ##
     def show_gui(self):
         # Build the Config prompt
-        prompt = UserConfigDialog(bound_config=self)
+        prompt = ProfileConfigDialog(bound_config=self)
         # Show it, blocking other interactions until its resolved
         prompt.exec()
 
     def save(self):
         # If the selected role is new, add it to the config first
-        if self.role not in self.parent_config.user_roles:
-            self.parent_config.user_roles.append(self.role)
+        if self.role not in self.parent_config.profile_roles:
+            self.parent_config.profile_roles.append(self.role)
 
         super().save()
 
@@ -434,10 +440,10 @@ class CARTConfig(DictBackedConfig):
     """
     Global configuration for CART itself.
 
-    Manages user profiles, as well as tracking some simple metrics
-    itself to allow for restoring the previous user
+    Manages profiles, as well as tracking some simple metrics
+    itself to allow for restoring the previous profile
     """
-    DEFAULT_USERNAME = "Default"
+    DEFAULT_LABEL = "Default"
     CONFIG_KEY = "CART"
 
     def __init__(self, config_path: Path):
@@ -451,31 +457,37 @@ class CARTConfig(DictBackedConfig):
     def default_config_label(cls) -> str:
         return cls.CONFIG_KEY
 
-    ## User Management ##
+    ## Profile Management ##
     PROFILE_KEY = "user_profiles"
-    DEFAULT_ROLES = [UserConfig.DEFAULT_ROLE]
+    DEFAULT_ROLES = [ProfileConfig.DEFAULT_ROLE]
 
     @property
     def profiles(self) -> dict[str, dict]:
         return self.get_or_default(self.PROFILE_KEY, {})
 
-    def new_user_profile(
+    def new_profile(
             self,
-            username: str,
-            user_settings: dict = None,
-            reference_profile: UserConfig = None
-    ) -> UserConfig:
+            label: str,
+            new_settings: dict = None,
+            reference_profile: ProfileConfig = None
+    ) -> ProfileConfig:
         """
-        Create a new user profile, copying config entries from a
+        Create a new profile, copying config entries from a
         reference profile if provided.
+
+        :param label: The label for this new profile
+        :param new_settings: Settings specified by the user that should be
+            applied to this new profile
+        :param reference_profile: Reference profile; any settings not specified
+            in `new_settings` above will be copied from here.
         """
-        # Confirm that the provided username is available and valid
-        stripped_name = username.strip()
+        # Confirm that the provided profile label is available and valid
+        stripped_name = label.strip()
         if not stripped_name:
-            raise ValueError("Cannot create a user without a username!")
+            raise ValueError("Cannot create a profile without a label!")
 
         if stripped_name in GLOBAL_CONFIG.profiles.keys():
-            raise ValueError(f"User with username '{stripped_name}' already exists!")
+            raise ValueError(f"Profile with label '{stripped_name}' already exists!")
 
         # If a reference profile was provided, use its settings as our base
         if reference_profile:
@@ -485,73 +497,73 @@ class CARTConfig(DictBackedConfig):
             new_profile = {}
 
         # We can have a set of settings to override as well, if provided
-        if user_settings:
-            for k, v in user_settings.items():
+        if new_settings:
+            for k, v in new_settings.items():
                 new_profile[k] = v
 
         # Assign it into our profile dictionary
-        self.profiles[username] = new_profile
+        self.profiles[label] = new_profile
 
-        # Return the result, wrapped in our UserConfig
-        return UserConfig(username, new_profile, self)
+        # Return the result, wrapped in our ProfileConfig
+        return ProfileConfig(label, new_profile, self)
 
-    def get_user_config(self, username: str) -> Optional[UserConfig]:
-        user_dict = self.profiles.get(username, None)
-        if user_dict is not None:
-            return UserConfig(username, user_dict, self)
+    def get_profile_config(self, label: str) -> Optional[ProfileConfig]:
+        profile_dict = self.profiles.get(label, None)
+        if profile_dict is not None:
+            return ProfileConfig(label, profile_dict, self)
         else:
             return None
 
-    def promptNewUser(self, reference_profile: UserConfig = None) -> Optional[str]:
+    def promptNewProfile(self, reference_profile: ProfileConfig = None) -> Optional[str]:
         """
         Generate a QT prompt for the user to create a new profile entry.
 
         :param reference_profile: The profile to copy configuration settings from (if any)
 
-        :return: The username of the new user; None if the user backed out.
+        :return: The label of the new profile; None if the user backed out.
         """
-        # Try to generate a new user from the settings
-        prompt = NewUserDialog(reference_profile, GLOBAL_CONFIG)
-        user_added_successfully = prompt.exec()
+        # Try to generate a new profile from the provided reference
+        prompt = NewProfileDialog(reference_profile, GLOBAL_CONFIG)
+        profile_added_successfully = prompt.exec()
 
-        # If successful, return the username for easy reference
-        if user_added_successfully:
+        # If successful, return the profile label for easy reference
+        if profile_added_successfully:
             # Mark oneself as having changed
             self.has_changed = True
-            # Return the new username for reference elsewhere
-            return prompt.username
+            # Return the new profile label for reference elsewhere
+            return prompt.profile
         # Otherwise, return nothing
         else:
             return None
 
-    LAST_USER_KEY = "last_user"
+    LAST_PROFILE_KEY = "last_profile"
 
     @property
-    def last_user(self):
+    def last_profile(self):
         return self.get_or_default(
-            self.LAST_USER_KEY, self.DEFAULT_USERNAME
+            self.LAST_PROFILE_KEY, self.DEFAULT_LABEL
         )
 
-    @last_user.setter
-    def last_user(self, new_user: str):
-        self._backing_dict[self.LAST_USER_KEY] = new_user
+    @last_profile.setter
+    def last_profile(self, new_label: str):
+        self._backing_dict[self.LAST_PROFILE_KEY] = new_label
         self.has_changed = True
 
-    USER_ROLES_KEY = "user_roles"
+    PROFILE_ROLES_KEY = "profile_roles"
 
     @property
-    def user_roles(self) -> list[str]:
-        return self.get_or_default(self.USER_ROLES_KEY, self.DEFAULT_ROLES)
+    def profile_roles(self) -> list[str]:
+        return self.get_or_default(self.PROFILE_ROLES_KEY, self.DEFAULT_ROLES)
 
-    def new_user_role(self, new_role: str):
-        if new_role in self.user_roles:
+    def new_profile_role(self, new_role: str):
+        if new_role in self.profile_roles:
             raise ValueError(f"Role '{new_role}' already exists!")
 
-        self.user_roles.append(new_role)
+        self.profile_roles.append(new_role)
         self.has_changed = True
 
     def show_gui(self):
-        raise NotImplementedError("You should configure CART on a per-user basis!")
+        raise NotImplementedError("You should configure CART on a per-profile basis!")
 
     ## I/O ##
     def load_from_json(self):
@@ -583,8 +595,8 @@ class CARTConfig(DictBackedConfig):
 
 
 ## GUI elements ##
-class NewUserDialog(qt.QDialog):
-    def __init__(self, reference_profile: "UserConfig", master_config: "CARTConfig"):
+class NewProfileDialog(qt.QDialog):
+    def __init__(self, reference_profile: "ProfileConfig", master_config: "CARTConfig"):
         # Initialize the QDialog base itself
         super().__init__()
 
@@ -594,8 +606,8 @@ class NewUserDialog(qt.QDialog):
         # The master config we want to save the profile too
         self.master_config = master_config
 
-        # The text field widget for the username
-        self.usernameEdit: qt.QLineEdit = None
+        # The text field widget for the profile label
+        self.profileLabelEdit: qt.QLineEdit = None
 
         # Selection field for the role
         self.roleComboBox: qt.QComboBox = None
@@ -621,30 +633,30 @@ class NewUserDialog(qt.QDialog):
 
     def buildUI(self):
         # General window properties
-        self.setWindowTitle("New User")
+        self.setWindowTitle("New Profile")
 
         # Create a form layout to hold everything in
         layout = qt.QFormLayout()
         self.setLayout(layout)
 
-        # Add a field for submitting the username
-        usernameEdit = qt.QLineEdit()
-        usernameLabel = qt.QLabel("Username:")
-        usernameLabel.setToolTip(
-            "The ID for this profile. Cannot match an existing username!"
+        # Add a field for submitting the profile label
+        profileLabelEdit = qt.QLineEdit()
+        profileLabelLabel = qt.QLabel("Label:")
+        profileLabelLabel.setToolTip(
+            "An ID label for this profile. Cannot match an existing profile label!"
         )
-        self.usernameEdit = usernameEdit
+        self.profileLabelEdit = profileLabelEdit
 
         # Add them to our layout
-        layout.addRow(usernameLabel, usernameEdit)
+        layout.addRow(profileLabelLabel, profileLabelEdit)
 
-        # Add a combobox that lets the user select their role
+        # Add a combobox that lets the user select the profile's role
         roleComboBox = qt.QComboBox()
         roleLabel = qt.QLabel("Role:")
-        roleLabel.setToolTip("What role the user should be marked as having.")
+        roleLabel.setToolTip("What role the profile should be marked as having.")
 
         # Add the roles already available to the combobox
-        roleComboBox.addItems(self.master_config.user_roles)
+        roleComboBox.addItems(self.master_config.profile_roles)
 
         # Make the combo-box editable
         roleComboBox.setEditable(True)
@@ -658,7 +670,7 @@ class NewUserDialog(qt.QDialog):
         blankStateBox = qt.QCheckBox()
         blankStateLabel = qt.QLabel("Reset to Default?")
         blankStateLabel.setToolTip("""
-            If selected, the new user profile will have no configuration settings, 
+            If selected, the new profile will have no configuration settings, 
             being a "blank slate". If unchecked, the configuration settings of the 
             current profile (including the last-used settings) are copied over instead.
         """)
@@ -671,20 +683,20 @@ class NewUserDialog(qt.QDialog):
 
         # Only enable the "confirm" button when a valid username is present
         okButton = self.buttonBox.button(qt.QDialogButtonBox.Ok)
-        def syncOkButtonState(username: str):
-            stripped_name = username.strip()
+        def syncOkButtonState(profile_label: str):
+            stripped_name = profile_label.strip()
             if not stripped_name:
                 okButton.setEnabled(False)
-                okButton.setToolTip("Users must have a non-blank username")
+                okButton.setToolTip("Profiles must have a non-blank label")
             elif stripped_name in self.master_config.profiles.keys():
                 okButton.setEnabled(False)
-                okButton.setToolTip("The provided username already exists!")
+                okButton.setToolTip("The provided profile already exists!")
             else:
                 okButton.setEnabled(True)
                 okButton.setToolTip("")
-        self.usernameEdit.textChanged.connect(syncOkButtonState)
+        self.profileLabelEdit.textChanged.connect(syncOkButtonState)
         # Sync the OK button's state immediately
-        syncOkButtonState(usernameEdit.text)
+        syncOkButtonState(profileLabelEdit.text)
 
     def onButtonPressed(self, button: qt.QPushButton):
         # Get the role of the button
@@ -701,8 +713,8 @@ class NewUserDialog(qt.QDialog):
 
     ## Access Management ##s
     @property
-    def username(self) -> str:
-        return self.usernameEdit.text
+    def profile(self) -> str:
+        return self.profileLabelEdit.text
 
     @property
     def selected_role(self) -> str:
@@ -716,31 +728,31 @@ class NewUserDialog(qt.QDialog):
     def createNewProfile(self):
         # Build the profile config dict from our GUI
         profile_dict = {
-            UserConfig.ROLE_KEY: self.selected_role
+            ProfileConfig.ROLE_KEY: self.selected_role
         }
 
         # Add a new entry into the config file
         if self.shouldBlankState:
-            self.master_config.new_user_profile(
-                self.username,
+            self.master_config.new_profile(
+                self.profile,
                 profile_dict
             )
         else:
-            self.master_config.new_user_profile(
-                self.username,
+            self.master_config.new_profile(
+                self.profile,
                 profile_dict,
                 self.reference_profile
             )
 
         # If the role is new, add it to the master config list
-        if self.selected_role not in self.master_config.user_roles:
-            self.master_config.user_roles.append(self.selected_role)
+        if self.selected_role not in self.master_config.profile_roles:
+            self.master_config.profile_roles.append(self.selected_role)
 
 
-class UserConfigDialog(ConfigDialog[UserConfig]):
+class ProfileConfigDialog(ConfigDialog[ProfileConfig]):
     """
-    Configuration dialog which allows the user to configure their
-    personal CART settings.
+    Configuration dialog which allows the user to configure a
+    profile's CART settings.
     """
 
     def buildGUI(self, layout: qt.QFormLayout):
@@ -760,6 +772,9 @@ class UserConfigDialog(ConfigDialog[UserConfig]):
             "If checked, the Task will try to save when you change cases automatically."
         )
 
+        # Synchronize to our bound config
+        iterSaveCheck.setChecked(self.bound_config.save_on_iter)
+
         # Update the config's state when it changes
         def setSaveOnIter(new_state: bool):
             self.bound_config.save_on_iter = bool(new_state)
@@ -771,13 +786,16 @@ class UserConfigDialog(ConfigDialog[UserConfig]):
         self.iterSaveCheck = iterSaveCheck
 
     def _roleWidget(self, layout):
-        # Add a combobox that lets the user select their role
+        # Add a combobox that lets the user select a profile's role
         roleComboBox = qt.QComboBox()
         roleLabel = qt.QLabel("Role:")
-        roleLabel.setToolTip("What role the user should be marked as having.")
+        roleLabel.setToolTip("What role the profile should be marked as having.")
 
         # Make the combo-box editable
         roleComboBox.setEditable(True)
+
+        # Set the selected role to match the current profile's role
+        roleComboBox.setCurrentText(self.bound_config.role)
 
         # When a new role is selected, update our backing dict
         def changeRole(new_role: str):

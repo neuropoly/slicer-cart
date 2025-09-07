@@ -15,7 +15,7 @@ from .MultiContrastSegmentationConfig import MultiContrastSegmentationConfig
 from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
 from CARTLib.utils.widgets import CARTSegmentationEditorWidget
 from CARTLib.utils.layout import Orientation
-from CARTLib.utils.config import UserConfig
+from CARTLib.utils.config import ProfileConfig
 
 
 class MultiContrastSegmentationEvaluationGUI:
@@ -152,17 +152,17 @@ class MultiContrastSegmentationEvaluationGUI:
         # Radio buttons for output mode
         self.outputModeGroup = qt.QButtonGroup()
 
-        # Parallel directory option
-        parallelRadio = qt.QRadioButton("Save to parallel directory structure")
-        parallelRadio.setToolTip("Creates organized output in a separate directory")
-        self.outputModeGroup.addButton(parallelRadio, 0)
-        layout.addWidget(parallelRadio)
-
         # Overwrite original option
         overwriteRadio = qt.QRadioButton("Overwrite original segmentation files")
         overwriteRadio.setToolTip("Saves directly over the input segmentation files")
         self.outputModeGroup.addButton(overwriteRadio, 1)
         layout.addWidget(overwriteRadio)
+
+        # Alternative directory option
+        parallelRadio = qt.QRadioButton("Save to separate directory structure")
+        parallelRadio.setToolTip("Creates organized output in a separate directory")
+        self.outputModeGroup.addButton(parallelRadio, 0)
+        layout.addWidget(parallelRadio)
 
         # Set default selection based on current mode
         if hasattr(self.bound_task, "output_mode"):
@@ -289,7 +289,7 @@ class MultiContrastSegmentationEvaluationGUI:
         # Set default filename if none exists
         if not self.csvLogEdit.currentPath.strip():
             # Generate default filename based on username and current date
-            username = self.bound_task.username
+            username = self.bound_task.profile_label
             current_datetime = datetime.now().strftime('%Y%m%d')
             default_name = f"segmentation_review_log_{username}_{current_datetime}.csv"
             dialog.selectFile(default_name)
@@ -428,8 +428,8 @@ class MultiContrastSegmentationEvaluationTask(
     TaskBaseClass[MultiContrastSegmentationEvaluationDataUnit]
 ):
 
-    def __init__(self, user: UserConfig):
-        super().__init__(user)
+    def __init__(self, profile: ProfileConfig):
+        super().__init__(profile)
 
         # Local Attributes
         self.gui: Optional[MultiContrastSegmentationEvaluationGUI] = None
@@ -442,7 +442,7 @@ class MultiContrastSegmentationEvaluationTask(
         # Configuration
         self.config: MultiContrastSegmentationConfig = (
             MultiContrastSegmentationConfig(
-                parent_config=self.user
+                parent_config=self.profile
             )
         )
 
@@ -459,7 +459,7 @@ class MultiContrastSegmentationEvaluationTask(
         # If the user provided output specifications, set up our manager here.
         if self.output_dir:
             self.output_manager = MultiContrastOutputManager(
-                self.user,
+                self.profile,
                 self.output_mode,
                 self.output_dir,
                 self.csv_log_path
@@ -534,7 +534,7 @@ class MultiContrastSegmentationEvaluationTask(
             # Set up the consolidated output manager with CSV tracking
             self.output_dir = output_path
             self.output_manager = MultiContrastOutputManager(
-                user=self.user,
+                profile=self.profile,
                 output_mode=mode,
                 output_dir=output_path,
                 csv_log_path=csv_log_path,
@@ -546,7 +546,7 @@ class MultiContrastSegmentationEvaluationTask(
             # Set up the consolidated output manager with CSV tracking
             self.output_dir = None
             self.output_manager = MultiContrastOutputManager(
-                user=self.user, output_mode=mode, csv_log_path=csv_log_path
+                profile=self.profile, output_mode=mode, csv_log_path=csv_log_path
             )
             print("Output mode set to overwrite original")
             print(f"CSV log will be saved to: {self.output_manager.csv_log_path}")

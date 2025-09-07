@@ -1,6 +1,6 @@
 import qt
 
-from CARTLib.utils.config import DictBackedConfig, ConfigDialog, UserConfig
+from CARTLib.utils.config import DictBackedConfig, ConfigDialog, ProfileConfig
 
 
 class MultiContrastSegmentationConfig(DictBackedConfig):
@@ -9,7 +9,7 @@ class MultiContrastSegmentationConfig(DictBackedConfig):
     """
     CONFIG_KEY = "multi_contrast_segmentation"
 
-    def __init__(self, parent_config: UserConfig):
+    def __init__(self, parent_config: ProfileConfig):
         super().__init__(parent_config=parent_config)
 
     @classmethod
