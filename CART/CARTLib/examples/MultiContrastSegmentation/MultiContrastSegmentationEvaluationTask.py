@@ -7,15 +7,17 @@ import qt
 import slicer
 from slicer.i18n import tr as _
 
-from .MultiContrastOutputManager import OutputMode, MultiContrastOutputManager
-from .MultiContrastSegmentationEvaluationDataUnit import (
-    MultiContrastSegmentationEvaluationDataUnit,
-)
-from .MultiContrastSegmentationConfig import MultiContrastSegmentationConfig
 from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
 from CARTLib.utils.widgets import CARTSegmentationEditorWidget
 from CARTLib.utils.layout import Orientation
 from CARTLib.utils.config import ProfileConfig
+from CARTLib.utils.task import cart_task
+
+from MultiContrastOutputManager import OutputMode, MultiContrastOutputManager
+from MultiContrastSegmentationEvaluationDataUnit import (
+    MultiContrastSegmentationEvaluationDataUnit,
+)
+from MultiContrastSegmentationConfig import MultiContrastSegmentationConfig
 
 
 class MultiContrastSegmentationEvaluationGUI:
@@ -424,6 +426,7 @@ class MultiContrastSegmentationEvaluationGUI:
             self.segmentEditorWidget.exit()
 
 
+@cart_task("Segmentation Review")
 class MultiContrastSegmentationEvaluationTask(
     TaskBaseClass[MultiContrastSegmentationEvaluationDataUnit]
 ):

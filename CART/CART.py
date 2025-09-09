@@ -17,16 +17,7 @@ from CARTLib.core.DataUnitBase import DataUnitBase
 from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
 from CARTLib.core.CohortGenerator import CohortGeneratorWindow
 from CARTLib.utils.config import GLOBAL_CONFIG, ProfileConfig
-
-from CARTLib.examples.SegmentationEvaluation.SegmentationEvaluationTask import (
-    SegmentationEvaluationTask,
-)
-from CARTLib.examples.RegistrationReview.RegistrationReviewTask import (
-    RegistrationReviewTask,
-)
-from CARTLib.examples.MultiContrastSegmentation.MultiContrastSegmentationEvaluationTask import (
-    MultiContrastSegmentationEvaluationTask,
-)
+from CARTLib.utils.task import CART_TASK_REGISTRY, initialize_tasks
 
 CURRENT_DIR = Path(__file__).parent
 CONFIGURATION_FILE_NAME = CURRENT_DIR / "configuration.json"
@@ -92,6 +83,9 @@ class CART(ScriptedLoadableModule):
 
         cartlib_path = (Path(__file__) / "CARTLib").resolve()
         sys.path.append(str(cartlib_path))
+
+        # Register all tasks currently configured in our CART Config
+        initialize_tasks()
 
 
 #
@@ -397,7 +391,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         taskOptions.placeholderText = _("[Not Selected]")
 
         # TODO: Have this pull from configuration instead
-        taskOptions.addItems(list(self.logic.task_map.keys()))
+        taskOptions.addItems(list(CART_TASK_REGISTRY.keys()))
         mainLayout.addRow(_("Task"), taskOptions)
 
         # Make it accessible
@@ -1157,14 +1151,6 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # The currently selected task Label
         self._task_id: str = None
 
-        # A map of task IDs to their corresponding task type
-        # TODO: Load this from our global config
-        self.task_map = {
-            "Segmentation": SegmentationEvaluationTask,
-            "MultiContrast Segmentation": MultiContrastSegmentationEvaluationTask,
-            "Registration Review": RegistrationReviewTask,
-        }
-
         # The current task instance
         self.current_task_instance: Optional[TaskBaseClass] = None
 
@@ -1329,8 +1315,8 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         if not new_id:
             raise ValueError("Cannot assign to a blank task!")
 
-        # Confirm that the task ID is in our task map
-        if not self.task_map.get(new_id, False):
+        # Confirm that the task ID is in our task registry
+        if not CART_TASK_REGISTRY.get(new_id, False):
             raise ValueError(f"Task '{new_id}' hasn't been registered!")
 
         # Update our task state
@@ -1345,7 +1331,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         self.config.last_used_task = new_id
 
     def select_default_data_factory(self):
-        task_type = self.task_map.get(self.task_id, None)
+        task_type = CART_TASK_REGISTRY.get(self.task_id, None)
 
         # Get this task's preferred DataUnitFactory method
         # TODO: Allow the user to select the specific method, rather than always
@@ -1435,7 +1421,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         self.clear_task()
 
         # Create the new task instance
-        task_constructor = self.task_map.get(self.task_id)
+        task_constructor = CART_TASK_REGISTRY.get(self.task_id)
         self.current_task_instance = task_constructor(self.config)
 
         # Save any changes made to the configuration

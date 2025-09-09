@@ -7,11 +7,13 @@ from typing import Optional
 
 import qt
 import slicer
-from .MultiContrastSegmentationEvaluationDataUnit import (
-    MultiContrastSegmentationEvaluationDataUnit,
-)
+
 from CARTLib.utils.data import save_segmentation_to_nifti
 from CARTLib.utils.config import ProfileConfig
+
+from MultiContrastSegmentationEvaluationDataUnit import (
+    MultiContrastSegmentationEvaluationDataUnit,
+)
 
 VERSION = 0.01
 
