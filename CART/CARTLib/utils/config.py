@@ -137,6 +137,9 @@ class DictBackedConfig(ABC):
         else:
             self.save_without_parent()
 
+        # Mark ourselves as no longer having changes from the file
+        self.has_changed = False
+
 
 # I love Metaclass conflicts! Wooo!
 class _ABCQDialog(type(qt.QDialog), ABCMeta):
@@ -374,6 +377,7 @@ class ProfileConfig(DictBackedConfig):
     @last_used_task.setter
     def last_used_task(self, new_task: str):
         self._backing_dict[self.LAST_USED_TASK_KEY] = new_task
+        self.has_changed = True
 
     ## Profile Role ##
     ROLE_KEY = "role"

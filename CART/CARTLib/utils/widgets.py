@@ -3,13 +3,41 @@ from typing import Optional
 import ctk
 import qt
 import slicer
+from slicer.i18n import tr as _
 
 # The code below does actually work, but the Slicer widgets are only added
 #  to the namespace after slicer boots, hence the error suppression
 # noinspection PyUnresolvedReferences
 import qSlicerSegmentationsModuleWidgetsPythonQt
 
+## Standardized Prompts ##
+def showSuccessPrompt(msg: str, parent_widget: Optional[qt.QWidget] = None):
+    """
+    Show a standardized QT prompt for something being successful.
 
+    Blocks interactions until closed (modal); you should provide a
+    parent widget to "block" to avoid cross-modal blocking if possible
+    """
+    # Build the prompt itself
+    msgPrompt = qt.QMessageBox(parent_widget)
+    msgPrompt.setWindowTitle(_("SUCCESS!"))
+
+    # Display the requested text within it, and show it to the user
+    msgPrompt.setText(msg)
+    msgPrompt.exec()
+
+
+def showErrorPrompt(msg: str, parent_widget: Optional[qt.QWidget]):
+    # Build the prompt itself
+    errBox = qt.QErrorMessage(parent_widget)
+    errBox.setWindowTitle(_("ERROR!"))
+
+    # Display the requested text within it, and show it to the user
+    errBox.showMessage(msg)
+    errBox.exec()
+
+
+## CART-Tuned Segmentation Editor ##
 class _NodeComboBoxProxy(qt.QComboBox):
     """
     A combobox widget which delegates to a proxy `qMRMLNodeComboBox` to run operations
@@ -26,7 +54,7 @@ class _NodeComboBoxProxy(qt.QComboBox):
         # Reference to its "bound" widget which we will be instructing instead.
         self._bound_widget = bound_widget
 
-        # Isolate the bound widget's ComboBox, as it
+        # Isolate the bound widget's ComboBox, as we will update it by-proxy
         self._combo_box = self._findComboBox()
 
         # Map from our indices to those used by the bound widget's
@@ -56,7 +84,6 @@ class _NodeComboBoxProxy(qt.QComboBox):
         #  valid method in the Slicer docs, it doesn't actually work! Ref:
         #  https://apidocs.slicer.org/main/classqMRMLNodeComboBox.html#a2313ce3b060a2a2068a117f3ea232a56
         self.idx_map = {}
-        i = 0
         for i in range(self._bound_widget.nodeCount()):
             node = self._bound_widget.nodeFromIndex(i)
             if self._bound_widget.showHidden or not node.GetHideFromEditors():
@@ -192,7 +219,6 @@ class CARTSegmentationEditorWidget(
             editor_node = self.scene.CreateNodeByClass(self.SEGMENT_EDITOR_NODE_KEY)
             editor_node.UnRegister(None)
             editor_node.SetSingletonTag(self.tag)
-            # Update ourselves to use this editor node
             self.scene.AddNode(editor_node)
 
         # Update ourselves to use this editor node
@@ -232,3 +258,11 @@ class CARTSegmentationEditorWidget(
 
     def refresh(self):
         self.proxySegNodeComboBox.refresh()
+
+    def setSegmentationNode(self, segment_node):
+        # KO: We need to delegate to our proxy widget here,
+        # otherwise it and the "real" Slicer state will no longer
+        # by in sync
+        self.proxySegNodeComboBox.setCurrentText(
+            segment_node.GetName()
+        )

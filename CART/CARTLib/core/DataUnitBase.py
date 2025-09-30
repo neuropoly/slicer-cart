@@ -81,7 +81,7 @@ class DataUnitBase(ABC):
         self.focus_lost()
 
     @abstractmethod
-    def _validate(self):
+    def validate(self):
         """
         Validate the data in this DataUnitBase instance.
 

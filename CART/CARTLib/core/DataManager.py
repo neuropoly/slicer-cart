@@ -117,7 +117,7 @@ class DataManager:
         )
 
         # Validate the data unit (and thus before it enters the cache)
-        new_unit._validate()
+        new_unit.validate()
 
         # Return the new data unit
         return new_unit

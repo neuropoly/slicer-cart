@@ -65,7 +65,8 @@ def generate_blank_cohort(root_path: Path) -> Path:
 
 
 def find_unused_cohort_path(root_path: Path):
-    # Ensure t
+    # Finds a cohort path that hasn't been occupied within the `code`
+    # directory of the BIDS folder.
     code_root = root_path / "code"
     return find_new_cohort_path(code_root)
 
