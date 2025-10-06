@@ -256,6 +256,38 @@ def load_nifti_markups(path: Path) -> slicer.vtkMRMLMarkupsFiducialNode:
     return markup_node
 
 
+def load_dicom(path: Path):
+    """
+    Attempt to load a directory as a DICOM dataset.
+
+    Unlike `load_volume` above, returns a list of DICOM objects.
+    """
+    if not path.is_dir():
+        raise ValueError("DICOM files must be loaded by directory, NOT by file!")
+
+    # Script based on
+    # https://slicer.readthedocs.io/en/latest/developer_guide/script_repository.html#load-dicom-files-into-the-scene-from-a-folder
+    # noinspection PyUnresolvedReferences
+    from DICOMLib import DICOMUtils
+    node_list = []
+    # Use a temporary database, so it doesn't affect anything else
+    with DICOMUtils.TemporaryDICOMDatabase() as db:
+        # Read the file path
+        DICOMUtils.importDicom(path, db)
+        patientUIDs = db.patients()
+        # Load each detected patient
+        for uid in patientUIDs:
+            # Load each node associated with the patient
+            loadedNodeIDs = DICOMUtils.loadPatientByUID(uid)
+            for nodeID in loadedNodeIDs:
+                node = slicer.mrmlScene.GetNodeByID(nodeID)
+                # Track the node for later
+                node_list.append(node)
+
+    # Return the node list
+    return node_list
+
+
 ## SAVING ##
 def save_volume_to_nifti(volume_node, path: Path):
     """
@@ -770,12 +802,13 @@ class CARTStandardUnit(DataUnitBase):
 
     def validate(self) -> None:
         """
-        Ensure that all discovered volume keys and the segmentation key
-        refer to existing files.
+        Ensure that all discovered segmentation and markup keys
+        refer to files which exist and are not directories.
         """
-        for key in self.volume_keys:
-            self.validate_key_is_file(key)
-        for key in self.segmentation_keys:
+        for key in itertools.chain(
+            self.segmentation_keys,
+            self.markup_keys
+        ):
             if key is not None:
                 self.validate_key_is_file(key)
 
@@ -813,15 +846,24 @@ class CARTStandardUnit(DataUnitBase):
             # If the volume is blank, skip it
             if path is None:
                 continue
-            # Attempt to load the volume and track it
-            node = load_volume(path)
-            node.SetName(f"{self.uid}_{key}")
-            self.volume_nodes[key] = node
-            self.resources[key] = node
+            # If the "volume" is a directory, assume DICOM
+            elif path.is_dir():
+                nodes = load_dicom(path)
+            # Otherwise, assume it's a Slicer-compatible file
+            else:
+                nodes = [load_volume(path)]
+            # Register all nodes loaded in the previous step
+            for i, n in enumerate(nodes):
+                node_idx = f"{key}_{i}"
+                node_name = f"{self.uid}_{node_idx}"
+                n.SetName(node_name)
+                self.volume_nodes[node_idx] = n
+                self.resources[node_idx] = n
 
-            # If this is our primary volume, track it outright for ease of reference
+            # If this is our primary volume key,
+            # track the first node in the list as such
             if key == self.primary_volume_key:
-                self.primary_volume_node = node
+                self.primary_volume_node = nodes[0]
 
     def _init_segmentation_nodes(self) -> None:
         """
