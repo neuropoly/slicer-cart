@@ -62,12 +62,10 @@ class MultiContrastSegmentationConfigGUI(
             self.bound_config.show_on_load = new_val
         loadOnShowCheckBox.stateChanged.connect(onLoadShowCheckBoxChanged)
 
+        # Register a sync function
+        def syncOnLoadShowCheckbox():
+            loadOnShowCheckBox.setChecked(self.bound_config.show_on_load)
+        self.register_sync_function(loadOnShowCheckBox, syncOnLoadShowCheckbox)
+
         # Add it to our layout
         layout.addRow(loadOnShowLabel, loadOnShowCheckBox)
-
-        # Track it for later
-        self.loadOnShowCheckBox = loadOnShowCheckBox
-
-    def sync(self):
-        # Load-on-show checkbox synchronization
-        self.loadOnShowCheckBox.setChecked(self.bound_config.show_on_load)

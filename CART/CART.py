@@ -12,10 +12,11 @@ from slicer.ScriptedLoadableModule import *
 from slicer.i18n import tr as _
 from slicer.util import VTKObservationMixin
 
+from CARTLib.core.CohortGenerator import CohortGeneratorWindow
 from CARTLib.core.DataManager import DataManager
 from CARTLib.core.DataUnitBase import DataUnitBase
+from CARTLib.core.LayoutManagement import OrientationButtonArrayWidget
 from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
-from CARTLib.core.CohortGenerator import CohortGeneratorWindow
 from CARTLib.utils.config import GLOBAL_CONFIG, ProfileConfig
 from CARTLib.utils.task import CART_TASK_REGISTRY, initialize_tasks
 
@@ -161,6 +162,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Case Iterator UI
         self.buildCaseIteratorUI(self.layout)
 
+        ## Task Interaction ##
         # Add a (currently empty) collapsable tab, in which the Task GUI will be placed later
         taskGUI = ctk.ctkCollapsibleButton()
 
@@ -176,18 +178,21 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Not the best translation, but it'll do...
         taskGUI.text = _("Task Steps")
 
-        # Using a stacked layout, in preparation for future multitask setups
-        qt.QStackedLayout(taskGUI)
+        # Generate a layout for the Task part of the GUI
+        qt.QVBoxLayout(taskGUI)
 
+        # Add the GUI to our overall layout, and track it for later
         self.layout.addWidget(taskGUI)
         self.taskGUI = taskGUI
+
+        # Add the universal orientation widget to the top of the task GUI
+        self.buildLayoutPanel()
 
         # Add a vertical "stretch" at the bottom, forcing everything to the top;
         #  now it doesn't look like garbage!
         self.layout.addStretch()
 
-        # Connections
-
+        ## Connections ##
         # These connections ensure that we update parameter node when scene is closed
         self.addObserver(
             slicer.mrmlScene, slicer.mrmlScene.StartCloseEvent, self.onSceneStartClose
@@ -520,6 +525,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         return buttonLayout
 
+    def buildLayoutPanel(self):
+        self.layoutPanel = OrientationButtonArrayWidget()
+        self.taskGUI.layout().addWidget(self.layoutPanel)
+
     ## Connected Functions ##
 
     ### Setup Widgets ###
@@ -551,7 +560,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Rebuild the GUI to match
         self.sync_with_logic()
-        print(self.logic.config.backing_dict)
 
         # Update the button states to match our current state
         self.updateButtons()
@@ -865,7 +873,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 # Confirm we have a next case to step into first
                 if not self.logic.has_next_case():
                     self.showErrorPopup(
-                        "No Prior Case",
+                        "No Next Case",
                         "You somehow requested the next case, despite there being none!"
                     )
                     return
@@ -878,10 +886,13 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 self.unHighlightRow(self.logic.data_manager.current_case_index)
 
                 # Step into the next case
-                self.logic.next_case(skip_complete)
+                newUnit = self.logic.next_case(skip_complete)
 
                 # Update our GUI to match the new state
                 self.updateIteratorGUI()
+
+                # Update our layout to match the new state
+                self.updateLayout(newUnit)
 
                 # Close the loading prompt
                 loadingPrompt.done(qt.QDialog.Accepted)
@@ -910,7 +921,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 self.unHighlightRow(self.logic.data_manager.current_case_index)
 
                 # Step into the previous case
-                self.logic.previous_case(skip_complete)
+                newUnit = self.logic.previous_case(skip_complete)
+
+                # Update our layout with the new unit's contents
+                self.updateLayout(newUnit)
 
                 # Update our GUI to match the new state
                 self.updateIteratorGUI()
@@ -952,6 +966,13 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # If the logic says we're ready to start, enable the "confirm" button
         if self.logic.is_ready():
             self.confirmButton.setEnabled(True)
+
+    def updateLayout(self, data_unit: DataUnitBase):
+        # Update our layout GUI to use the new handler
+        retain_layout = self.logic.config.retain_layout
+        self.layoutPanel.changeLayoutHandler(data_unit.layout_handler, retain_layout)
+        # Apply the new layout to Slicer's view
+        data_unit.layout_handler.apply_layout()
 
     def _loadingTaskPrompt(self):
         prompt = qt.QDialog()
@@ -1003,7 +1024,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 #  segmentation review) will either load configurations and/or prompt the
                 #  user for things required to determine whether a task is "complete" or
                 #  not for a given case.
-                self.logic.load_initial_unit()
+                data_unit = self.logic.load_initial_unit()
+
+                # Update our layout with the new unit
+                self.updateLayout(data_unit)
 
                 # Load the cohort csv data into the table, if it wasn't already
                 self.updateCohortTable()
@@ -1431,7 +1455,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         #  properly
         self.enter()
 
-    def load_initial_unit(self):
+    def load_initial_unit(self) -> DataUnitBase:
         """
         Attempts to load the first data unit into memory and update our task with it
         """
@@ -1440,6 +1464,9 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # TODO: Add a configuration option for skipping to first incomplete unit
         # data_unit = self.data_manager.first_incomplete(self.current_task_instance)
         self.current_task_instance.receive(data_unit)
+
+        # Return this data unit so the GUI can utilize it
+        return data_unit
 
     def enter(self):
         """

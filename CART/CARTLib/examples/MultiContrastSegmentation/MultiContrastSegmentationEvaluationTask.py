@@ -7,11 +7,11 @@ import qt
 import slicer
 from slicer.i18n import tr as _
 
+from CARTLib.core.LayoutManagement import Orientation
 from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
-from CARTLib.utils.widgets import CARTSegmentationEditorWidget, showSuccessPrompt, showErrorPrompt
-from CARTLib.utils.layout import Orientation
 from CARTLib.utils.config import ProfileConfig
 from CARTLib.utils.task import cart_task
+from CARTLib.utils.widgets import CARTSegmentationEditorWidget, showSuccessPrompt, showErrorPrompt
 
 from MultiContrastOutputManager import OutputMode, MultiContrastOutputManager
 from MultiContrastSegmentationEvaluationDataUnit import (
@@ -38,18 +38,15 @@ class MultiContrastSegmentationEvaluationGUI:
         # Initialize the layout we'll insert everything into
         formLayout = qt.QFormLayout()
 
-        # 1). Configuration button
-        self._addConfigButton(formLayout)
-
-        # 2) Orientation buttons
-        self._addOrientationButtons(formLayout)
-
-        # 3) Segmentation editor
+        # Segmentation editor
         self.segmentEditorWidget = CARTSegmentationEditorWidget()
         formLayout.addRow(self.segmentEditorWidget)
 
-        # 4) Save controls
+        # Output controls
         self._addOutputSelectionButton(formLayout)
+
+        # Configuration button
+        self._addConfigButton(formLayout)
 
         # Prompt for initial output setup
         self.promptSelectOutputMode()
@@ -67,45 +64,10 @@ class MultiContrastSegmentationEvaluationGUI:
         # Add it to our layout
         layout.addRow(configButton)
 
-    def _addOrientationButtons(self, layout: qt.QFormLayout) -> None:
-        """
-        Buttons to set Axial/Sagittal/Coronal for all slice views.
-        """
-        hbox = qt.QHBoxLayout()
-        for ori in Orientation.TRIO:
-            label = ori.slicer_node_label()
-            btn = qt.QPushButton(label)
-            btn.clicked.connect(lambda _, o=ori: self.onOrientationChanged(o))
-            hbox.addWidget(btn)
-
-        btn = qt.QPushButton("All")
-        btn.clicked.connect(lambda: self.onOrientationChanged(Orientation.TRIO))
-        hbox.addWidget(btn)
-
-        layout.addRow(qt.QLabel("View Orientation:"), hbox)
-
     def _addOutputSelectionButton(self, layout: qt.QFormLayout) -> None:
         btn = qt.QPushButton("Change Output Settings")
         btn.clicked.connect(self.promptSelectOutputMode)
         layout.addRow(btn)
-
-    #
-    # Handlers
-    #
-
-    def onOrientationChanged(self, orientation: Orientation) -> None:
-        # Update our currently tracked orientation
-        self.currentOrientation = orientation
-
-        # If we don't have a data unit at this point, end here
-        if not self.data_unit:
-            return
-
-        # Update the data unit's orientation to match
-        self.data_unit.set_orientation(orientation)
-
-        # Apply the (likely updated) layout
-        self.data_unit.layout_handler.apply_layout()
 
     ## USER PROMPTS ##
     def promptSelectOutputMode(self):
@@ -139,8 +101,6 @@ class MultiContrastSegmentationEvaluationGUI:
 
     def _buildOutputModePrompt(self):
         """Build the output mode selection dialog with CSV logging option."""
-        from datetime import datetime
-        import csv
 
         prompt = qt.QDialog()
         prompt.setWindowTitle("Select Output Mode & Logging")
@@ -273,6 +233,7 @@ class MultiContrastSegmentationEvaluationGUI:
 
         return prompt
 
+    ## CONNECTIONS ##
     def _onCsvLoggingChanged(self, enabled: bool):
         """Enable/disable CSV logging options based on checkbox."""
         self.csvLogLabel.setEnabled(enabled)
@@ -376,15 +337,13 @@ class MultiContrastSegmentationEvaluationGUI:
         failurePrompt.showMessage(err_msg)
         failurePrompt.exec()
 
+    ## CORE ##
     def update(self, data_unit: MultiContrastSegmentationEvaluationDataUnit) -> None:
         """
         Called whenever a new data-unit is in focus.
         Populate the volume combo, select primary, and fire off initial layers.
         """
         self.data_unit = data_unit
-
-        # Apply the data unit's layout to our viewer
-        self.data_unit.layout_handler.apply_layout()
 
         # Refresh the SegmentEditor Widget immediately
         self.segmentEditorWidget.refresh()

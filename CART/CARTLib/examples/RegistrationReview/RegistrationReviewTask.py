@@ -8,7 +8,7 @@ import qt
 from slicer.i18n import tr as _
 
 from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
-from CARTLib.utils.layout import Orientation
+from CARTLib.core.LayoutManagement import Orientation
 from CARTLib.utils.task import cart_task
 
 from RegistrationReviewDataUnit import RegistrationReviewDataUnit
@@ -46,19 +46,16 @@ class RegistrationReviewGUI:
         # Initialize the layout we'll insert everything into
         formLayout = qt.QFormLayout()
 
-        # 1) Review status display
+        # Review status display
         self._addReviewStatusDisplay(formLayout)
 
-        # 2) Orientation buttons
-        self._addOrientationButtons(formLayout)
-
-        # 3) Opacity control slider
+        # Opacity control slider
         self._addOpacityControl(formLayout)
 
-        # 4) Registration classification options
+        # Registration classification options
         self._addClassificationButtons(formLayout)
 
-        # 5) CSV output selection
+        # CSV output selection
         self._addCsvSelectionButton(formLayout)
 
         # Prompt for initial CSV setup
@@ -73,18 +70,6 @@ class RegistrationReviewGUI:
         self.reviewStatusLabel = qt.QLabel("Review Status: Not checked")
         self.reviewStatusLabel.setStyleSheet("QLabel { font-weight: bold; }")
         layout.addRow(self.reviewStatusLabel)
-
-    def _addOrientationButtons(self, layout: qt.QFormLayout) -> None:
-        """
-        Buttons to set Axial/Sagittal/Coronal for all slice views.
-        """
-        hbox = qt.QHBoxLayout()
-        for orientation in Orientation.TRIO:
-            label = orientation.slicer_node_label()
-            btn = qt.QPushButton(label)
-            btn.clicked.connect(lambda _, o=orientation: self.onOrientationChanged(o))
-            hbox.addWidget(btn)
-        layout.addRow(qt.QLabel("View Orientation:"), hbox)
 
     def _addOpacityControl(self, layout: qt.QFormLayout) -> None:
         """
@@ -179,21 +164,6 @@ class RegistrationReviewGUI:
     #
     # Handlers
     #
-
-    def onOrientationChanged(self, orientation: Orientation) -> None:
-        """Update the orientation for all views."""
-        # Update our currently tracked orientation
-        self.currentOrientation = orientation
-
-        # If we don't have a data unit at this point, end here
-        if not self.data_unit:
-            return
-
-        # Update the data unit's orientation
-        self.data_unit.set_orientation(orientation)
-
-        # Apply the layout
-        self.data_unit.layout_handler.apply_layout()
 
     def onOpacityChanged(self, value: int) -> None:
         """Handle opacity slider changes."""
@@ -373,10 +343,6 @@ class RegistrationReviewGUI:
         Called whenever a new data-unit is in focus.
         """
         self.data_unit = data_unit
-
-        # Apply the data unit's layout to our viewer if it has one
-        if hasattr(self.data_unit, "layout_handler"):
-            self.data_unit.layout_handler.apply_layout()
 
         # Update review status and classification for this case
         self._updateReviewStatus()

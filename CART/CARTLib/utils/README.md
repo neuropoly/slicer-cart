@@ -11,7 +11,6 @@ This package contains a number of utilities or structures which have a common en
 * [Data Handling](#data-handling)
   * [The CART Standard Format](#the-cart-standard-format) 
   * [Manual I/O Handling](#manual-io-handling)
-* [Slicer Layout Handling](#slicer-layout-handling)
 * [Task Registration](#task-registration)
 * [Widgets](#widgets)
 
@@ -110,43 +109,6 @@ To use them, provide a path to the file the sidecar should be associated with. I
 #### Node Grouping
 
 To make managing each data unit's nodes easier, it's often easier to group them into a single "subject" that is hidden/revealed/deleted when needed (rather than doing so for each MRML node manually). If you have a list/set of nodes you want to group, you can use the `create_subject` to streamline this process.
-
-## Slicer Layout Handling
-
-The contents of `layout.py` are for handling how the nodes in a given case should be displayed to the user in the Slicer viewer. The majority of the time, all you will need from this utility is the `Orientation` flag and the `LayoutHandler` class.
-
-### `Orientation`
-
-This enum is used by CART to track what orientation(s) you want to be displayed to the user. It can be one of three "base" values:
-
-* `AXIAL`: Represents the Axial plane
-* `SAGITTAL`: Represents the Sagittal plane
-* `CORONAL`: Represents the Coronal plane
-
-The `Orientation` enum is a [flag-type enum](https://docs.python.org/3/library/enum.html#enum.Flag); this allows us to "combine" orientations using the `|` operator. The resulting orientations are then treated as all the "base" orientations used to create it:
-
-```python
->>> axial_and_coronal = Orientation.AXIAL | Orientation.CORONAL
->>> print(Orientation.AXIAL in axial_and_coronal) 
-True
->>> print(Orientation.SAGITTAL in axial_and_coronal)
-False
-```
-
-These "combined" orientations are used by the LayoutHandler (detailed below) to denote when the user wants multiple orientations displayed simultaneously; it is not bound to that use, however, and can be re-used in your own tasks as you see fit.
-
-### `LayoutHandler`
-
-Responsible for determining the best layout to display the set of volume nodes it resides over. To do so, it requires three things:
-
-* A set of volume nodes that it should make displays for
-* A "primary" volume node; this is used as the reference for the purposes of determining where overlays (segmentations and markups) will be displayed. 
-  * If none is provided, the first segmentation node is used
-* An `Orientation` object, containing the view orientation(s) that should be displayed.
-
-It can then "apply" its layout to the Slicer scene; this results in 1 panel per volume node and "base" orientation combination. 
-
-You can change the orientation post-init with the `set_orientation` function; this will invalidate the current layout XML, however, resulting in a new one being generated the next time the layout is applied to Slicer.
 
 
 ## Task Registration

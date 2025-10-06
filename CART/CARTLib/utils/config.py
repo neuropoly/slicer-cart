@@ -2,7 +2,7 @@ import json
 from abc import ABC, abstractmethod, ABCMeta
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generic, Optional, TypeVar, Union
+from typing import Generic, Optional, TypeVar, Union, Callable
 
 import qt
 
@@ -175,6 +175,10 @@ class ConfigDialog(qt.QDialog, ABC, Generic[DICT_CONFIG_TYPE], metaclass=_ABCQDi
         layout = qt.QFormLayout()
         self.setLayout(layout)
 
+        # Track a list of "sync" functions; each is called
+        # iteratively when a synchronization is done
+        self._sync_func_list: dict[qt.QWidget, list[Callable[[], None]]] = dict()
+
         # Build the GUI
         self.buildGUI(layout)
 
@@ -182,7 +186,7 @@ class ConfigDialog(qt.QDialog, ABC, Generic[DICT_CONFIG_TYPE], metaclass=_ABCQDi
         self._addButtons(layout)
 
         # Sync the GUI to match the config
-        self._sync()
+        self.sync()
 
     ## GUI Elements ##
     @abstractmethod
@@ -220,37 +224,25 @@ class ConfigDialog(qt.QDialog, ABC, Generic[DICT_CONFIG_TYPE], metaclass=_ABCQDi
         layout.addRow(buttonBox)
 
     ## Config Synchronization ##
-    @contextmanager
-    def block_signals(self):
-        layout = self.layout()
-        widgets = [layout.itemAt(i).widget() for i in range(layout.count())]
-        for w in widgets:
-            w.blockSignals(True)
-
-        yield
-
-        for w in widgets:
-            w.blockSignals(False)
-
-    def _sync(self):
+    def register_sync_function(self, widget: qt.QWidget, func: Callable[[], None]):
         """
-        Runs `sync` below, but blocks signals from widgets within the dialogue to
-        prevent the widget's from emitting signals while they're being changed
+        Register a synchronization function to be associated with a given widget
         """
-        with self.block_signals():
-            self.sync()
+        func_list = self._sync_func_list.get(widget, [])
+        func_list.append(func)
+        self._sync_func_list[widget] = func_list
 
-    @abstractmethod
     def sync(self):
         """
-        Synchronize the GUI with its bound config; this is done it two places:
-
-        * When the GUI is initially created (after all widgets are added)
-        * When the user clicks the "reset" button (after the Config's state is reset)
-
-        If you override either of these actions
+        Runs each registered sync function in turn, synchronizing their state with the
+        GUI (however the registered function chose to do so) while blocking signals
+        from the associated widget in the process (to prevent redundant config update
+        calls).
         """
-        ...
+        for widget, func_list in self._sync_func_list.items():
+            widget.blockSignals(True)
+            for f in func_list: f()
+            widget.blockSignals(False)
 
     ## User Interactions ##
     def onConfirm(self):
@@ -291,7 +283,7 @@ class ConfigDialog(qt.QDialog, ABC, Generic[DICT_CONFIG_TYPE], metaclass=_ABCQDi
         Called when the user explicitly requests the config be reset
         """
         self.bound_config.backing_dict = self._restore_dict
-        self._sync()
+        self.sync()
         self.bound_config.has_changed = False
 
     ## QT Events ##
@@ -407,6 +399,18 @@ class ProfileConfig(DictBackedConfig):
         # Validate that the value is a boolean, to avoid weird jank later
         assert isinstance(new_val, bool), f"'{self.SAVE_ON_ITER_KEY}' must be a boolean value."
         self._backing_dict[self.SAVE_ON_ITER_KEY] = new_val
+        self.has_changed = True
+
+    ## Retain Layout Between Cases ##
+    RETAIN_LAYOUT_KEY = "retain_layout"
+
+    @property
+    def retain_layout(self) -> bool:
+        return self.get_or_default(self.RETAIN_LAYOUT_KEY, True)
+
+    @retain_layout.setter
+    def retain_layout(self, new_val: bool):
+        self._backing_dict[self.RETAIN_LAYOUT_KEY] = new_val
         self.has_changed = True
 
     ## Sub-Configurations ##
@@ -763,33 +767,16 @@ class ProfileConfigDialog(ConfigDialog[ProfileConfig]):
         # General window properties
         self.setWindowTitle("CART Configuration")
 
+        # Build the widget for the user's role
+        self._roleWidget(layout)
+
         # Build the widget for the Iterative Save attribute
         self._iterSaveWidget(layout)
 
-        self._roleWidget(layout)
+        # Build the widget for whether user layout preservation
+        self._layoutSettingsWidget(layout)
 
-    def _iterSaveWidget(self, layout):
-        # Add a checkbox for the state of autosaving
-        iterSaveCheck = qt.QCheckBox()
-        iterSaveLabel = qt.QLabel("Save on Iteration:")
-        iterSaveLabel.setToolTip(
-            "If checked, the Task will try to save when you change cases automatically."
-        )
-
-        # Synchronize to our bound config
-        iterSaveCheck.setChecked(self.bound_config.save_on_iter)
-
-        # Update the config's state when it changes
-        def setSaveOnIter(new_state: bool):
-            self.bound_config.save_on_iter = bool(new_state)
-        iterSaveCheck.stateChanged.connect(setSaveOnIter)
-
-        # Add it to our layout
-        layout.addRow(iterSaveLabel, iterSaveCheck)
-        # Track it for later synchronization
-        self.iterSaveCheck = iterSaveCheck
-
-    def _roleWidget(self, layout):
+    def _roleWidget(self, layout: qt.QFormLayout):
         # Add a combobox that lets the user select a profile's role
         roleComboBox = qt.QComboBox()
         roleLabel = qt.QLabel("Role:")
@@ -798,28 +785,65 @@ class ProfileConfigDialog(ConfigDialog[ProfileConfig]):
         # Make the combo-box editable
         roleComboBox.setEditable(True)
 
-        # Set the selected role to match the current profile's role
-        roleComboBox.setCurrentText(self.bound_config.role)
-
         # When a new role is selected, update our backing dict
         def changeRole(new_role: str):
             self.bound_config.role = new_role
         roleComboBox.currentTextChanged.connect(changeRole)
 
+        # Register the corresponding sync function
+        def syncRole():
+            roleComboBox.clear()
+            roleComboBox.addItems(self.bound_config.valid_roles)
+            roleComboBox.currentText = self.bound_config.role
+        self.register_sync_function(roleComboBox, syncRole)
+
         # Add it to our layout
         layout.addRow(roleLabel, roleComboBox)
-        # Track it for later synchronization
-        self.roleComboBox = roleComboBox
 
-    def sync(self):
-        # Iterative save checkbox
-        self.iterSaveCheck.setChecked(self.bound_config.save_on_iter)
+    def _iterSaveWidget(self, layout: qt.QFormLayout):
+        # Add a checkbox for the state of autosaving
+        iterSaveCheck = qt.QCheckBox()
+        iterSaveLabel = qt.QLabel("Save on Iteration:")
+        iterSaveLabel.setToolTip(
+            "If checked, the Task will try to save when you change cases automatically."
+        )
 
-        # Role selection combobox
-        self.roleComboBox.clear()
-        self.roleComboBox.addItems(self.bound_config.valid_roles)
-        self.roleComboBox.currentText = self.bound_config.role
+        # Update the config's state when it changes
+        def setSaveOnIter(new_state: bool):
+            self.bound_config.save_on_iter = bool(new_state)
+        iterSaveCheck.stateChanged.connect(setSaveOnIter)
 
+        # Register a synchronization function
+        def syncSaveOnIter():
+            # Iterative save checkbox
+            iterSaveCheck.setChecked(self.bound_config.save_on_iter)
+        self.register_sync_function(iterSaveCheck, syncSaveOnIter)
+
+        # Add it to our layout
+        layout.addRow(iterSaveLabel, iterSaveCheck)
+
+    def _layoutSettingsWidget(self, layout: qt.QFormLayout):
+        # Add a checkbox for the state of autosaving
+        layoutPreserveCheck = qt.QCheckBox()
+        layoutPreserveLabel = qt.QLabel("Retain Layout Across Cases:")
+        layoutPreserveLabel.setToolTip(
+            "If checked, the layout settings (shown orientations and presentation style) "
+            "will be retained when the current case is changed. Otherwise, the settings "
+            "are reset to default when the case changes."
+        )
+
+        # Update the config's state when it changes
+        def setRetainLayout(new_state: bool):
+            self.bound_config.retain_layout = bool(new_state)
+        layoutPreserveCheck.stateChanged.connect(setRetainLayout)
+
+        # Register a synchronization function
+        def syncRetainLayout():
+            layoutPreserveCheck.setChecked(self.bound_config.retain_layout)
+        self.register_sync_function(layoutPreserveCheck, syncRetainLayout)
+
+        # Add it to our layout
+        layout.addRow(layoutPreserveLabel, layoutPreserveCheck)
 
 # The location of the config file for this installation of CART.
 MAIN_CONFIG = Path(__file__).parent.parent.parent / "configuration.json"

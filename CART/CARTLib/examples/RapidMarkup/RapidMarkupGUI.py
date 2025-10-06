@@ -374,9 +374,6 @@ class RapidMarkupGUI:
         # Track the new data unit
         self.data_unit = data_unit
 
-        # Update the layout to use its contents
-        self.data_unit.layout_handler.apply_layout()
-
         # Synchronize with our logic's state
         self.markupList.syncStateWithTask()
 

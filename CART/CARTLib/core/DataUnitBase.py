@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import slicer
+from CARTLib.core.LayoutManagement import LayoutHandler
 
 
 class DataUnitBase(ABC):
@@ -35,6 +36,11 @@ class DataUnitBase(ABC):
         self.resources = {}
         self.uid = case_data.get("uid", None)
 
+        # Layout manager for this data unit;
+        # as it has MRML nodes, it needs to be cleaned up on a per-unit basis.
+        self._layout_handler: Optional[LayoutHandler] = None
+
+    ## Abstract Methods ##
     @abstractmethod
     def to_dict(self) -> dict:
         """
@@ -48,37 +54,6 @@ class DataUnitBase(ABC):
         """
 
         raise NotImplementedError("This method must be implemented in subclasses.")
-
-    @abstractmethod
-    def focus_gained(self):
-        """
-        This is called when the DataUnit is made the "focus" of the task. You should
-         "reveal" any resources you are managing here by adding them back to the MRML
-         scene.
-        """
-        raise NotImplementedError("This method must be implemented in subclasses.")
-
-    @abstractmethod
-    def focus_lost(self):
-        """
-        This is called when the DataUnit is removed from the "focus" of the task. You
-         should "hide" any resources you are managing here by removing them from the MRML
-         scene.
-        """
-        raise NotImplementedError("This method must be implemented in subclasses.")
-
-    @abstractmethod
-    def clean(self):
-        """
-        This method is called right before the DataUnit is deleted (due to the module
-         closing, the unit falling out of cache, or Slicer closing).
-
-        You should ensure any data managed in this data unit is removed from memory.
-         Our "base" implementation attempts to do this by replicating the DataUnit
-         "losing focus", but it is near certain you will need to extend this
-         functionality.
-        """
-        self.focus_lost()
 
     @abstractmethod
     def validate(self):
@@ -103,6 +78,16 @@ class DataUnitBase(ABC):
         """
         raise NotImplementedError("This method must be implemented in subclasses.")
 
+    @property
+    @abstractmethod
+    def layout_handler(self) -> LayoutHandler:
+        """
+        The layout handler for this data unit; determines how the volumes
+        (and/or other node types) in the scene should be displayed.
+        """
+        raise NotImplementedError("This method must be implemented in subclasses.")
+
+    ## Default Methods
     def get_resource(self, key: str) -> Any:
         """
         Retrieve a specified resource associated with this DataUnitBase instance.
@@ -142,6 +127,41 @@ class DataUnitBase(ABC):
         """
         return self.uid
 
+    def focus_gained(self):
+        """
+        This is called when the DataUnit is made the "focus" of the task. You should
+        "reveal" any resources you are managing here by adding them back to the MRML
+        scene.
+        """
+        if self._layout_handler:
+            self._layout_handler.apply_layout()
+
+    def focus_lost(self):
+        """
+        This is called when the DataUnit is removed from the "focus" of the task. You
+        should "hide" any resources you are managing here by removing them from the MRML
+        scene.
+        """
+        pass
+
+    def clean(self):
+        """
+        This method is called right before the DataUnit is deleted (due to the module
+         closing, the unit falling out of cache, or Slicer closing).
+
+        You should ensure any data managed in this data unit is removed from memory.
+         Our "base" implementation attempts to do this by replicating the DataUnit
+         "losing focus", but it is near certain you will need to extend this
+         functionality.
+        """
+        # Revoke focus from the data unit first
+        self.focus_lost()
+
+        # If we have a layout handler, have it clean up after itself
+        if self._layout_handler:
+            self.layout_handler.clean()
+
+    ## Dunder Methods ##
     def __del__(self):
         # When the object is garbage collected, run cleaning first
         self.clean()

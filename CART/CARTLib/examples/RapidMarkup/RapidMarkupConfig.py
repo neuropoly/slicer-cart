@@ -10,13 +10,6 @@ from RapidMarkupOutputManager import RapidMarkupOutputManager
 
 
 class RapidMarkupConfigDialog(ConfigDialog["RapidMarkupConfig"]):
-    def sync(self):
-        # Disable our signals while we synchronize
-        with self.block_signals():
-            self.autoStartCheckBox.setChecked(self.bound_config.start_automatically)
-            self.chainPlacementCheckBox.setChecked(self.bound_config.chain_placement)
-            self.removeFromSceneCheckBox.setChecked(self.bound_config.remove_from_scene)
-
     def buildGUI(self, layout: qt.QFormLayout):
         # General window properties
         self.setWindowTitle(_("Rapid Markup Configuration"))
@@ -37,24 +30,23 @@ class RapidMarkupConfigDialog(ConfigDialog["RapidMarkupConfig"]):
             "'nifti': Saves markups as a NiFTI-formatted label map."
         ))
 
+        # Add all possible output formats to the list
         OutputFormat = RapidMarkupOutputManager.OutputFormat
         for v in OutputFormat:
             comboBox.addItem(v.name)
-
-        # Set the active index to match the current config's value
-        comboBox.setCurrentIndex(self.bound_config.output_format.value)
 
         # When the index changes, chane the config's value to match
         def onIndexChanged(new_index: int):
             new_val = OutputFormat(new_index)
             self.bound_config.output_format = new_val
-            print("=" * 100)
-            print(new_val)
-            print(new_val.value)
-            print("=" * 100)
         comboBox.currentIndexChanged.connect(onIndexChanged)
 
-        # Add them to the layout
+        # Register a synchronization function
+        def syncFormatComboBox():
+            comboBox.setCurrentIndex(self.bound_config.output_format.value)
+        self.register_sync_function(comboBox, syncFormatComboBox)
+
+        # Add it to the layout
         layout.addRow(comboBoxLabel, comboBox)
 
     def _buildCheckboxes(self, layout: qt.QFormLayout):
@@ -71,11 +63,13 @@ class RapidMarkupConfigDialog(ConfigDialog["RapidMarkupConfig"]):
             self.bound_config.start_automatically = new_val
         autoStartCheckBox.stateChanged.connect(onAutoStartChanged)
 
+        # Add a sync function
+        def syncAutoStartChanged():
+            autoStartCheckBox.setChecked(self.bound_config.start_automatically)
+        self.register_sync_function(autoStartCheckBox, syncAutoStartChanged)
+
         # Add it to the layout
         layout.addRow(autoStartLabel, autoStartCheckBox)
-
-        # Track it for later
-        self.autoStartCheckBox = autoStartCheckBox
 
         # Checkbox for chaining markup placements
         chainPlacementCheckBox = qt.QCheckBox()
@@ -91,15 +85,17 @@ class RapidMarkupConfigDialog(ConfigDialog["RapidMarkupConfig"]):
             self.bound_config.chain_placement = new_val
         chainPlacementCheckBox.stateChanged.connect(onChainPlacementChanged)
 
+        # Add a sync function
+        def syncChainPlacement():
+            chainPlacementCheckBox.setChecked(self.bound_config.chain_placement)
+        self.register_sync_function(chainPlacementCheckBox, syncChainPlacement)
+
         # Add it to the layout
         layout.addRow(chainPlacementLabel, chainPlacementCheckBox)
 
-        # Track it for later
-        self.chainPlacementCheckBox = chainPlacementCheckBox
-
         # Checkbox for scene removal on delete
         removeFromSceneCheckBox = qt.QCheckBox()
-        removeFromSceneLabel = qt.QLabel(_("Deletions Remove Corresponding Markup"))
+        removeFromSceneLabel = qt.QLabel(_("Delete Placed Markups"))
         removeFromSceneCheckBox.setToolTip(_(
             "If checked, removing a markup label will also remove its associated markup "
             "point in the Slicer scene. Otherwise, the markup is left in the scene "
@@ -110,14 +106,15 @@ class RapidMarkupConfigDialog(ConfigDialog["RapidMarkupConfig"]):
         # When the checkbox changes, change the values
         def onRemoveFromSceneChanged(new_val: bool):
             self.bound_config.remove_from_scene = new_val
-
         removeFromSceneCheckBox.stateChanged.connect(onRemoveFromSceneChanged)
+
+        # Add a sync function
+        def syncRemoveFromScene():
+            removeFromSceneCheckBox.setChecked(self.bound_config.remove_from_scene)
+        self.register_sync_function(removeFromSceneCheckBox, syncRemoveFromScene)
 
         # Add it to the layout
         layout.addRow(removeFromSceneLabel, removeFromSceneCheckBox)
-
-        # Track it for later
-        self.removeFromSceneCheckBox = removeFromSceneCheckBox
 
 
 class RapidMarkupConfig(DictBackedConfig):
