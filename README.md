@@ -116,7 +116,7 @@ Once you've specified a user and a data folder, you can run a "task" on the data
 
 Selecting a Task is simple; simply select the task you want to run from the drop-down menu labelled "Task". By default, CART provides a number of pre-defined tasks for you to use:
 
-* **[Multi-Contrast Segmentation](./CART/CARTLib/examples/MultiContrastSegmentation/README.md)**: General purpose segmentation review and correction tool. Specify a "primary" segmentation you want to evaluate, and CART will load it (and anything else you want to reference) into view for you to review, correct, or replace entirely.
+* **[Multi-Contrast Segmentation](CART/CARTLib/examples/SegmentationReview/README.md)**: General purpose segmentation review and correction tool. Specify a "primary" segmentation you want to evaluate, and CART will load it (and anything else you want to reference) into view for you to review, correct, or replace entirely.
 * **[Registration Review](CART/CARTLib/examples/RegistrationReview/README.md)**: Based on a set of volumes and corresponding segmentations, mark each case as properly registered or not.
 
 In the future, you will also be able to register arbitrary Tasks, either created by you or downloaded from other developers.

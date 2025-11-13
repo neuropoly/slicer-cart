@@ -3,7 +3,7 @@ import qt
 from CARTLib.utils.config import DictBackedConfig, ConfigDialog, ProfileConfig
 
 
-class MultiContrastSegmentationConfig(DictBackedConfig):
+class SegmentationReviewConfig(DictBackedConfig):
     """
     Configuration manager for the MultiContrast task
     """
@@ -31,13 +31,13 @@ class MultiContrastSegmentationConfig(DictBackedConfig):
     ## Utils ##
     def show_gui(self):
         # Build the Config prompt
-        prompt = MultiContrastSegmentationConfigGUI(bound_config=self)
+        prompt = SegmentationReviewConfigGUI(bound_config=self)
         # Show it, blocking other interactions until its resolved
         prompt.exec()
 
 
-class MultiContrastSegmentationConfigGUI(
-    ConfigDialog[MultiContrastSegmentationConfig]
+class SegmentationReviewConfigGUI(
+    ConfigDialog[SegmentationReviewConfig]
 ):
     """
     Configuration dialog which allows the user to configure this task.

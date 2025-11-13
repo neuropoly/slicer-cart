@@ -671,8 +671,6 @@ class CARTStandardUnit(DataUnitBase):
 
         # The primary volume acts as the "reference" co-ordinate system + orientation
         # for all other volumes, segmentation, and markups
-        self.primary_volume_key: str = ""
-
         self.volume_keys: list[str]
         self.volume_paths: dict[str, Path]
         self.primary_volume_key: str

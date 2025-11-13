@@ -1,32 +1,28 @@
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 import ctk
 import qt
-import slicer
+from CARTLib.utils.widgets import CARTSegmentationEditorWidget, showSuccessPrompt, showErrorPrompt
 from slicer.i18n import tr as _
 
-from CARTLib.core.LayoutManagement import Orientation
-from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
-from CARTLib.utils.config import ProfileConfig
-from CARTLib.utils.task import cart_task
-from CARTLib.utils.widgets import CARTSegmentationEditorWidget, showSuccessPrompt, showErrorPrompt
-
-from MultiContrastOutputManager import OutputMode, MultiContrastOutputManager
-from MultiContrastSegmentationEvaluationDataUnit import (
-    MultiContrastSegmentationEvaluationDataUnit,
-)
-from MultiContrastSegmentationConfig import MultiContrastSegmentationConfig
+from SegmentationReviewUnit import SegmentationReviewUnit
+from SegmentationReviewOutputManager import OutputMode
 
 
-class MultiContrastSegmentationEvaluationGUI:
-    def __init__(self, bound_task: "MultiContrastSegmentationEvaluationTask"):
+# Type hint guard; only risk the cyclic import if type hints are running
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    # noinspection PyUnusedImports
+    from SegmentationReviewTask import SegmentationReviewTask
+
+
+class SegmentationReviewGUI:
+    def __init__(self, bound_task: "SegmentationReviewTask"):
         self.bound_task = bound_task
-        self.data_unit: Optional[MultiContrastSegmentationEvaluationDataUnit] = None
-
-        # The currently selected orientation in the GUI; determine our viewer layout
-        self.currentOrientation: Orientation = Orientation.AXIAL
+        self.data_unit: Optional[SegmentationReviewUnit] = None
 
         # Widgets we'll need to reference later:
         self.segmentEditorWidget: Optional[CARTSegmentationEditorWidget] = None
@@ -37,6 +33,9 @@ class MultiContrastSegmentationEvaluationGUI:
         """
         # Initialize the layout we'll insert everything into
         formLayout = qt.QFormLayout()
+
+        # Segmentation selection widget
+        self._addSegmentSelectionWidget(formLayout)
 
         # Segmentation editor
         self.segmentEditorWidget = CARTSegmentationEditorWidget()
@@ -52,6 +51,30 @@ class MultiContrastSegmentationEvaluationGUI:
         self.promptSelectOutputMode()
 
         return formLayout
+
+    def _addSegmentSelectionWidget(self, layout: qt.QFormLayout):
+        # Label for the widget
+        segmentSelectionLabel = qt.QLabel(_(
+            "Segmentations to Save:"
+        ))
+
+        # The widget itself
+        segmentSelectionComboBox = ctk.ctkCheckableComboBox()
+
+        # When a checked index changes, update the logic to match
+        def onCheckedChanged():
+            checkedSegments = [
+                segmentSelectionComboBox.itemText(i.row()) for i in segmentSelectionComboBox.checkedIndexes()
+            ]
+            self.bound_task.segments_to_save = checkedSegments
+
+        segmentSelectionComboBox.checkedIndexesChanged.connect(onCheckedChanged)
+
+        # Add them to the layout
+        layout.addRow(segmentSelectionLabel, segmentSelectionComboBox)
+
+        # Track it for later
+        self.segmentSelectionComboBox = segmentSelectionComboBox
 
     def _addConfigButton(self, layout: qt.QFormLayout):
         # A button to open the Configuration dialog, which changes how CART operates
@@ -338,33 +361,41 @@ class MultiContrastSegmentationEvaluationGUI:
         failurePrompt.exec()
 
     ## CORE ##
-    def update(self, data_unit: MultiContrastSegmentationEvaluationDataUnit) -> None:
+    @contextmanager
+    def block_signals(self):
+        widget_list = [self.segmentEditorWidget, self.segmentSelectionComboBox]
+        for w in widget_list:
+            w.blockSignals(True)
+
+        yield
+
+        for w in widget_list:
+            w.blockSignals(False)
+
+    def update(self, data_unit: SegmentationReviewUnit) -> None:
         """
         Called whenever a new data-unit is in focus.
         Populate the volume combo, select primary, and fire off initial layers.
         """
         self.data_unit = data_unit
 
-        # Refresh the SegmentEditor Widget immediately
-        self.segmentEditorWidget.refresh()
+        # Update the list of segmentations that can be saved
+        with self.block_signals():
+            # Add entries not already present in segmentation selection combobox
+            existing_entries = set(
+                [self.segmentSelectionComboBox.itemText(i) for i in range(self.segmentSelectionComboBox.count)]
+            )
+            for k in data_unit.segmentation_keys:
+                if k not in existing_entries:
+                    self.segmentSelectionComboBox.addItem(k)
 
-        # Force it to select the primary segmentation node
+            # Refresh the SegmentEditor Widget immediately
+            self.segmentEditorWidget.refresh()
+
+        # Force it to select the primary segmentation node; we rely on signals here!
         self.segmentEditorWidget.setSegmentationNode(
             self.data_unit.primary_segmentation_node
         )
-
-    def _save(self) -> None:
-        err = self.bound_task.save()
-        self.saveCompletePrompt(err)
-
-    def saveCompletePrompt(self, err_msg: Optional[str]) -> None:
-        if err_msg is None:
-            success_message = self.bound_task.output_manager.get_success_message(
-                self.bound_task.data_unit
-            )
-            showSuccessPrompt(success_message)
-        else:
-            showErrorPrompt(err_msg)
 
     ## GUI SYNCHRONIZATION ##
     def enter(self) -> None:
@@ -376,167 +407,3 @@ class MultiContrastSegmentationEvaluationGUI:
         # Ensure the segmentation editor widget handles itself before hiding
         if self.segmentEditorWidget:
             self.segmentEditorWidget.exit()
-
-
-@cart_task("Segmentation Review")
-class MultiContrastSegmentationEvaluationTask(
-    TaskBaseClass[MultiContrastSegmentationEvaluationDataUnit]
-):
-
-    def __init__(self, profile: ProfileConfig):
-        super().__init__(profile)
-
-        # Local Attributes
-        self.gui: Optional[MultiContrastSegmentationEvaluationGUI] = None
-        self.output_mode: OutputMode = OutputMode.PARALLEL_DIRECTORY
-        self.output_dir: Optional[Path] = None
-        self.output_manager: Optional[MultiContrastOutputManager] = None
-        self.data_unit: Optional[MultiContrastSegmentationEvaluationDataUnit] = None
-        self.csv_log_path: Optional[Path] = None  # Optional custom CSV log path
-
-        # Configuration
-        self.config: MultiContrastSegmentationConfig = (
-            MultiContrastSegmentationConfig(
-                parent_config=self.profile
-            )
-        )
-
-    def setup(self, container: qt.QWidget) -> None:
-        print(f"Running {self.__class__.__name__} setup!")
-
-        # Initialize the GUI: this prompts the user to configure some attributes we need
-        self.gui = MultiContrastSegmentationEvaluationGUI(self)
-        layout = self.gui.setup()
-
-        # Integrate the task's GUI into CART
-        container.setLayout(layout)
-
-        # If the user provided output specifications, set up our manager here.
-        if self.output_dir:
-            self.output_manager = MultiContrastOutputManager(
-                self.profile,
-                self.output_mode,
-                self.output_dir,
-                self.csv_log_path
-            )
-
-        # If we have a data unit at this point, synchronize the GUI to it
-        if self.data_unit:
-            self.gui.update(self.data_unit)
-        self.gui.enter()
-
-    def receive(self, data_unit: MultiContrastSegmentationEvaluationDataUnit) -> None:
-        # Track the data unit for later
-        self.data_unit = data_unit
-        # Display primary volume + segmentation overlay
-        slicer.util.setSliceViewerLayers(
-            background=data_unit.primary_volume_node,
-            foreground=data_unit.primary_segmentation_node,
-            fit=True,
-        )
-        # Hide the segmentation node if requested by the user's config
-        self.data_unit.set_primary_segments_visible(
-            self.config.show_on_load
-        )
-        # If we have GUI, update it as well
-        if self.gui:
-            self.gui.update(data_unit)
-
-    def cleanup(self) -> None:
-        # Break the cyclical link with our GUI so garbage collection can run
-        self.gui = None
-
-    def enter(self) -> None:
-        if self.gui:
-            self.gui.enter()
-
-    def exit(self) -> None:
-        if self.gui:
-            self.gui.exit()
-
-    @classmethod
-    def getDataUnitFactories(cls) -> dict[str, DataUnitFactory]:
-        """
-        We currently only support one data unit type, so we only provide it to
-         the user
-        """
-        return {"Segmentation": MultiContrastSegmentationEvaluationDataUnit}
-
-    def set_output_mode(
-        self,
-        mode: OutputMode,
-        output_path: Optional[Path] = None,
-        csv_log_path: Optional[Path] = None,
-    ) -> Optional[str]:
-        """
-        Set the output mode and path if needed, with optional CSV logging path.
-        Returns error message if failed, None if successful.
-        """
-        self.output_mode = mode
-        self.csv_log_path = csv_log_path
-
-        if mode == OutputMode.PARALLEL_DIRECTORY:
-            if not output_path:
-                return "Output path required for parallel directory mode"
-
-            # Validate the directory
-            if not output_path.exists():
-                return f"Error: Output path does not exist: {output_path}"
-
-            if not output_path.is_dir():
-                return f"Error: Output path is not a directory: {output_path}"
-
-            # Set up the consolidated output manager with CSV tracking
-            self.output_dir = output_path
-            self.output_manager = MultiContrastOutputManager(
-                profile=self.profile,
-                output_mode=mode,
-                output_dir=output_path,
-                csv_log_path=csv_log_path,
-            )
-            print(f"Output mode set to parallel directory: {self.output_dir}")
-            print(f"CSV log will be saved to: {self.output_manager.csv_log_path}")
-
-        elif mode == OutputMode.OVERWRITE_ORIGINAL:
-            # Set up the consolidated output manager with CSV tracking
-            self.output_dir = None
-            self.output_manager = MultiContrastOutputManager(
-                profile=self.profile, output_mode=mode, csv_log_path=csv_log_path
-            )
-            print("Output mode set to overwrite original")
-            print(f"CSV log will be saved to: {self.output_manager.csv_log_path}")
-
-        return None
-
-    def can_save(self):
-        # If we don't have a data unit or output manager, we can't even consider saving
-        if not self.data_unit or not self.output_manager:
-            return False
-        # Otherwise, check with our output manager
-        return self.output_manager.can_save(self.data_unit)
-
-    def save(self) -> Optional[str]:
-        """
-        Save the current segmentation using the output manager.
-        """
-        # If we can't save, just return early
-        # TODO improve how descriptive this error is
-        if not self.can_save():
-            return "Could not save!"
-        # Have the output manager save the result
-        # TODO handle the case where the original file doesn't exist And we are in "Overwrite Original" mode
-        result = self.output_manager.save_segmentation(self.data_unit)
-        # If we have a GUI, have it provide the appropriate response to the user
-        if self.gui:
-            self.gui.saveCompletePrompt(result)
-        # Return the result for further use
-        return result
-
-    def isTaskComplete(self, case_data: dict[str: str]) -> bool:
-        # The user might not have selected an output directory
-        if not self.output_manager:
-            # Without an output specified, we can't determine if we're done or not
-            return False
-
-        # Delegate to the output manager
-        return self.output_manager.is_case_completed(case_data)

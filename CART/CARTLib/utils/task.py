@@ -97,7 +97,7 @@ def task_from_file(task_path: Path):
 def initialize_tasks():
     # Start by loading our built-in (example) tasks
     examples_path = Path(__file__).parent.parent / "examples"
-    segment_eval_task_path = examples_path / "MultiContrastSegmentation/MultiContrastSegmentationEvaluationTask.py"
+    segment_eval_task_path = examples_path / "SegmentationReview/SegmentationReviewTask.py"
     registration_review_path = examples_path / "RegistrationReview/RegistrationReviewTask.py"
     rapid_markup_path = examples_path / "RapidMarkup/RapidMarkupTask.py"
 

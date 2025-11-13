@@ -6,7 +6,7 @@ import slicer
 from CARTLib.utils.data import create_empty_segmentation_node, CARTStandardUnit
 
 
-class MultiContrastSegmentationEvaluationDataUnit(CARTStandardUnit):
+class SegmentationReviewUnit(CARTStandardUnit):
     """
     DataUnit for segmentation evaluation supporting any number of volumes.
     Dynamically discovers all case_data keys containing "volume", loads them,

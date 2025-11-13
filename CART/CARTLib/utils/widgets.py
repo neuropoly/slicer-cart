@@ -45,7 +45,8 @@ class _NodeComboBoxProxy(qt.QComboBox):
 
     This is required because there is no way to refresh a `qMRMLNodeComboBox` to check
     whether the node's its tracking have become hidden since it initialized. This is
-    the only way to allow access to (and modification of
+    the only way to allow access to (and modification of) the nodes which can be
+    selected by the user in several widgets.
     """
 
     def __init__(self, bound_widget: slicer.qMRMLNodeComboBox, *args):
@@ -90,18 +91,7 @@ class _NodeComboBoxProxy(qt.QComboBox):
                 self.idx_map[self.count] = i
                 self.addItem(node.GetName())
 
-        # TODO: Figure out how to re-enable actions again...
-        # # If we have no more entries, terminate here
-        # if i >= self._combo_box.count:
-        #     return
-        #
-        # # Any entries past this point correspond to actions w/ text labels
-        # self.insertSeparator(self.count)
-        # i += 2  # For some reason, inserting a separator adds two entries...
-        # for i in range(i, self._combo_box.count):
-        #     label = self._combo_box.itemText(i)
-        #     self.idx_map[self.count] = i
-        #     self.addItem(label)
+        # TODO: Consider whether we can re-enable actions (add/remove nodes) again...
 
     def map_index(self, idx: int):
         # Special case; -1 is universal for "nothing is selected"
@@ -150,11 +140,13 @@ class CARTSegmentationEditorWidget(
     A "wrapper" for Segment Editor Modules's editor widget, to make it more
     user-friendly and easier to manage in the context of a CART task.
 
-    Specifically, this automatically does some stuff that the module would have
-    done instead, including:
+    Specifically, this automatically does some stuff that each task would have
+    to do themselves manually. This includes:
         * Hooking itself into an MRML scene
         * Creating a `vtkMRMLSegmentEditorNode` editor node into said scene
         * Managing shortcuts for its various functions
+        * Disables adding/removing nodes (as they should be managed by the task)
+        * Ensuring that only visible nodes can be selected by the user (hiding "cached" nodes)
 
     Code heavily based on SegmentEditorWidget in
     https://github.com/Slicer/Slicer/blob/main/Modules/Scripted/SegmentEditor/SegmentEditor.py
@@ -190,22 +182,21 @@ class CARTSegmentationEditorWidget(
         self.setMRMLScene(self.scene)
 
         # Initialize (and track) the segmentation editor node in the MRML scene
-        self.editor_node = None
-        self._set_up_editor_node()
+        self.editor_node = self._set_up_editor_node()
 
-        self.setAddRemoveSegmentButtonsVisible(True)
+        # Hide the "Add/Remove Segment" buttons, as it *will* cause problems
+        self.setAddRemoveSegmentButtonsVisible(False)
 
-        # We expect the task to select the most relevant "source" volume
+        # Hide the 3D segmentation button; CART's GUI manages this for us
+        # TODO: Actually move the "show 3d" button to the CART GUI
+        self.setShow3DButtonVisible(False)
 
-        # Hide "swap to Segmentations Button" as well
+        # Hide the module swap button, to further discourage adding/remove segmentations
         self.setSwitchToSegmentationsButtonVisible(False)
 
         # Track our segmentation node combo box for direct reference
-        self.proxySegNodeComboBox = self._replaceSegmentationSelectionNode()
-
-        # Hide the ability to add or remove segments by default
-        self.proxySegNodeComboBox.addEnabled = False
-        self.proxySegNodeComboBox.removeEnabled = False
+        # TODO: Figure out why this makes these combo-boxes become "stubby"
+        self.proxyVolumeNodeComboBox, self.proxySegNodeComboBox = self._replaceSelectionNodes()
 
     ## Setup Helpers ##
     def _set_up_editor_node(self):
@@ -225,23 +216,45 @@ class CARTSegmentationEditorWidget(
         self.setMRMLSegmentEditorNode(editor_node)
 
         # Track the editor node for future reference
-        self.editor_node = editor_node
+        return editor_node
 
-    def _replaceSegmentationSelectionNode(self) -> Optional[_NodeComboBoxProxy]:
+    def _replaceSelectionNodes(self) -> tuple[Optional[_NodeComboBoxProxy], Optional[_NodeComboBoxProxy]]:
+        volumeSelectNode = None
+        segmentSelectNode = None
         # Unfortunately we have to exploit QT here to search for it; Slicer hides it
         #  from public access through its interface
         for c in self.children():
-            if c.name == "SegmentationNodeComboBox":
+            # Find the relevant combo-boxes in the widget and replace them
+            c_name = c.name
+            if c_name == "SourceVolumeNodeComboBox":
                 # Build a proxy widget for it
-                proxy = _NodeComboBoxProxy(c)
-                # Use it to replace the original widget in the UI
-                self.layout().replaceWidget(c, proxy)
-                c.setVisible(False)
+                proxy = self._proxyComboBox(c)
+                # Track it for later
+                volumeSelectNode = proxy
+            elif c_name == "SegmentationNodeComboBox":
+                # Build a proxy widget for it
+                proxy = self._proxyComboBox(c)
                 # Return it, ending the search here
-                return proxy
+                segmentSelectNode = proxy
 
-        # If we could not find it, return empty-handed
-        return None
+            # If we have both, end here
+            if volumeSelectNode and segmentSelectNode:
+                break
+
+        # Return what we found
+        return volumeSelectNode, segmentSelectNode
+
+    def _proxyComboBox(self, comboBox):
+        # Generate the widget we want to put in its place
+        proxy = _NodeComboBoxProxy(comboBox)
+        # Use it to replace the original widget in the UI
+        self.layout().replaceWidget(comboBox, proxy)
+        # Share the size policy of the combobox with its proxy
+        proxy.setSizePolicy(comboBox.sizePolicy)
+        # Hide the original combo box from view
+        comboBox.setVisible(False)
+        # Return the proxy for further use
+        return proxy
 
     ## UI Management ##
     def enter(self):
@@ -257,6 +270,7 @@ class CARTSegmentationEditorWidget(
         self.uninstallKeyboardShortcuts()
 
     def refresh(self):
+        self.proxyVolumeNodeComboBox.refresh()
         self.proxySegNodeComboBox.refresh()
 
     def setSegmentationNode(self, segment_node):
