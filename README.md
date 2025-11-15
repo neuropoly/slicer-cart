@@ -67,10 +67,7 @@ Clone this repository somewhere you can easily access it. You can do this one of
 <img width="865" height="650" alt="image" src="https://github.com/user-attachments/assets/ea9d4013-b77b-47ef-84b5-f4d38fd7f044" />
 
 4. Click and drag `CART.py` from the file browser into the "Additional module paths" panel.
-5. Click "OK"; Slicer should prompt you that it needs to restart.
-<img width="395" height="169" alt="image" src="https://github.com/user-attachments/assets/76c1d8c4-bd3a-40d9-b674-01d7787a2a44" />
-
-6. Restart Slicer
+5. Click "OK"; Slicer should prompt you that it needs to restart. Say "Yes".
 
 ### [Optional] Setting CART as your Default Module
 
