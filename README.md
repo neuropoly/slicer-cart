@@ -74,7 +74,7 @@ Clone this repository somewhere you can easily access it. You can do this one of
 1. Start Slicer
 2. Select `Edit` (top left) > `Application Settings`
 3. In the "settings" popup, select `Modules` from the left sidebar
-4. Select `CART` from the dropdown button labelled "Default startup module"
+4. Under "Default startup module", Select `Utilities` > `CART`
 <img width="506" height="760" alt="image" src="https://github.com/user-attachments/assets/66a360ff-8ad6-406e-a498-7e1ff1ae6f20" />
 
 ### Getting Started
