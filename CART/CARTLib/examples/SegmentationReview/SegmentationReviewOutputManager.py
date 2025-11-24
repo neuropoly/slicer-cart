@@ -5,15 +5,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-import qt
-import slicer
-
 from CARTLib.utils.data import save_segmentation_to_nifti
 from CARTLib.utils.config import ProfileConfig
 
 from SegmentationReviewUnit import (
     SegmentationReviewUnit,
 )
+
 
 VERSION = 0.02
 
@@ -54,82 +52,87 @@ class SegmentationReviewOutputManager:
     def __init__(
         self,
         profile: ProfileConfig,
-        output_mode: OutputMode,
+        output_mode: OutputMode = OutputMode.PARALLEL_DIRECTORY,
         output_dir: Optional[Path] = None,
+        with_logging: bool = True,
         csv_log_path: Optional[Path] = None,
     ):
         """
-        Initialize the output manager.
+        Initialize an output manager for the Segmentation Review Task
 
-        Args:
-            profile: Profile configuration
-            output_mode: OutputMode enum value (PARALLEL_DIRECTORY or OVERWRITE_ORIGINAL)
-            output_dir: Required for PARALLEL_DIRECTORY mode, ignored for OVERWRITE_ORIGINAL
-            csv_log_path: Optional path to CSV log file. If None, will be auto-generated.
+        :param profile: The configuration profile to reference for settings
+        :param output_mode: The output mode of the task
+        :param output_dir: Where imaging files should be place, if not in Overwrite mode
+        :param with_logging: Whether to track a log of edits in a CSV file.
+        :param csv_log_path: A path to the CSV file to log edits too.
+            Created if it does not exist.
         """
         self.profile = profile
         self.output_mode = output_mode
         self.output_dir = output_dir
 
-        # Set up CSV logging
-        self.csv_log_path: Path = self._setup_csv_log_path(csv_log_path)
-        self.csv_log: dict[tuple[str, str], dict[str, str]] = self._init_csv_log()
+        # CSV logging
+        self.with_logging = with_logging
+        self._csv_log_path: Path = csv_log_path
+        self._csv_log: Optional[dict[tuple[str, str], dict[str, str]]] = None
 
-        # Validate configuration
-        if output_mode == OutputMode.PARALLEL_DIRECTORY and not output_dir:
-            raise ValueError("output_dir is required for PARALLEL_DIRECTORY mode")
 
-    ## ALIASES ##
+    ## PROPERTIES ##
     @property
     def profile_label(self) -> str:
         return self.profile.label
 
-    ## CSV LOGGING ##
-    def _setup_csv_log_path(self, csv_log_path: Optional[Path]) -> Path:
-        """Set up the CSV log file path."""
-        if csv_log_path:
-            return csv_log_path
+    @property
+    def csv_log_path(self) -> Optional[Path]:
+        return self._csv_log_path
 
-        # Auto-generate CSV log path
-        return self.output_dir / "segmentation_review_log.csv"
+    @csv_log_path.setter
+    def csv_log_path(self, new_path: Optional[Path]):
+        # Confirm the new path is valid
+        if new_path:
+            if new_path.is_dir():
+                raise ValueError("Cannot use a directory as a log file!")
 
-    def _init_csv_log(self) -> dict[tuple[str, str], dict[str, str]]:
+        # Blank the CSV log cache
+        if self._csv_log is not None:
+            self._csv_log = None
+
+        # Update the path
+        self._csv_log_path = new_path
+
+    @property
+    def csv_log(self) -> Optional[dict[tuple[str, str], dict[str, str]]]:
         """
-        Load the CSV file designated by the user into memory; if one doesn't exist
-        create it instead.
+        Get only, as the CSV log is cached and tightly bound to the current
+        CSV log path (being designed to be locked together in 1:1 form).
         """
-        # If the CSV file already exists, load it
+        # If there's no CSV log path to load, do nothing
+        if self.csv_log_path is None:
+            return None
+
+        # If we already have a cached CSV log, use it
+        if self._csv_log is not None:
+            return self._csv_log
+
+        # Otherwise, try to (re-)build the CSV log
+        csv_log = dict()
+
+        # If the CSV file already exists, load its contents
         if self.csv_log_path.exists():
-            # Read existing entries
-            csv_log = dict()
-            if self.csv_log_path.exists():
-                with open(self.csv_log_path, newline="") as csvfile:
-                    reader = csv.DictReader(csvfile)
-                    for i, row in enumerate(reader):
-                        # Confirm the row has a UID; if not, skip it
-                        uid = row.get('uid', None)
-                        if not uid:
-                            print(f"WARNING: Skipping entry #{i} in {self.csv_log_path}, lacked a valid UID")
-                        # Generate a unique uid + author combo to use as our key
-                        author = row.get('author', None)
-                        # KO: In Python, as long as the contents of a tuple are hashable,
-                        # the tuple is hashable as well!
-                        csv_log[(uid, author)] = row
+            with open(self.csv_log_path, newline="") as csvfile:
+                reader = csv.DictReader(csvfile)
+                for i, row in enumerate(reader):
+                    # Confirm the row has a UID; if not, skip it
+                    uid = row.get('uid', None)
+                    if uid is None:
+                        print(f"WARNING: Skipping entry #{i} in {self.csv_log_path}, lacked a valid UID")
+                    # Generate a unique uid + author combo to use as our key
+                    author = row.get('author', None)
+                    csv_log[(uid, author)] = row
 
-            return csv_log
-
-        # Otherwise, make a new file and return an empty to-be-filled dictionary
-        else:
-            # Create parent directory if it doesn't exist
-            self.csv_log_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Create an empty CSV file with appropriate headers
-            with open(self.csv_log_path, "w", newline="") as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=self.HEADERS)
-                writer.writeheader()
-
-            # Return an empty dictionary, as we don't have anything yet
-            return dict()
+        # Track and return the result
+        self._csv_log = csv_log
+        return csv_log
 
     ## I/O ##
     def save_unit(
@@ -137,7 +140,7 @@ class SegmentationReviewOutputManager:
     ) -> str:
         """
         Save the contents of a data unit, as dictated by the current
-        logic settings and user configurations.
+        settings and user configurations.
 
         :param unit: The data unit to reference for node data
         :param segments_to_save: List of segmentation IDs that should be saved
@@ -170,19 +173,21 @@ class SegmentationReviewOutputManager:
             # Save/update a copy of the sidecar
             self._save_sidecar(sidecar_source_path, sidecar_dest_path)
 
-            # Add a log entry
-            self._log_to_csv(
-                unit,
-                segment_dest_path,
-                sidecar_dest_path,
-                segment_source_path
-            )
+            # If we're in logging mode, try to save a log entry as well
+            if self.with_logging:
+                self._log_to_csv(
+                    unit,
+                    segment_dest_path,
+                    sidecar_dest_path,
+                    segment_source_path
+                )
 
             # Extend the return message with the segment name
             result_msg += f"  * {s}\n"
 
         # Complete the message by denoting where the (now updated) log file is
-        result_msg += f"\nSee log at '{str(self.csv_log_path.resolve())}' for details."
+        if self.with_logging:
+            result_msg += f"\nChange logged into file '{str(self.csv_log_path.resolve())}'."
         return result_msg
 
     def _log_to_csv(
@@ -211,6 +216,11 @@ class SegmentationReviewOutputManager:
 
         # Set/Replace the corresponding entry in our CSV log
         self.csv_log[(data_unit.uid, self.profile_label)] = log_entry
+
+        # If the CSV file doesn't already exist, create it and its parent directory
+        if not self.csv_log_path.exists():
+            self.csv_log_path.parent.mkdir(parents=True, exist_ok=True)
+            self.csv_log_path.touch()
 
         # Write the (now updated) log to the corresponding file
         with open(self.csv_log_path, "w", newline="") as csvfile:

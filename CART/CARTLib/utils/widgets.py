@@ -133,6 +133,24 @@ class _NodeComboBoxProxy(qt.QComboBox):
         self._bound_widget.showHidden = val
 
 
+class _VolumeNodeComboBoxProxy(_NodeComboBoxProxy):
+    """
+    Due to the first row in the "Source Volume" combobox always being
+    "Select Source Volume for Editting", _NodeComboBoxProxy will have
+    an off-by-one error if used raw.
+
+    This subclass corrects for this discrepancy within the index map for our
+    ComboBoxProxy class.
+    """
+    def refresh(self):
+        # Refresh as usual
+        super().refresh()
+
+        # Offset the indices within the map by 1
+        for k, v in self.idx_map.items():
+            self.idx_map[k] = v+1
+
+
 class CARTSegmentationEditorWidget(
     qSlicerSegmentationsModuleWidgetsPythonQt.qMRMLSegmentEditorWidget
 ):
@@ -153,6 +171,7 @@ class CARTSegmentationEditorWidget(
     """
 
     SEGMENT_EDITOR_NODE_KEY = "vtkMRMLSegmentEditorNode"
+    TOGGLE_VISIBILITY_SHORTCUT_KEY = qt.QKeySequence("g")
 
     def __init__(self, tag: str = "CARTSegmentEditor", scene=slicer.mrmlScene):
         """
@@ -198,6 +217,9 @@ class CARTSegmentationEditorWidget(
         # TODO: Figure out why this makes these combo-boxes become "stubby"
         self.proxyVolumeNodeComboBox, self.proxySegNodeComboBox = self._replaceSelectionNodes()
 
+        # Track the current shortcut override
+        self.hideActiveSegmentationShortcut = None
+
     ## Setup Helpers ##
     def _set_up_editor_node(self):
         # Get a pre-existing node from the MRML scene if it exists
@@ -228,12 +250,12 @@ class CARTSegmentationEditorWidget(
             c_name = c.name
             if c_name == "SourceVolumeNodeComboBox":
                 # Build a proxy widget for it
-                proxy = self._proxyComboBox(c)
+                proxy = self._buildProxyVolumeComboBox(c)
                 # Track it for later
                 volumeSelectNode = proxy
             elif c_name == "SegmentationNodeComboBox":
                 # Build a proxy widget for it
-                proxy = self._proxyComboBox(c)
+                proxy = self._buildProxySegmentationComboBox(c)
                 # Return it, ending the search here
                 segmentSelectNode = proxy
 
@@ -244,7 +266,7 @@ class CARTSegmentationEditorWidget(
         # Return what we found
         return volumeSelectNode, segmentSelectNode
 
-    def _proxyComboBox(self, comboBox):
+    def _buildProxySegmentationComboBox(self, comboBox):
         # Generate the widget we want to put in its place
         proxy = _NodeComboBoxProxy(comboBox)
         # Use it to replace the original widget in the UI
@@ -256,18 +278,56 @@ class CARTSegmentationEditorWidget(
         # Return the proxy for further use
         return proxy
 
+    def _buildProxyVolumeComboBox(self, comboBox):
+        # Generate the widget we want to put in its place
+        proxy = _VolumeNodeComboBoxProxy(comboBox)
+        # Use it to replace the original widget in the UI
+        self.layout().replaceWidget(comboBox, proxy)
+        # Share the size policy of the combobox with its proxy
+        proxy.setSizePolicy(comboBox.sizePolicy)
+        # Hide the original combo box from view
+        comboBox.setVisible(False)
+        # Return the proxy for further use
+        return proxy
+
+    ## Shortcuts ##
+    def toggleSegmentVisibility(self):
+        # Get the display node for the currently selected segmentation
+        display_node = self.segmentationNode().GetDisplayNode()
+
+        # Toggle the visibility of ALL of its segments.
+        is_visible = len(display_node.GetVisibleSegmentIDs()) > 0
+        display_node.SetAllSegmentsVisibility(not is_visible)
+
+    def installShortcutOverrides(self):
+        # Overwritten `g` shortcut, allowing better control of segmentation visibility
+        self.hideActiveSegmentationShortcut = qt.QShortcut(slicer.util.mainWindow())
+        self.hideActiveSegmentationShortcut.setKey(self.TOGGLE_VISIBILITY_SHORTCUT_KEY)
+        self.hideActiveSegmentationShortcut.activated.connect(
+            self.toggleSegmentVisibility
+        )
+
+    def uninstallShortcutOverrides(self):
+        self.hideActiveSegmentationShortcut.activated.disconnect()
+        self.hideActiveSegmentationShortcut.setParent(None)
+        self.hideActiveSegmentationShortcut = None
+
     ## UI Management ##
     def enter(self):
         # Synchronize ourselves with the MRML state
         self.updateWidgetFromMRML()
         # Install our built-in shortcuts into Slicer's hotkeys
         self.installKeyboardShortcuts()
+        # Install our custom shortcuts over top
+        self.installShortcutOverrides()
 
     def exit(self):
         # Disable the active effect, as it *will* desync otherwise
         self.setActiveEffect(None)
         # Uninstall keyboard shortcuts
         self.uninstallKeyboardShortcuts()
+        # Install our custom shortcuts over top
+        self.uninstallShortcutOverrides()
 
     def refresh(self):
         self.proxyVolumeNodeComboBox.refresh()
