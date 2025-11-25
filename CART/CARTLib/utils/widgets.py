@@ -203,13 +203,6 @@ class CARTSegmentationEditorWidget(
         # Initialize (and track) the segmentation editor node in the MRML scene
         self.editor_node = self._set_up_editor_node()
 
-        # Hide the "Add/Remove Segment" buttons, as it *will* cause problems
-        self.setAddRemoveSegmentButtonsVisible(False)
-
-        # Hide the 3D segmentation button; CART's GUI manages this for us
-        # TODO: Actually move the "show 3d" button to the CART GUI
-        self.setShow3DButtonVisible(False)
-
         # Hide the module swap button, to further discourage adding/remove segmentations
         self.setSwitchToSegmentationsButtonVisible(False)
 
