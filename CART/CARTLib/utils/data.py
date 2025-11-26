@@ -73,6 +73,8 @@ def load_segmentation(path: Path):
 
 def load_markups(path: Path) -> list[slicer.vtkMRMLMarkupsFiducialNode]:
     # If the path points to a NiFTI file, load it using our custom loader
+    print("=" * 100)
+    print(path.suffixes)
     if ".nii" in path.suffixes:
         return [load_nifti_markups(path)]
     # Otherwise, assume it's a native Slicer format
@@ -874,7 +876,7 @@ class CARTStandardUnit(DataUnitBase):
             if path is None:
                 continue
             # Try to load all markups from the file
-            nodes = load_slicer_markups(path)
+            nodes = load_markups(path)
             for i, node in enumerate(nodes):
                 if not isinstance(node, slicer.vtkMRMLMarkupsFiducialNode):
                     raise TypeError(
