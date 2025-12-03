@@ -191,10 +191,10 @@ class RapidMarkupConfig(DictBackedConfig):
 
     @property
     def output_format(self) -> RapidMarkupOutputManager.OutputFormat:
-        return RapidMarkupOutputManager.OutputFormat(self.get_or_default(
-            self.OUTPUT_FORMAT,
-            RapidMarkupOutputManager.OutputFormat.json
-        ))
+        default_val = RapidMarkupOutputManager.OutputFormat.json.value
+        return RapidMarkupOutputManager.OutputFormat(
+            self.get_or_default(self.OUTPUT_FORMAT, default_val)
+        )
 
     @output_format.setter
     def output_format(self, new_val: RapidMarkupOutputManager.OutputFormat):
