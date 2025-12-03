@@ -150,6 +150,10 @@ class RapidMarkupOutputManager:
         # Alias for ease of access
         return self.config.output_format
 
+    @output_format.setter
+    def output_format(self, new_format: OutputFormat):
+        self.config.output_format = new_format
+
     ## I/O ##
     def save_markups(self, data_unit: RapidMarkupUnit) -> str:
         # Get the markup node from the data unit
