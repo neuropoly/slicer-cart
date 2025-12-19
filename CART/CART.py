@@ -76,6 +76,11 @@ class CART(ScriptedLoadableModule):
             """
         )
 
+        # Initialize our working environment
+        self.init_env()
+
+    @staticmethod
+    def init_env():
         # Load our configuration
         GLOBAL_CONFIG.load_from_json()
 
