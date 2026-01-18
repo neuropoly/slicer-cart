@@ -67,6 +67,11 @@ class MarkupTask(TaskBaseClass[CARTStandardUnit]):
     def save(self) -> Optional[str]:
         self._output_manager.save_unit(self.data_unit, self.profile)
 
+    def isTaskComplete(self, case_data: dict[str, str]) -> bool:
+        author = self.profile.label
+        uid = case_data['uid']
+        return self._output_manager.is_unit_complete(author, uid)
+
     @classmethod
     def getDataUnitFactories(cls) -> dict[str, DataUnitFactory]:
         return {
@@ -206,7 +211,7 @@ class MarkupOutput:
                 )
 
         # Update our log file to match
-        log_entry_key = (data_unit.uid, profile.label)
+        log_entry_key = (profile.label, data_unit.uid)
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.log[log_entry_key] = {
             self.AUTHOR_KEY: profile.label,
@@ -221,6 +226,9 @@ class MarkupOutput:
             writer = csv.DictWriter(fp, fieldnames=self.LOG_HEADERS)
             writer.writeheader()
             writer.writerows(self.log.values())
+
+    def is_unit_complete(self, author: str, uid: CARTStandardUnit):
+        return (author, uid) in self.log.keys()
 
 
 class MarkupConfig(DictBackedConfig):
