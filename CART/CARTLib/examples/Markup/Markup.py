@@ -1,16 +1,25 @@
+import csv
+from datetime import datetime
+from functools import cached_property
+from pathlib import Path
 from typing import Optional
 
 import qt
+from slicer.i18n import tr as _
 
 from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory, D
 from CARTLib.utils.config import ProfileConfig, DictBackedConfig
-from CARTLib.utils.data import CARTStandardUnit
+from CARTLib.utils.data import CARTStandardUnit, save_markups_to_nifti, save_markups_to_json
 from CARTLib.utils.task import cart_task
 from CARTLib.utils.widgets import CARTMarkupEditorWidget
 
 
+VERSION = "0.0.2"
+
+
 @cart_task("Markup")
 class MarkupTask(TaskBaseClass[CARTStandardUnit]):
+
     def __init__(self, profile: ProfileConfig):
         super().__init__(profile)
 
@@ -23,12 +32,22 @@ class MarkupTask(TaskBaseClass[CARTStandardUnit]):
         self.untracked_markups: dict[str, list[str]] = {}
 
         # Output logging
-        self._output_manager: Optional[MarkupOutput] = None
+        self._output_manager: MarkupOutput = MarkupOutput()
 
         # Config management
         self.config: MarkupConfig = MarkupConfig(parent_config=self.profile)
 
     def setup(self, container: qt.QWidget):
+        # Request an output directory
+        outputDialog = qt.QFileDialog()
+        outputDialog.setWindowTitle(_("Select Output Directory"))
+        outputDialog.setFileMode(qt.QFileDialog.Directory)
+        if outputDialog.exec():
+            output_dir = Path(outputDialog.selectedFiles()[0])
+            self._output_manager.output_dir = output_dir
+        else:
+            raise ValueError("Invalid output directory!")
+
         # Initialize the GUI
         self.gui = MarkupGUI(self)
         container.setLayout(self.gui.setup())
@@ -46,7 +65,7 @@ class MarkupTask(TaskBaseClass[CARTStandardUnit]):
             self.gui.sync()
 
     def save(self) -> Optional[str]:
-        pass
+        self._output_manager.save_unit(self.data_unit, self.profile)
 
     @classmethod
     def getDataUnitFactories(cls) -> dict[str, DataUnitFactory]:
@@ -82,7 +101,125 @@ class MarkupGUI:
 
 class MarkupOutput:
     def __init__(self):
-        pass
+        # The directory to save everything into
+        self._output_dir: Path = None
+
+    @property
+    def output_dir(self) -> Path:
+        return self._output_dir
+
+    @output_dir.setter
+    def output_dir(self, new_dir: Path):
+        # Change the output dir
+        self._output_dir = new_dir
+        # Clear the log cache, so it can implicitly sync when needed
+        del self.log
+
+    @property
+    def log_file(self) -> Path:
+        """
+        Where the TSV log should be saved too.
+
+        Read-only, as it's tightly associated with the output directory.
+        """
+        return self._output_dir / f"cart_markup.csv"
+
+    # Elements of the log file
+    AUTHOR_KEY = "author"
+    UID_KEY = "uid"
+    TIMESTAMP_KEY = "timestamp"
+    OUTPUT_KEY = "output_path"
+    VERSION_KEY = "version"
+
+    LOG_HEADERS = [
+        AUTHOR_KEY,
+        UID_KEY,
+        TIMESTAMP_KEY,
+        OUTPUT_KEY,
+        VERSION_KEY
+    ]
+
+    @cached_property
+    def log(self) -> dict[tuple[str, str], dict[str, str]]:
+        """
+        Cached contents of the log file currently monitored by this output manager.
+
+        The log is a dictionary which uses the pair of the current username
+        and case UID as its key, with each value being a dictionary in
+        column: value format for the log file (see the LOG_HEADER constant prior
+        for the names and order of these columns).
+
+        Cached and loaded lazily to avoid needing to immediately read/write a log
+        file whenever the output directory is changed to ensure sync.
+        """
+        # If the log file is a directory, something has gone very wrong
+        if self.log_file.is_dir():
+            raise ValueError(f"Cannot load log file '{str(self.log_file)}', as it is a directory!")
+
+        log_data = dict()
+
+        if self.log_file.exists():
+            with open(self.log_file, 'r') as fp:
+                reader = csv.DictReader(fp)
+                for i, row in enumerate(reader):
+                    uid = row.get(self.UID_KEY, None)
+                    username = row.get(self.AUTHOR_KEY, None)
+                    if any([x is None for x in [uid, username]]):
+                        print(
+                            f"Skipped entry #{i} in '{self.log_file}', as it lacked a UID or username."
+                        )
+                        continue
+                    log_data[(username, uid)] = row
+
+        return log_data
+
+    def save_unit(self, data_unit: CARTStandardUnit, profile: ProfileConfig):
+        # Define (and, if need be, create) an output folder for this unit's case ID
+        case_output = self.output_dir / data_unit.uid
+        case_output.mkdir(parents=True, exist_ok=True)
+
+        # Save each markup node (with any modifications) into it
+        custom_idx = 0
+        for key, node in data_unit.markup_nodes.items():
+            # Determine how the file should be named
+            input_path = data_unit.markup_paths.get(key, None)
+            if input_path is None:
+                file_name = f"{key}_custom:{custom_idx}.mrk.json"
+                custom_idx += 1
+            else:
+                file_name = input_path.name
+            output_file = case_output / file_name
+
+            # Save the node's contents to this file
+            if ".nii" in output_file.suffixes:
+                save_markups_to_nifti(
+                    markup_node=node,
+                    reference_volume=data_unit.primary_volume_node,
+                    path=output_file,
+                    profile=profile,
+                )
+            else:
+                save_markups_to_json(
+                    markups_node=node,
+                    path=output_file
+                )
+
+        # Update our log file to match
+        log_entry_key = (data_unit.uid, profile.label)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.log[log_entry_key] = {
+            self.AUTHOR_KEY: profile.label,
+            self.UID_KEY: data_unit.uid,
+            self.TIMESTAMP_KEY: timestamp,
+            self.OUTPUT_KEY: str(case_output.resolve()),
+            self.VERSION_KEY: VERSION,
+        }
+
+        # Save the new contents to file
+        with open(self.log_file, "w") as fp:
+            writer = csv.DictWriter(fp, fieldnames=self.LOG_HEADERS)
+            writer.writeheader()
+            writer.writerows(self.log.values())
 
 
 class MarkupConfig(DictBackedConfig):
