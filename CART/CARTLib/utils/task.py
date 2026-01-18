@@ -100,7 +100,9 @@ def initialize_tasks():
     segment_eval_task_path = examples_path / "SegmentationReview/SegmentationReviewTask.py"
     generic_classification_path = examples_path / "GenericClassification/GenericClassificationTask.py"
     rapid_markup_path = examples_path / "RapidMarkup/RapidMarkupTask.py"
+    markup_path = examples_path / "Markup/Markup.py"
 
     task_from_file(segment_eval_task_path)
     task_from_file(generic_classification_path)
     task_from_file(rapid_markup_path)
+    task_from_file(markup_path)
