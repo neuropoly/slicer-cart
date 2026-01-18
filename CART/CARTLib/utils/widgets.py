@@ -385,6 +385,11 @@ class CARTMarkupEditorWidget(slicer.qSlicerSimpleMarkupsWidget):
         # Replace the markup selection with a proxy combo box
         self.markupSelectionComboBox = self._replaceSelectionNodes()
 
+        # Do NOT automatically start placing a new markup when a node is changed
+        # KO: For some reason, this is True by default. This resulted in users
+        #   unintentionally placing markup nodes in a "cached" data unit by mistake.
+        self.setEnterPlaceModeOnNodeChange(False)
+
     ## Setup Helpers ##
     def _replaceSelectionNodes(self):
         # Identify and bind to the original markup combobox
