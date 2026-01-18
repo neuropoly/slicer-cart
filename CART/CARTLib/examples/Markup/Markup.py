@@ -113,7 +113,8 @@ class MarkupOutput:
         # Change the output dir
         self._output_dir = new_dir
         # Clear the log cache, so it can implicitly sync when needed
-        del self.log
+        if self.log:
+            del self.log
 
     @property
     def log_file(self) -> Path:
