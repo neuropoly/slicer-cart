@@ -875,15 +875,22 @@ class CARTStandardUnit(DataUnitBase):
                 continue
             # Try to load all markups from the file
             nodes = load_markups(path)
+            should_iter = len(nodes) > 1
             for i, node in enumerate(nodes):
+                # Error out if the node is of the wrong type
                 if not isinstance(node, slicer.vtkMRMLMarkupsFiducialNode):
                     raise TypeError(
                         f"Expected a MarkupsFiducialNode, got {type(node)} for key {key}"
                     )
-                c_name = node.GetName()
-                node.SetName(f"{self.uid}_{c_name}_{key}_{i}")
-                self.markup_nodes[f"{key}_{i}"] = node
-                self.resources[f"{key}_{i}"] = node
+                # Determine how the node should be keyed
+                if should_iter:
+                    ikey = f"{key}_{i}"
+                else:
+                    ikey = key
+                # Update the node's properties and track it
+                node.SetName(f"{self.uid}_{ikey}")
+                self.markup_nodes[ikey] = node
+                self.resources[ikey] = node
 
     def _set_subject_shown(self, new_state: bool) -> None:
         """
