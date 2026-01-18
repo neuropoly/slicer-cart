@@ -396,6 +396,9 @@ class CARTMarkupEditorWidget(slicer.qSlicerSimpleMarkupsWidget):
         oldComboBox = self.markupsSelectorComboBox()
         newComboBox = _OffsetNodeComboBoxProxy(oldComboBox)
 
+        # Make sure it ignores "hidden" nodes
+        newComboBox.showHidden = False
+
         # Replace the old combo box with our proxy
         self.layout().replaceWidget(oldComboBox, newComboBox)
 
