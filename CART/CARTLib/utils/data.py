@@ -1,6 +1,7 @@
 import itertools
 from datetime import datetime
 import json
+from functools import singledispatch
 from pathlib import Path
 from typing import Optional, Any
 
@@ -298,7 +299,7 @@ def save_markups_to_nifti(
         markup_node: "vtk.vtkMRMLMarkupsFiducialNode",
         reference_volume: "vtk.vtkMRMLScalarVolumeNode",
         path: Path,
-        profile: Optional[ProfileConfig] = None):
+):
     """
     Saves a set of markup labels to a NiFTI file.
 
@@ -370,22 +371,6 @@ def save_markups_to_nifti(
     try:
         # Initialize the JSON sidecar's contents
         sidecar_data = {}
-        creation_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # If we have a user profile, add its contents to the GeneratedBy entry
-        if profile:
-            sidecar_data["GeneratedBy"] = [{
-                "Name": "CART",
-                "Profile": profile.label,
-                "Role": profile.role,
-                "Date": creation_time
-            }]
-        # Otherwise, just note that this was created by CART
-        else:
-            sidecar_data["GeneratedBy"] = [{
-                "Name": "CART",
-                "Date": creation_time
-            }]
-
         # Add a map (dict) to track the label value -> label names in the sidecar
         sidecar_labelmap = dict()
         sidecar_data[NIFTI_SIDECAR_LABELS_KEY] = sidecar_labelmap
@@ -477,6 +462,193 @@ def save_json_sidecar(main_file_path: Path, sidecar_data: dict):
     with open(sidecar_path, 'w') as fp:
         json.dump(sidecar_data, fp, indent=2)
 
+
+GENERATED_BY_KEY = "GeneratedBy"
+
+
+@singledispatch
+def add_generated_by_entry(
+        sidecar_data: Any,
+        profile: Optional[ProfileConfig] = None
+):
+    """
+    Adds a new "GeneratedBy" entry to the specified sidecar, IN-PLACE!
+
+    If `json_context` is a Path, will insert into the specified file,
+    creating it if one does not already exist.
+
+    If `json_context` is a dictionary, will extend the current "GeneratedBy"
+    entry with the new entry, creating such a list if it does not already
+    exist.
+
+    :param sidecar_data: The sidecar to insert into, in either Path or dictionary form.
+    :param profile: The profile whose username + role to reference. If not provided, the
+        'Author' and 'Role' fields will be omitted from the new entry.
+    """
+    raise NotImplemented(
+        f"Writing a '{GENERATED_BY_KEY}' entry to an object "
+        f"of type '{type(sidecar_data)}' is not yet supported!"
+    )
+
+
+@add_generated_by_entry.register
+def _add_gb_entry_to_file(
+        json_file: Path,
+        profile: Optional[ProfileConfig] = None
+):
+    """
+    Adds a new "GeneratedBy" entry to the specified sidecar path, IN-PLACE!
+
+    If the specified sidecar file does not already exist, will create
+    one w/ the new entry instead.
+    """
+    # Load the sidecar's contents, if the already exist
+    if json_file.exists():
+        # If the sidecar isn't a file, raise an error
+        if json_file.is_file():
+            raise ValueError(f"Cannot save '{GENERATED_BY_KEY}' entry to '{str(json_file.resolve())}'; "
+                             f"destination is not a valid file!")
+        with open(json_file, "r") as fp:
+            json_data = json.load(fp)
+    else:
+        json_data = dict()
+
+    # Update the contents of the resulting dictionary w/ the specified file.
+    _add_gb_entry_to_dict(json_data, profile)
+
+    # Save the result back to the file
+    with open(json_file, "w") as fp:
+        json.dump(json_data, fp)
+
+
+@add_generated_by_entry.register
+def _add_gb_entry_to_dict(
+        json_data: dict,
+        profile: Optional[ProfileConfig]
+):
+    """
+    Adds a new "GeneratedBy" entry to the specified sidecar path.
+
+    If a "GeneratedBy" entry doesn't already exist within the provided
+    dictionary, appends to it instead.
+    """
+    # Update the dictionary with a new "GeneratedBy" entry inplace
+    generated_by_entries = json_data.get(GENERATED_BY_KEY, [])
+    creation_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if profile:
+        generated_by_entries.append(
+            {
+                "Name": "CART",
+                "Author": profile.label,
+                "Role": profile.role,
+                "Date": creation_time,
+            }
+        )
+    else:
+        generated_by_entries.append(
+            {
+                "Name": "CART",
+                "Date": creation_time,
+            }
+        )
+    json_data[GENERATED_BY_KEY] = generated_by_entries
+
+
+def stack_sidecars(*sidecar_paths: Path) -> dict:
+    """
+    Stack the contents of a list of sidecar paths into a single dictionary.
+
+    Does **NOT** save the dictionaries contents; it's your responsibility to
+    save (after doing any other changes you'd like) the contents to a file.
+
+    See Also
+    --------
+    save_json_sidecar : Save the resulting dictionary to a sidecar associated with a given file.
+    stack_json_dicts : Function for stacking dictionaries, used by this function.
+    """
+    final_data = dict()
+    for p in sidecar_paths:
+        if not p.exists():
+            print(f"Skipped file '{str(p.resolve())}', as it does not exist!")
+            continue
+        elif not p.is_file():
+            print(f"Skipped file '{str(p.resolve())}', as it was not a valid file!")
+            continue
+        with open(p, 'r') as fp:
+            p_data = json.load(fp)
+        stack_json_dicts(source = p_data, dest = final_data)
+    return final_data
+
+
+def stack_json_dicts(source: dict, dest: dict):
+    """
+    Stacks two dictionaries, copying the contents of 'source' into 'dest'.
+
+    If a given key within the destination dictionary also exists within the source dictionary,
+    the value within the destination is overwritten by the source's values.
+    There are **two** exceptions to this behavior:
+
+    * If the values in both are lists, they will be concatenated
+    * If the values in both are dicts, they are stacked recursively.
+
+    :param source: The dictionary whose contents should be copied *from*
+    :param dest: The dictionary whose contents should be copied *to*
+    :returns: The ``dest`` dictionary, now modified by the contents of ``source``
+
+    Example
+    -------
+    >>> source_dict = {
+    >>>     "id": 1
+    >>>     "math_vars": ["x", "y", "z"]
+    >>>     "label_map": {
+    >>>         "foo": "bar",
+    >>>         "bingo": "bravo"
+    >>>     }
+    >>> }
+    >>> dest_dict = {
+    >>>     "id": 2
+    >>>     "math_vars": ["a", "b", "c"]
+    >>>     "label_map": {
+    >>>         "bingo": "british",
+    >>>         "charlie": "chaplin"
+    >>>     }
+    >>> }
+    >>> stack_json_dicts(source_dict, dest_dict)
+    >>> dest_dict
+    {
+         "id": 2
+         "math_vars": ["a", "b", "c", "x", "y", "z"]
+         "label_map": {
+             "foo": "bar",
+             "bingo": "british",
+             "charlie": "chaplin"
+         }
+    }
+
+    """
+    # Iterate all entries in the "source" JSON dictionary
+    for k, v in source.items():
+        # For lists, try to extend them
+        if type(v) is list:
+            dv = dest.get(k, [])
+            # If the destination value isn't already a list, overwrite it
+            if type(dv) is not list:
+                dest[k] = v
+            else:
+                dest[k] = [*v, *dv]
+        # For dicts, act recursively
+        if type(v) is dict:
+            dv = dest.get(k, {})
+            # If the destination value was not already a dict, overwrite it
+            if type(dv) is not dict:
+                dest[k] = v
+            # Otherwise, stack the dicts recursively
+            else:
+                stack_json_dicts(v, dv)
+                dest[k] = dv
+        # For all others, insert/overwrite
+        else:
+            dest[k] = v
 
 ## ORGANIZATION ##
 def create_subject(label: str, *child_nodes):

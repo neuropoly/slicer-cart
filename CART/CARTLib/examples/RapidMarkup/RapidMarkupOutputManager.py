@@ -5,7 +5,14 @@ from functools import cached_property
 from pathlib import Path
 
 from CARTLib.utils.config import ProfileConfig
-from CARTLib.utils.data import save_markups_to_json, save_markups_to_nifti
+from CARTLib.utils.data import (
+    save_markups_to_json,
+    save_markups_to_nifti,
+    find_json_sidecar_path,
+    load_json_sidecar,
+    add_generated_by_entry,
+    save_json_sidecar,
+)
 
 from RapidMarkupUnit import RapidMarkupUnit
 
@@ -163,8 +170,7 @@ class RapidMarkupOutputManager:
             save_markups_to_nifti(
                 markup_node=markup_node,
                 reference_volume=data_unit.primary_volume_node,
-                path=markup_output_file,
-                profile=self.profile_config
+                path=markup_output_file
             )
         # If the user asked to save to an invalid output format,
         # yell at them for it and end.
@@ -172,6 +178,12 @@ class RapidMarkupOutputManager:
             raise ValueError(
                 f"Could not save to format '{self.output_format}', was not a valid format."
             )
+
+        # Save/create a corresponding sidecar, w/ the addition of a new "GeneratedBy" entry
+        current_sidecar_file = find_json_sidecar_path(markup_output_file)
+        sidecar_data = load_json_sidecar(current_sidecar_file)
+        add_generated_by_entry(sidecar_data, self.profile_config)
+        save_json_sidecar(current_sidecar_file, sidecar_data)
 
         # Add/replace the entry in our CSV log with one representing this file
         new_entry_key = (data_unit.uid, self.profile_label)

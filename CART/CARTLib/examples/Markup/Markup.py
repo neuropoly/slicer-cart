@@ -9,7 +9,15 @@ from slicer.i18n import tr as _
 
 from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory, D
 from CARTLib.utils.config import ProfileConfig, DictBackedConfig
-from CARTLib.utils.data import CARTStandardUnit, save_markups_to_nifti, save_markups_to_json
+from CARTLib.utils.data import (
+    CARTStandardUnit,
+    save_markups_to_nifti,
+    save_markups_to_json,
+    find_json_sidecar_path,
+    stack_sidecars,
+    save_json_sidecar,
+    add_generated_by_entry,
+)
 from CARTLib.utils.task import cart_task
 from CARTLib.utils.widgets import CARTMarkupEditorWidget
 
@@ -196,19 +204,35 @@ class MarkupOutput:
                 file_name = input_path.name
             output_file = case_output / file_name
 
+            # Delete any previous sidecar file associated with our output to avoid unintentional carry-over
+            prior_sidecar = find_json_sidecar_path(output_file)
+            prior_sidecar.unlink(missing_ok=True)
+
             # Save the node's contents to this file
             if ".nii" in output_file.suffixes:
+                # Save the node to a NiFTI file, w/ a sidecar containing label data!
                 save_markups_to_nifti(
                     markup_node=node,
                     reference_volume=data_unit.primary_volume_node,
-                    path=output_file,
-                    profile=profile,
+                    path=output_file
                 )
-            else:
+            elif ".mrk" in output_file.suffixes:
+                # Save the node to Slicer's native mrk.json format.
                 save_markups_to_json(
                     markups_node=node,
                     path=output_file
                 )
+            else:
+                raise NotImplementedError(
+                    f"Unknown file type '{''.join(output_file.suffixes)}'!"
+                    f"Currently supported file types are '.nii' and '.mrk.json'."
+                )
+
+            # Save the corresponding sidecar, extended w/ a new "GeneratedBy" entry
+            current_sidecar = find_json_sidecar_path(output_file)
+            sidecar_data = stack_sidecars(prior_sidecar, current_sidecar)
+            add_generated_by_entry(sidecar_data, profile)
+            save_json_sidecar(current_sidecar, sidecar_data)
 
         # Update our log file to match
         log_entry_key = (profile.label, data_unit.uid)
