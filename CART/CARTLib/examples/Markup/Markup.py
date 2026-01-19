@@ -193,13 +193,15 @@ class MarkupOutput:
         case_output.mkdir(parents=True, exist_ok=True)
 
         # Save each markup node (with any modifications) into it
-        custom_idx = 0
+        unknown_idx = 0
+        # TODO: Add user naming support for "custom" markups
         for key, node in data_unit.markup_nodes.items():
             # Determine how the file should be named
             input_path = data_unit.markup_paths.get(key, None)
+            # If this is a node w/o a previous file name, save it as such
             if input_path is None:
-                file_name = f"{key}_custom:{custom_idx}.mrk.json"
-                custom_idx += 1
+                file_name = f"{key}_unknown_{unknown_idx}.mrk.json"
+                unknown_idx += 1
             else:
                 file_name = input_path.name
             output_file = case_output / file_name
