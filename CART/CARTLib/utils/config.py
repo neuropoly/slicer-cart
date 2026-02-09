@@ -1,14 +1,20 @@
 import json
 from abc import ABC, abstractmethod, ABCMeta
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Generic, Optional, TypeVar, Union, Callable
+import re
+from typing import Generic, Optional, TypeVar, Callable
 
 import qt
+
+from . import CART_PATH, CART_VERSION
 
 # The location of the default config used by a fresh installation of CART.
 #  DO NOT TOUCH IT UNLESS YOU KNOW WHAT YOU'RE DOING.
 DEFAULT_FILE = Path(__file__).parent / "default_config.json"
+JOB_PROFILE_DIR = CART_PATH / "job_profiles"
+
+# The location of the config file for this installation of CART.
+GLOBAL_CONFIG_PATH = CART_PATH / "configuration.json"
 
 
 ## Re-Usable Abstract Elements ##
@@ -297,555 +303,281 @@ class ConfigDialog(qt.QDialog, ABC, Generic[DICT_CONFIG_TYPE], metaclass=_ABCQDi
 
 
 ## Backing Config Managers ##
-class ProfileConfig(DictBackedConfig):
-    """
-    Configuration manager for a CART profile.
-
-    Tracks the profile's settings, allowing for profiles of
-    settings to be swapped on the fly.
-    """
-    DEFAULT_ROLE = "N/A"
-
-    def __init__(self, label: str, backing_dict: dict, parent_config: "CARTConfig"):
-        # Init w/o a parent config initially
-        super().__init__()
-
-        # Explicitly set our inherited attributes instead;
-        # needed as Users are not handled like regular Config entries
-        self._backing_dict = backing_dict
-        self.parent_config: "CARTConfig" = parent_config
-
-        # As each profile gets its own config entry, each with a unique label
-        self.config_label = label
-
-    @classmethod
-    def default_config_label(cls) -> str:
-        # Profiles are stored in a profile dict, and use their own label
-        # within said dict instead of a shared label.
-        pass
+class MasterProfileConfig(DictBackedConfig):
+    ## Attributes ##
+    AUTHOR_KEY = "author"
 
     @property
-    def label(self):
-        return self.config_label
+    def author(self) -> Optional[str]:
+        return self.backing_dict.get(self.AUTHOR_KEY, None)
 
-    ## Last Used Settings ##
-    LAST_USED_COHORT_KEY = "last_used_cohort_file"
+    @author.setter
+    def author(self, new_author: str):
+        self.backing_dict[self.AUTHOR_KEY] = new_author
+        self.has_changed = True
+
+    POSITION_KEY = "position"
 
     @property
-    def last_used_cohort_file(self) -> Union[Path, None]:
-        val = self._backing_dict.get(self.LAST_USED_COHORT_KEY, None)
-        if val is None:
+    def position(self) -> Optional[str]:
+        return self.backing_dict.get(self.POSITION_KEY, None)
+
+    @position.setter
+    def position(self, new_position):
+        self.backing_dict[self.POSITION_KEY] = new_position
+        self.has_changed = True
+
+    @position.setter
+    def position(self, new_position):
+        self.backing_dict[self.POSITION_KEY] = new_position
+        self.has_changed = True
+
+    REGISTERED_JOB_KEY = "registered_jobs"
+
+    @property
+    def registered_jobs(self) -> dict[str, str]:
+        """
+        Map of registered jobs, in "name: path" format.
+        """
+        job_map = self.get_or_default(self.REGISTERED_JOB_KEY, {})
+        return job_map
+
+    def register_new_job(self, job_config: "JobProfileConfig"):
+        # Register the new job
+        k = job_config.name
+        p = str(job_config.file.resolve())
+        job_map = self.get_or_default(self.REGISTERED_JOB_KEY, {})
+        job_map[k] = p
+        # Mark ourselves as being changed
+        self.has_changed = True
+
+    @property
+    def last_job(self) -> Optional[tuple[str, Path]]:
+        """
+        Returns the name and path to the job last used, as detailed within this config.
+        """
+        job_registry = self.registered_jobs
+        if len(self.registered_jobs) < 1:
             return None
-        # noinspection PyUnreachableCode
-        return Path(val)
+        first_key = next(iter(job_registry.keys()))
+        return first_key, job_registry[first_key]
 
-    @last_used_cohort_file.setter
-    def last_used_cohort_file(self, new_path: Path):
-        self._backing_dict[self.LAST_USED_COHORT_KEY] = str(new_path)
+    def set_last_job(self, job_name: str):
+        old_job_registry = self.get_or_default(self.REGISTERED_JOB_KEY, {})
+        job_path = old_job_registry.get(job_name, None)
+        if job_path is None:
+            raise ValueError(
+                f"Job '{job_name}' has not been registered! Cannot make it the last-used job."
+            )
+        # Re-build our job map using the new setup
+        new_registry = {job_name: job_path}
+        for k, v in old_job_registry.items():
+            # Skip adding the job again; it's already inserted
+            if k == job_name:
+                continue
+            new_registry[k] = v
+        self.backing_dict[self.REGISTERED_JOB_KEY] = new_registry
         self.has_changed = True
 
-    LAST_USED_DATA_KEY = "last_used_data_path"
+    VERSION_KEY = "version"
 
     @property
-    def last_used_data_path(self) -> Union[Path, None]:
-        val = self._backing_dict.get(self.LAST_USED_DATA_KEY, None)
-        if val is None:
+    def version(self):
+        return self.get_or_default(self.VERSION_KEY, CART_VERSION)
+
+    @version.setter
+    def version(self, new_version: str):
+        """
+        WARNING: You really shouldn't change this yourself. The version
+        used
+        """
+        self.backing_dict[self.VERSION_KEY] = new_version
+
+    REGISTERED_TASK_PATHS_KEY = "registered_task"
+
+    @property
+    def registered_task_paths(self) -> Optional[dict[str, Path]]:
+        registered_task_vals: dict[str, str]  = self.backing_dict.get(self.REGISTERED_TASK_PATHS_KEY)
+        if registered_task_vals is None:
             return None
-        # noinspection PyUnreachableCode
-        return Path(val)
+        return_dict = {}
+        for k, v in registered_task_vals.items():
+            p = Path(v)
+            if not p.is_file():
+                print(f"WARNING: Task file '{v}' does not exist!")
+                return_dict[k] = None
+            else:
+                return_dict[k] = p
+        return return_dict
 
-    @last_used_data_path.setter
-    def last_used_data_path(self, new_path: Path):
-        self._backing_dict[self.LAST_USED_DATA_KEY] = str(new_path)
+    def add_task_path(self, task_name: str, task_path: Path):
+        registered_task_vals = self.get_or_default(self.REGISTERED_TASK_PATHS_KEY, {})
+        registered_task_vals[task_name] = str(task_path.resolve())
         self.has_changed = True
 
-    LAST_USED_TASK_KEY = "last_used_task"
-
-    @property
-    def last_used_task(self) -> str:
-        val = self._backing_dict.get(self.LAST_USED_TASK_KEY, "")
-        return val
-
-    @last_used_task.setter
-    def last_used_task(self, new_task: str):
-        self._backing_dict[self.LAST_USED_TASK_KEY] = new_task
+    def clear_task_paths(self):
+        # Clear the task paths entirely!
+        self.backing_dict[self.REGISTERED_TASK_PATHS_KEY] = {}
         self.has_changed = True
 
-    ## Profile Role ##
-    ROLE_KEY = "role"
-
-    @property
-    def role(self) -> str:
-        return self.get_or_default(self.ROLE_KEY, self.DEFAULT_ROLE)
-
-    @role.setter
-    def role(self, new_role: str):
-        self._backing_dict[self.ROLE_KEY] = new_role
-        self.has_changed = True
-
-    @property
-    def valid_roles(self) -> list[str]:
-        return self.parent_config.profile_roles
-
-    ## Autosaving Management ##
-    SAVE_ON_ITER_KEY = "save_on_iter"
-
-    @property
-    def save_on_iter(self) -> bool:
-        return self.get_or_default(self.SAVE_ON_ITER_KEY, True)
-
-    @save_on_iter.setter
-    def save_on_iter(self, new_val: bool):
-        # Validate that the value is a boolean, to avoid weird jank later
-        assert isinstance(new_val, bool), f"'{self.SAVE_ON_ITER_KEY}' must be a boolean value."
-        self._backing_dict[self.SAVE_ON_ITER_KEY] = new_val
-        self.has_changed = True
-
-    ## Retain Layout Between Cases ##
-    RETAIN_LAYOUT_KEY = "retain_layout"
-
-    @property
-    def retain_layout(self) -> bool:
-        return self.get_or_default(self.RETAIN_LAYOUT_KEY, True)
-
-    @retain_layout.setter
-    def retain_layout(self, new_val: bool):
-        self._backing_dict[self.RETAIN_LAYOUT_KEY] = new_val
-        self.has_changed = True
-
-    ## Sub-Configurations ##
-    SUB_CONFIGS_KEY = "sub_config"
-
-    @property
-    def sub_configs(self) -> dict:
-        return self.get_or_default(self.SUB_CONFIGS_KEY, {})
-
-    def get_sub_config(self, key: str):
-        sub_entry = self.sub_configs.get(key, False)
-        if not sub_entry:
-            new_entry = {}
-            self.sub_configs[key] = new_entry
-            return new_entry
-        else:
-            return sub_entry
-
-    ## Utils ##
-    def show_gui(self):
-        # Build the Config prompt
-        prompt = ProfileConfigDialog(bound_config=self)
-        # Show it, blocking other interactions until its resolved
-        prompt.exec()
-
-    def save(self):
-        # If the selected role is new, add it to the config first
-        if self.role not in self.parent_config.profile_roles:
-            self.parent_config.profile_roles.append(self.role)
-
-        super().save()
-
-
-class CARTConfig(DictBackedConfig):
-    """
-    Global configuration for CART itself.
-
-    Manages profiles, as well as tracking some simple metrics
-    itself to allow for restoring the previous profile
-    """
-    DEFAULT_LABEL = "Default"
-    CONFIG_KEY = "CART"
-
-    def __init__(self, config_path: Path):
-        # Initialize the dict-backed config attributes
-        super().__init__()
-
-        # Path to the file the config should be saved to
-        self.config_path = config_path
-
-    @classmethod
-    def default_config_label(cls) -> str:
-        return cls.CONFIG_KEY
-
-    ## Profile Management ##
-    PROFILE_KEY = "user_profiles"
-    DEFAULT_ROLES = [ProfileConfig.DEFAULT_ROLE]
-
-    @property
-    def profiles(self) -> dict[str, dict]:
-        return self.get_or_default(self.PROFILE_KEY, {})
-
-    def new_profile(
-            self,
-            label: str,
-            new_settings: dict = None,
-            reference_profile: ProfileConfig = None
-    ) -> ProfileConfig:
-        """
-        Create a new profile, copying config entries from a
-        reference profile if provided.
-
-        :param label: The label for this new profile
-        :param new_settings: Settings specified by the user that should be
-            applied to this new profile
-        :param reference_profile: Reference profile; any settings not specified
-            in `new_settings` above will be copied from here.
-        """
-        # Confirm that the provided profile label is available and valid
-        stripped_name = label.strip()
-        if not stripped_name:
-            raise ValueError("Cannot create a profile without a label!")
-
-        if stripped_name in GLOBAL_CONFIG.profiles.keys():
-            raise ValueError(f"Profile with label '{stripped_name}' already exists!")
-
-        # If a reference profile was provided, use its settings as our base
-        if reference_profile:
-            new_profile = reference_profile.backing_dict.copy()
-        # Otherwise, start with a blank slate
-        else:
-            new_profile = {}
-
-        # We can have a set of settings to override as well, if provided
-        if new_settings:
-            for k, v in new_settings.items():
-                new_profile[k] = v
-
-        # Assign it into our profile dictionary
-        self.profiles[label] = new_profile
-
-        # Return the result, wrapped in our ProfileConfig
-        return ProfileConfig(label, new_profile, self)
-
-    def get_profile_config(self, label: str) -> Optional[ProfileConfig]:
-        profile_dict = self.profiles.get(label, None)
-        if profile_dict is not None:
-            return ProfileConfig(label, profile_dict, self)
-        else:
-            return None
-
-    def promptNewProfile(self, reference_profile: ProfileConfig = None) -> Optional[str]:
-        """
-        Generate a QT prompt for the user to create a new profile entry.
-
-        :param reference_profile: The profile to copy configuration settings from (if any)
-
-        :return: The label of the new profile; None if the user backed out.
-        """
-        # Try to generate a new profile from the provided reference
-        prompt = NewProfileDialog(reference_profile, GLOBAL_CONFIG)
-        profile_added_successfully = prompt.exec()
-
-        # If successful, return the profile label for easy reference
-        if profile_added_successfully:
-            # Mark oneself as having changed
-            self.has_changed = True
-            # Return the new profile label for reference elsewhere
-            return prompt.profile
-        # Otherwise, return nothing
-        else:
-            return None
-
-    LAST_PROFILE_KEY = "last_profile"
-
-    @property
-    def last_profile(self):
-        return self.get_or_default(
-            self.LAST_PROFILE_KEY, self.DEFAULT_LABEL
-        )
-
-    @last_profile.setter
-    def last_profile(self, new_label: str):
-        self._backing_dict[self.LAST_PROFILE_KEY] = new_label
-        self.has_changed = True
-
-    PROFILE_ROLES_KEY = "profile_roles"
-
-    @property
-    def profile_roles(self) -> list[str]:
-        return self.get_or_default(self.PROFILE_ROLES_KEY, self.DEFAULT_ROLES)
-
-    def new_profile_role(self, new_role: str):
-        if new_role in self.profile_roles:
-            raise ValueError(f"Role '{new_role}' already exists!")
-
-        self.profile_roles.append(new_role)
-        self.has_changed = True
-
-    def show_gui(self):
-        raise NotImplementedError("You should configure CART on a per-profile basis!")
-
-    ## I/O ##
-    def load_from_json(self):
-        """
-        (Re-)Load the configuration from the file.
-
-        Does NOT check whether the user has unsaved changes; that should be
-        handled by whatever is requesting the configuration be loaded!
-        """
-        # If our specified configuration file doesn't exist, copy the default to make one
-        if not MAIN_CONFIG.exists():
-            print("No configuration file found, creating a new one!")
-            with open(DEFAULT_FILE) as cf:
-                # Load the data
-                self._backing_dict = json.load(cf)
-                # And immediately save it, creating a copy
-                self.save()
-        # Otherwise, load the configuration as-is
-        else:
-            with open(self.config_path) as cf:
-                self._backing_dict = json.load(cf)
-
-    def save_without_parent(self):
+    ## Utilities ##
+    def save_without_parent(self) -> None:
         """
         Save the in-memory contents of the configuration back to our JSON file
         """
-        with open(MAIN_CONFIG, "w") as cf:
-            json.dump(self._backing_dict, cf, indent=2)
+        with open(GLOBAL_CONFIG_PATH, "w") as fp:
+            json.dump(self.backing_dict, fp, indent=2)
+
+    def reload(self):
+        if not GLOBAL_CONFIG_PATH.exists():
+            print(f"Could not load master config; configuration file does not exist!")
+            return
+        with open(GLOBAL_CONFIG_PATH, "r") as fp:
+            self.backing_dict = json.load(fp)
+
+    def show_gui(self) -> qt.QDialog:
+        # TODO
+        pass
+
+    @classmethod
+    def default_config_label(cls) -> str:
+        return "cart_master_profile"
 
 
-## GUI elements ##
-class NewProfileDialog(qt.QDialog):
-    def __init__(self, reference_profile: "ProfileConfig", master_config: "CARTConfig"):
-        # Initialize the QDialog base itself
-        super().__init__()
+class JobProfileConfig(DictBackedConfig):
+    NAME_KEY = "name"
 
-        # A reference config to copy from if the user requests it
-        self.reference_profile = reference_profile
+    def __init__(
+            self,
+            parent_config: Optional["DictBackedConfig"] = None,
+            config_key_override: Optional[str] = None,
+            file_path: Optional[Path] = None
+    ):
+        super().__init__(parent_config, config_key_override)
 
-        # The master config we want to save the profile too
-        self.master_config = master_config
+        self._file_path = file_path
 
-        # The text field widget for the profile label
-        self.profileLabelEdit: qt.QLineEdit = None
+    @property
+    def name(self) -> Optional[str]:
+        return self.backing_dict.get(self.NAME_KEY, None)
 
-        # Selection field for the role
-        self.roleComboBox: qt.QComboBox = None
+    @name.setter
+    def name(self, new_name: str):
+        # Flip backslashes to prevent horrific bugs
+        new_name = new_name.replace("\\", "/")
+        self.backing_dict[self.NAME_KEY] = new_name
+        self.has_changed = True
 
-        # Toggle box which make the profile a blank slate if checked
-        # (instead of copying the active profile's state, the default)
-        self.blankSlateBox: qt.QCheckBox = None
+    DATA_PATH_KEY = "data_path"
 
-        # Track the button box so we can react to them being pressed
-        self.buttonBox: qt.QDialogButtonBox = None
+    @property
+    def data_path(self) -> Optional[Path]:
+        path_str = self.get_or_default(self.DATA_PATH_KEY, None)
+        if path_str is None:
+            return None
+        return Path(path_str)
 
-        # Built the GUI contents
-        self.buildUI()
+    @data_path.setter
+    def data_path(self, new_path: Path):
+        path_str = str(new_path)
+        self.backing_dict[self.DATA_PATH_KEY] = path_str
+        self.has_changed = True
 
-    ## GUI components ##
-    def addButtons(self):
-        buttonBox = qt.QDialogButtonBox()
-        buttonBox.setStandardButtons(
-            qt.QDialogButtonBox.Cancel | qt.QDialogButtonBox.Ok
-        )
-        buttonBox.clicked.connect(self.onButtonPressed)
-        return buttonBox
+    OUTPUT_PATH_KEY = "output_path"
 
-    def buildUI(self):
-        # General window properties
-        self.setWindowTitle("New Profile")
+    @property
+    def output_path(self) -> Optional[Path]:
+        path_str = self.get_or_default(self.OUTPUT_PATH_KEY, None)
+        if path_str is None:
+            return None
+        return Path(path_str)
 
-        # Create a form layout to hold everything in
-        layout = qt.QFormLayout()
-        self.setLayout(layout)
+    @output_path.setter
+    def output_path(self, new_path: Path):
+        path_str = str(new_path)
+        self.backing_dict[self.OUTPUT_PATH_KEY] = path_str
+        self.has_changed = True
 
-        # Add a field for submitting the profile label
-        profileLabelEdit = qt.QLineEdit()
-        profileLabelLabel = qt.QLabel("Label:")
-        profileLabelLabel.setToolTip(
-            "An ID label for this profile. Cannot match an existing profile label!"
-        )
-        self.profileLabelEdit = profileLabelEdit
+    COHORT_FILE_KEY = "cohort_file"
 
-        # Add them to our layout
-        layout.addRow(profileLabelLabel, profileLabelEdit)
+    @property
+    def cohort_path(self) -> Optional[Path]:
+        path_str = self.backing_dict.get(self.COHORT_FILE_KEY, None)
+        if path_str is None:
+            return None
+        return Path(path_str)
 
-        # Add a combobox that lets the user select the profile's role
-        roleComboBox = qt.QComboBox()
-        roleLabel = qt.QLabel("Role:")
-        roleLabel.setToolTip("What role the profile should be marked as having.")
+    @cohort_path.setter
+    def cohort_path(self, new_path: Path):
+        path_str = str(new_path)
+        self.backing_dict[self.COHORT_FILE_KEY] = path_str
+        self.has_changed = True
 
-        # Add the roles already available to the combobox
-        roleComboBox.addItems(self.master_config.profile_roles)
+    TASK_KEY = "task"
 
-        # Make the combo-box editable
-        roleComboBox.setEditable(True)
+    @property
+    def task(self) -> str:
+        return self.get_or_default(self.TASK_KEY, None)
 
-        self.roleComboBox = roleComboBox
+    @task.setter
+    def task(self, new_task: str):
+        self._backing_dict[self.TASK_KEY] = new_task
+        self.has_changed = True
 
-        # Add it to our GUI layout
-        layout.addRow(roleLabel, roleComboBox)
+    ## Abstract Methods ##
+    @classmethod
+    def default_config_label(cls) -> str:
+        return "job_profile"
 
-        # Add the blank-state checkbox
-        blankStateBox = qt.QCheckBox()
-        blankStateLabel = qt.QLabel("Reset to Default?")
-        blankStateLabel.setToolTip("""
-            If selected, the new profile will have no configuration settings, 
-            being a "blank slate". If unchecked, the configuration settings of the 
-            current profile (including the last-used settings) are copied over instead.
-        """)
-        self.blankSlateBox = blankStateBox
-        layout.addRow(blankStateLabel, blankStateBox)
+    def show_gui(self) -> None:
+        pass
 
-        # Add our button array to the bottom of the GUI
-        self.buttonBox = self.addButtons()
-        layout.addRow(self.buttonBox)
+    ## File I/O ##
+    @property
+    def file(self) -> Path:
+        """
+        The file this configuration will be saved to.
 
-        # Only enable the "confirm" button when a valid username is present
-        okButton = self.buttonBox.button(qt.QDialogButtonBox.Ok)
-        def syncOkButtonState(profile_label: str):
-            stripped_name = profile_label.strip()
-            if not stripped_name:
-                okButton.setEnabled(False)
-                okButton.setToolTip("Profiles must have a non-blank label")
-            elif stripped_name in self.master_config.profiles.keys():
-                okButton.setEnabled(False)
-                okButton.setToolTip("The provided profile already exists!")
-            else:
-                okButton.setEnabled(True)
-                okButton.setToolTip("")
-        self.profileLabelEdit.textChanged.connect(syncOkButtonState)
-        # Sync the OK button's state immediately
-        syncOkButtonState(profileLabelEdit.text)
-
-    def onButtonPressed(self, button: qt.QPushButton):
-        # Get the role of the button
-        button_role = self.buttonBox.buttonRole(button)
-        # Match it to our corresponding function
-        # TODO: Replace this with a `match` statement when porting to Slicer 5.9
-        if button_role == qt.QDialogButtonBox.AcceptRole:
-            self.createNewProfile()
-            self.accept()
-        elif button_role == qt.QDialogButtonBox.RejectRole:
-            self.reject()
+        Get-only to encourage the file name to be the similar to
+        the
+        """
+        if self._file_path:
+            return self._file_path
         else:
-            raise ValueError("Pressed a button with an invalid role somehow...")
+            # This is to keep Windows from having a stroke + backslashes begone
+            cleaned_name = re.sub('[<>:"/|?*\\\\]', '-', self.name)
+            # Replace spaces with underscores for cleanliness’s sake
+            cleaned_name = cleaned_name.replace(" ", "_")
+            # Keep adding underscores until file collision is resolved:
+            # KO: This is very quick-and-dirty, but given the small number of
+            #  collisions likely to occur, this is more than enough.
+            suffix = ""
+            while True:
+                # Format the job name to create a potential filename
+                new_file = JOB_PROFILE_DIR / f"{cleaned_name}{suffix}.json"
+                # If this file already exists, continue to the next loop
+                if new_file.exists():
+                    suffix += "_"
+                    continue
+                # Otherwise, track this file and return
+                self._file_path = new_file
+                return new_file
 
-    ## Access Management ##s
-    @property
-    def profile(self) -> str:
-        return self.profileLabelEdit.text
+    def reload(self):
+        """
+        (Re-)loads config's contents into memory.
+        """
+        # If there's no config file yet, there's nothing to load
+        if not self.file.exists():
+            print("Nothing to load!")
+            return
+        # Otherwise,
+        with open(self.file, 'r') as fp:
+            new_data = json.load(fp)
+            self.backing_dict = new_data
 
-    @property
-    def selected_role(self) -> str:
-        return self.roleComboBox.currentText.strip()
-
-    @property
-    def shouldBlankState(self) -> bool:
-        return self.blankSlateBox.isChecked()
-
-    ## Utils
-    def createNewProfile(self):
-        # Build the profile config dict from our GUI
-        profile_dict = {
-            ProfileConfig.ROLE_KEY: self.selected_role
-        }
-
-        # Add a new entry into the config file
-        if self.shouldBlankState:
-            self.master_config.new_profile(
-                self.profile,
-                profile_dict
-            )
-        else:
-            self.master_config.new_profile(
-                self.profile,
-                profile_dict,
-                self.reference_profile
-            )
-
-        # If the role is new, add it to the master config list
-        if self.selected_role not in self.master_config.profile_roles:
-            self.master_config.profile_roles.append(self.selected_role)
-
-
-class ProfileConfigDialog(ConfigDialog[ProfileConfig]):
-    """
-    Configuration dialog which allows the user to configure a
-    profile's CART settings.
-    """
-
-    def buildGUI(self, layout: qt.QFormLayout):
-        # General window properties
-        self.setWindowTitle("CART Configuration")
-
-        # Build the widget for the user's role
-        self._roleWidget(layout)
-
-        # Build the widget for the Iterative Save attribute
-        self._iterSaveWidget(layout)
-
-        # Build the widget for whether user layout preservation
-        self._layoutSettingsWidget(layout)
-
-    def _roleWidget(self, layout: qt.QFormLayout):
-        # Add a combobox that lets the user select a profile's role
-        roleComboBox = qt.QComboBox()
-        roleLabel = qt.QLabel("Role:")
-        roleLabel.setToolTip("What role the profile should be marked as having.")
-
-        # Make the combo-box editable
-        roleComboBox.setEditable(True)
-
-        # When a new role is selected, update our backing dict
-        def changeRole(new_role: str):
-            self.bound_config.role = new_role
-        roleComboBox.currentTextChanged.connect(changeRole)
-
-        # Register the corresponding sync function
-        def syncRole():
-            roleComboBox.clear()
-            roleComboBox.addItems(self.bound_config.valid_roles)
-            roleComboBox.currentText = self.bound_config.role
-        self.register_sync_function(roleComboBox, syncRole)
-
-        # Add it to our layout
-        layout.addRow(roleLabel, roleComboBox)
-
-    def _iterSaveWidget(self, layout: qt.QFormLayout):
-        # Add a checkbox for the state of autosaving
-        iterSaveCheck = qt.QCheckBox()
-        iterSaveLabel = qt.QLabel("Save on Iteration:")
-        iterSaveLabel.setToolTip(
-            "If checked, the Task will try to save when you change cases automatically."
-        )
-
-        # Update the config's state when it changes
-        def setSaveOnIter(new_state: bool):
-            self.bound_config.save_on_iter = bool(new_state)
-        iterSaveCheck.stateChanged.connect(setSaveOnIter)
-
-        # Register a synchronization function
-        def syncSaveOnIter():
-            # Iterative save checkbox
-            iterSaveCheck.setChecked(self.bound_config.save_on_iter)
-        self.register_sync_function(iterSaveCheck, syncSaveOnIter)
-
-        # Add it to our layout
-        layout.addRow(iterSaveLabel, iterSaveCheck)
-
-    def _layoutSettingsWidget(self, layout: qt.QFormLayout):
-        # Add a checkbox for the state of autosaving
-        layoutPreserveCheck = qt.QCheckBox()
-        layoutPreserveLabel = qt.QLabel("Retain Layout Across Cases:")
-        layoutPreserveLabel.setToolTip(
-            "If checked, the layout settings (shown orientations and presentation style) "
-            "will be retained when the current case is changed. Otherwise, the settings "
-            "are reset to default when the case changes."
-        )
-
-        # Update the config's state when it changes
-        def setRetainLayout(new_state: bool):
-            self.bound_config.retain_layout = bool(new_state)
-        layoutPreserveCheck.stateChanged.connect(setRetainLayout)
-
-        # Register a synchronization function
-        def syncRetainLayout():
-            layoutPreserveCheck.setChecked(self.bound_config.retain_layout)
-        self.register_sync_function(layoutPreserveCheck, syncRetainLayout)
-
-        # Add it to our layout
-        layout.addRow(layoutPreserveLabel, layoutPreserveCheck)
-
-# The location of the config file for this installation of CART.
-MAIN_CONFIG = Path(__file__).parent.parent.parent / "configuration.json"
-
-GLOBAL_CONFIG = CARTConfig(MAIN_CONFIG)
+    def save_without_parent(self) -> None:
+        # Save this config to file.
+        self.file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.file, 'w') as fp:
+            json.dump(self.backing_dict, fp, indent=2)

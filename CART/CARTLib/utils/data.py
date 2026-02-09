@@ -2,7 +2,7 @@ import itertools
 from datetime import datetime
 import json
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional, Any, Callable
 
 import numpy as np
 
@@ -10,7 +10,7 @@ import slicer
 import vtk
 
 from CARTLib.core.DataUnitBase import DataUnitBase
-from CARTLib.utils.config import ProfileConfig
+from CARTLib.utils.config import MasterProfileConfig
 from CARTLib.core.LayoutManagement import Orientation, LayoutHandler
 
 
@@ -298,7 +298,7 @@ def save_markups_to_nifti(
         markup_node: "vtk.vtkMRMLMarkupsFiducialNode",
         reference_volume: "vtk.vtkMRMLScalarVolumeNode",
         path: Path,
-        profile: Optional[ProfileConfig] = None):
+        master_profile: Optional[MasterProfileConfig] = None):
     """
     Saves a set of markup labels to a NiFTI file.
 
@@ -316,7 +316,7 @@ def save_markups_to_nifti(
     :param markup_node: The markup node whose contents should be saved
     :param reference_volume: A reference volume, for converting RAS -> IJK co-ordinates
     :param path: Path to a (presumably `.nii`) file where the data should be saved
-    :param profile: Profile config; used to build the JSON sidecar
+    :param master_profile: Profile config; used to build the JSON sidecar
     """
     # Build the RAS (world) -> IJK (voxel) transform function
     ras_to_kji_transform = vtk.vtkMatrix4x4()
@@ -372,11 +372,11 @@ def save_markups_to_nifti(
         sidecar_data = {}
         creation_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         # If we have a user profile, add its contents to the GeneratedBy entry
-        if profile:
+        if master_profile:
             sidecar_data["GeneratedBy"] = [{
                 "Name": "CART",
-                "Profile": profile.label,
-                "Role": profile.role,
+                "Author": master_profile.author,
+                "Position": master_profile.position,
                 "Date": creation_time
             }]
         # Otherwise, just note that this was created by CART
@@ -566,11 +566,17 @@ def create_empty_segmentation_node(
 
 
 ## COHORT STRATIFICATION ##
+# TODO: Move these 'parse' functions into CARTStandardUnit
+#  to prevent accidental mis-use
+VOLUME_PREFIX = 'Volume'
+SEGMENTATION_PREFIX = 'Segmentation'
+MARKUP_PREFIX = 'Markup'
+
 def parse_volumes(
     case_data: dict[str, Any], data_path: Path
 ) -> tuple[list[str], dict[str, Path], str]:
     # Get the keys from the case data
-    volume_keys = extract_case_keys_by_prefix(case_data, "Volume", force_present=True)
+    volume_keys = extract_case_keys_by_prefix(case_data, VOLUME_PREFIX, force_present=True)
 
     # We need at least one volume key; otherwise theirs nothing to reference against
     if len(volume_keys) < 1:
@@ -614,7 +620,7 @@ def parse_segmentations(
 ) -> tuple[list[str], dict[str, Path]]:
     # Parse our segmentation keys
     segmentation_keys = extract_case_keys_by_prefix(
-        case_data, "Segmentation", force_present=False
+        case_data, SEGMENTATION_PREFIX, force_present=False
     )
 
     # If there were none, end here
@@ -637,7 +643,7 @@ def parse_markups(case_data, data_path) -> tuple[list[str], dict[str, Path]]:
     # This would allow us to dry out this code combining all 3 parse_* functions
 
     # Get our list of
-    markup_keys = extract_case_keys_by_prefix(case_data, "Markup", force_present=False)
+    markup_keys = extract_case_keys_by_prefix(case_data, MARKUP_PREFIX, force_present=False)
 
     # Initialize our markup paths
     markup_paths: dict[str, Path] = {
@@ -660,6 +666,18 @@ class CARTStandardUnit(DataUnitBase):
     COMPLETED_KEY = "completed"
 
     DEFAULT_ORIENTATION = Orientation.AXIAL
+
+    FEATURE_CLASSES = {
+        VOLUME_PREFIX:
+            "An anatomical volume you want to view. "
+            "Must have 'volume' in its name.",
+        SEGMENTATION_PREFIX:
+            "A segmentation label to overlay on viewed volumes. "
+            "Must have 'segmentation' in its name.",
+        MARKUP_PREFIX:
+            "A set of named point markups to indicate on viewed volumes. "
+            "Must have 'markup' in its name."
+    }
 
     def __init__(
         self,
@@ -892,3 +910,32 @@ class CARTStandardUnit(DataUnitBase):
         if self.subject_id is not None:
             self.hierarchy_node.SetItemExpanded(self.subject_id, new_state)
             self.hierarchy_node.SetItemDisplayVisibility(self.subject_id, new_state)
+
+    ## Utilities ##
+    @classmethod
+    def feature_types(cls) -> dict[str, str]:
+        """
+        Report our own valid feature types for Tasks which use this class
+        as a data unit factory
+        """
+        return cls.FEATURE_CLASSES
+
+    @classmethod
+    def feature_label_for(cls, init_label: str, feature_type: str):
+        # Always skip over the "None" feature type
+        if feature_type.lower() == "none":
+            return init_label
+        # Check all prefixes one-at-a-time
+        # TODO; convert this to a switch statement
+        for prefix in [VOLUME_PREFIX, SEGMENTATION_PREFIX, MARKUP_PREFIX]:
+            # If the feature type doesn't match, skip
+            if feature_type != prefix:
+                continue
+            # If the prefix is already in the label, return untouched
+            if prefix in init_label:
+                return init_label
+            # Otherwise, add the prefix to the label and return
+            return f"{prefix}_{init_label}"
+        # If the feature type doesn't match any known type, return unchanged w/ a warning
+        print(f"Unknown feature type '{feature_type}' for a data unit of type '{cls.__name__}'")
+        return init_label

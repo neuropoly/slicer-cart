@@ -1,6 +1,9 @@
-from typing import Optional
+import csv
+from pathlib import Path
+from typing import Optional, TYPE_CHECKING
 
 import ctk
+import numpy as np
 import qt
 import slicer
 from slicer.i18n import tr as _
@@ -9,6 +12,12 @@ from slicer.i18n import tr as _
 #  to the namespace after slicer boots, hence the error suppression
 # noinspection PyUnresolvedReferences
 import qSlicerSegmentationsModuleWidgetsPythonQt
+
+if TYPE_CHECKING:
+    import numpy.typing as npt
+    # Try to use a reference PyQT5 install if it's available
+    import PyQt5.Qt as qt
+
 
 ## Standardized Prompts ##
 def showSuccessPrompt(msg: str, parent_widget: Optional[qt.QWidget] = None):
@@ -35,6 +44,321 @@ def showErrorPrompt(msg: str, parent_widget: Optional[qt.QWidget]):
     # Display the requested text within it, and show it to the user
     errBox.showMessage(msg)
     errBox.exec()
+
+
+## CSV-Backed Table Widget ##
+class CSVBackedTableModel(qt.QAbstractTableModel):
+    def __init__(self, csv_path: Optional[Path], editable: bool = True, parent: qt.QObject = None):
+        super().__init__(parent)
+
+        # The CSV path that should be referenced
+        self._csv_path = csv_path
+
+        # The backing contents of the CSV data
+        self._csv_data: "Optional[npt.NDArray[str]]" = None
+
+        # Cells should, by default, be enabled and select-able
+        self._flags = qt.Qt.ItemIsEnabled | qt.Qt.ItemIsSelectable
+        # Add the "editable" flag if requested as well
+        if editable:
+            self._flags = self._flags | qt.Qt.ItemIsEditable
+
+        # Try to load the CSV data into memory immediately
+        if csv_path is None:
+            pass
+        elif csv_path.exists():
+            self.load()
+        # If the file doesn't exist (we're creating it), set the data to be blank
+        else:
+            self._csv_data = np.empty((0, 0), dtype="object")
+
+    @property
+    def csv_path(self):
+        return self._csv_path
+
+    @csv_path.setter
+    def csv_path(self, new_path: Path):
+        self._csv_path = new_path
+        # Re-load the data
+        self.load()
+
+    @property
+    def header(self) -> "npt.NDArray[str]":
+        return self._csv_data[0]
+
+    @property
+    def csv_data(self) -> "Optional[npt.NDArray]":
+        """
+        Read-only; data should be hard-synced to the backing CSV.
+        """
+        if self._csv_data is None:
+            return None
+        return self._csv_data[1:]
+
+    # KO: For reasons beyond me, this cannot be set as a property.
+    #   PythonQT downcasts this table to a class that lacks the property
+    #   when you try...
+    def is_editable(self) -> bool:
+        return qt.Qt.ItemIsEditable & self._flags != 0
+
+    def set_editable(self, new_val: bool):
+        if new_val:
+            self._flags = self._flags | qt.Qt.ItemIsEditable
+        else:
+            self._flags = qt.Qt.ItemIsEnabled | qt.Qt.ItemIsSelectable
+
+    # Querying
+    def __getitem__(self, item):
+        if self.csv_data is None:
+            return None
+        return self.csv_data[item]
+
+    def __setitem__(self, key, value):
+        if self.csv_data is None:
+            raise IndexError("Cannot set value, as no CSV data has been initialized!")
+        self.csv_data[key] = value
+
+    ## Overrides
+    def data(self, index: qt.QModelIndex, role=qt.Qt.DisplayRole):
+        # If we failed to load CSV data, return None
+        if self.csv_data is None:
+            return None
+        # If this is a displayed element, or a to-be-edited element, return the data's content
+        if role in (qt.Qt.DisplayRole, qt.Qt.EditRole):
+            return str(self[index.row()][index.column()])
+        # Otherwise, return None by default.
+        return None
+
+    def setData(self, index: qt.QModelIndex, value, role: int = ...):
+        if role == qt.Qt.EditRole:
+            self[index.row()][index.column()] = str(value)
+        self.dataChanged(index, index)
+        return True
+
+    def headerData(self, section: int, orientation: qt.Qt.Orientation, role: int = ...):
+        # Note; "section" -> column for Horizontal, row for Vertical
+        if role == qt.Qt.DisplayRole and orientation == qt.Qt.Horizontal:
+            return self.header[section]
+        return None
+
+    def rowCount(self, parent: qt.QObject = None):
+        if self.csv_data is None:
+            return 0
+        return self.csv_data.shape[0]
+
+    def columnCount(self, parent: qt.QObject = None):
+        if self.csv_data is None:
+            return 0
+        return self.csv_data.shape[1]
+
+    def insertRows(self, row: int, count: int, parent = ...):
+        self.beginInsertRows(parent, row, row + count - 1)
+        # Numpy inserts iteratively, hence the "replicated" index
+        idx = [row] * count
+        self._csv_data = np.insert(self._csv_data, idx, "", axis=0)
+        self.endInsertRows()
+
+    def insertColumns(self, column: int, count: int, parent = ...):
+        self.beginInsertColumns(parent, column, column + count - 1)
+        # Numpy inserts iteratively, hence the "replicated" index
+        idx = [column] * count
+        self._csv_data = np.insert(self._csv_data, idx, "", axis=1)
+        self.endInsertColumns()
+
+    def removeRows(self, row, count, parent = ...):
+        self.beginRemoveRows(parent, row, row + count - 1)
+        # Unlike insertion, numpy does this simultaneously
+        # Offset by 1 to account for the header row
+        idx = [row + i + 1 for i in range(count)]
+        self._csv_data = np.delete(self._csv_data, idx, axis=0)
+        self.endRemoveRows()
+
+    def removeColumns(self, column, count, parent = ...):
+        self.beginRemoveColumns(parent, column, column + count - 1)
+        # Unlike insertion, numpy does this simultaneously
+        idx = [column + i for i in range(count)]
+        self._csv_data = np.delete(self._csv_data, idx, axis=1)
+        self.endRemoveColumns()
+
+    def setRow(self, row_idx, contents: "npt.NDArray[str]"):
+        # "Trim" the contents to the same size, padding with blanks if needed.
+        trimmed_contents = contents.copy()
+        trimmed_contents.resize([self.columnCount()])
+        # Prevent a ValueError resulting from Python trying to parse an empty list to a float
+        if trimmed_contents.shape[0] > 0:
+            trimmed_contents[trimmed_contents == 0] = ""
+        self.csv_data[row_idx, :] = trimmed_contents
+        self.dataChanged(
+            self.createIndex(row_idx, 0), self.createIndex(row_idx, self.columnCount())
+        )
+
+    def setColumn(self, col_idx, contents: "npt.NDArray[str]"):
+        # "Trim" the contents to the same size, padding with blanks if needed.
+        trimmed_contents = contents.copy()
+        trimmed_contents.resize([self.rowCount()])
+        # Prevent a ValueError resulting from Python trying to parse an empty list to a float
+        if trimmed_contents.shape[0] > 0:
+            trimmed_contents[trimmed_contents == 0] = ""
+        self.csv_data[:, col_idx] = trimmed_contents
+        self.dataChanged(
+            self.createIndex(0, col_idx), self.createIndex(self.rowCount(), col_idx)
+        )
+
+    def addRow(self, row_idx: int, contents: "npt.NDArray[str]"):
+        # Create the new row; offset by 1, as the row is inserted BEFORE the desired index
+        self.insertRow(row_idx+1)
+        # Update the new row's contents
+        self.setRow(row_idx, contents)
+
+    def addColumn(self, col_idx: int, contents: "npt.NDArray[str]"):
+        # Insert a new column first; offset by 1, as the column is inserted BEFORE the desired index
+        self.insertColumn(col_idx+1)
+        # Update the new column's contents
+        self.setColumn(col_idx, contents)
+
+    def dropRow(self, row_idx: int):
+        if row_idx >= self.rowCount():
+            raise ValueError(f"Cannot drop row {row_idx}, index is out of range.")
+        self.removeRow(row_idx)
+
+    def dropColumn(self, col_idx):
+        if col_idx > self.columnCount():
+            raise ValueError(f"Cannot drop column {col_idx}, index is out of range.")
+        self.removeColumn(col_idx)
+
+    def flags(self, __: qt.QModelIndex) -> "qt.Qt.ItemFlags":
+        # Return the current set of flags for the model
+        return self._flags
+    ## I/O ##
+    def load(self):
+        # Denote that a full reset is beginning
+        self.beginResetModel()
+        # Reset the backing data to contain the contents of the CSV file
+        try:
+            with open(self.csv_path, 'r') as fp:
+                new_data = np.array([r for r in csv.reader(fp)], dtype="object")
+                self._csv_data = new_data
+        except Exception as e:
+            # Blank the CSV data outright if an error occurred
+            self._csv_data = None
+            raise e
+        finally:
+            # No matter what, denote that the reset has ended
+            self.endResetModel()
+
+    def save(self):
+        if self.csv_data is None:
+            raise ValueError("Nothing to save!")
+        with open(self.csv_path, 'w') as fp:
+            csv.writer(fp).writerows(self._csv_data)
+
+
+class CSVBackedTableWidget(qt.QStackedWidget):
+    """
+    Simple implementation for viewing the contents of a CSV file in Qt.
+
+    Shows an error message when the backing CSV cannot be read.
+    """
+    def __init__(self, model: CSVBackedTableModel, parent: qt.QWidget = None):
+        super().__init__(parent)
+
+        # The table widget itself; shown when the CSV is valid
+        self._model = model
+        tableView = qt.QTableView()
+        tableView.setModel(model)
+        tableView.show()
+        tableView.horizontalHeader().setSectionResizeMode(qt.QHeaderView.ResizeToContents)
+        tableView.verticalHeader().setSectionResizeMode(qt.QHeaderView.ResizeToContents)
+        tableView.setHorizontalScrollMode(qt.QAbstractItemView.ScrollPerPixel)
+        self._tableView = tableView
+        self.addWidget(self._tableView)
+
+        # Placeholder message; shown when no CSV is selected
+        default_msg = _(
+            "No CSV file has been provided yet; once selected, its contents "
+            "should appear here."
+        )
+        self.defaultLabel = qt.QLabel(default_msg)
+        self.defaultLabel.setAlignment(qt.Qt.AlignTop | qt.Qt.AlignLeft)
+        self.addWidget(self.defaultLabel)
+
+        # An error message; shown when the CSV is invalid
+        error_msg = _(
+            "ERROR: Could not load the selected CSV file. "
+            "Please confirm it exists, is accessible, and formatted correctly."
+        )
+        self.errorLabel = qt.QLabel(f"<b style='color:red;'>{error_msg}</b>")
+        self.errorLabel.setAlignment(qt.Qt.AlignTop | qt.Qt.AlignLeft)
+        self.addWidget(self.errorLabel)
+
+        # Set the size policy
+        self.setSizePolicy(
+            qt.QSizePolicy(qt.QSizePolicy.Preferred, qt.QSizePolicy.Preferred)
+        )
+
+        # Refresh immediately
+        self.refresh()
+
+    @classmethod
+    def from_path(cls, csv_path):
+        model = CSVBackedTableModel(csv_path, editable=False)
+        return cls(model)
+
+    @property
+    def model(self) -> CSVBackedTableModel:
+        return self._model
+
+    @model.setter
+    def model(self, new_model: CSVBackedTableModel):
+        # To ensure sync, we need to update the table widget's model as well
+        self._model = new_model
+        self.tableView.setModel(new_model)
+
+    @property
+    def backing_csv(self) -> Path:
+        # Defer to our backing model
+        return self.model.csv_path
+
+    @backing_csv.setter
+    def backing_csv(self, new_path: Path):
+        # Defer to our backing model
+        self.model.csv_path = new_path
+        self.refresh()
+
+    @property
+    def tableView(self):
+        return self._tableView
+
+    @tableView.setter
+    def tableView(self, new_view: qt.QTableView):
+        was_viewing_table = self.currentWidget() == self._tableView
+        self.removeWidget(self._tableView)
+        self._tableView = new_view
+        self.addWidget(new_view)
+        if was_viewing_table:
+            self.setCurrentWidget(self._tableView)
+
+    def save(self):
+        # Defer to our backing model
+        self.model.save()
+
+    def refresh(self):
+        # If we have data, show it no matter what
+        if self.model.csv_data is not None:
+            self.setCurrentWidget(self.tableView)
+        # Otherwise, check if we just haven't selected a path yet
+        elif self.model.csv_path is None:
+            self.setCurrentWidget(self.defaultLabel)
+        # If neither of the above, something's gone wrong
+        else:
+            self.setCurrentWidget(self.errorLabel)
+
+    @property
+    def selectedIndices(self) -> list[qt.QModelIndex]:
+        return self.tableView.selectedIndexes()
+
+    def headerAt(self, idx: int):
+        return self.model.header[idx]
 
 
 ## CART-Tuned Segmentation Editor ##

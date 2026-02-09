@@ -4,7 +4,7 @@ from datetime import datetime
 from functools import cached_property
 from pathlib import Path
 
-from CARTLib.utils.config import ProfileConfig
+from CARTLib.utils.config import JobProfileConfig
 
 from GenericClassificationUnit import GenericClassificationUnit
 
@@ -15,7 +15,7 @@ VERSION = 0.01
 class GenericClassificationOutputManager:
 
     UID_KEY = "uid"
-    PROFILE_KEY = "profile"
+    JOB_NAME_KEY = "job_name"
     TIMESTAMP_KEY = "timestamp"
     VERSION_KEY = "version"
     CLASSES_KEY = "classifications"
@@ -23,7 +23,7 @@ class GenericClassificationOutputManager:
 
     LOG_HEADERS = [
         UID_KEY,
-        PROFILE_KEY,
+        JOB_NAME_KEY,
         TIMESTAMP_KEY,
         VERSION_KEY,
         CLASSES_KEY,
@@ -32,31 +32,19 @@ class GenericClassificationOutputManager:
 
     def __init__(
         self,
-        config: ProfileConfig,
-        output_dir: Path
+        config: JobProfileConfig
     ):
-        # We must have an output dir to work with
-        if not output_dir:
-            raise ValueError("Cannot place output in a non-existent path!")
-
         # Core attributes
         self.config = config
-        self.output_dir = output_dir
 
     @property
-    def profile_config(self) -> ProfileConfig:
-        """
-        Wrapper for accessing the parent (profile) config; allows us to
-        suppress the "incorrect type" warning once, rather than everywhere
-        this is needed.
-        """
-        # TODO: Make a config stuff
-        return self.config
+    def output_dir(self) -> Path:
+        return self.config.output_path
 
     @property
-    def profile_label(self) -> str:
+    def job_name(self) -> str:
         # Simple alias to sidestep a common argument chain
-        return self.profile_config.label
+        return self.config.name
 
     @property
     def csv_data_file(self) -> Path:
@@ -91,12 +79,12 @@ class GenericClassificationOutputManager:
                         print(f"Skipped entry #{i} in {self.csv_data_file}, as it lacks a UID.")
                         continue
                     # Skip rows w/o a valid profile label
-                    uid = row.get(self.PROFILE_KEY, None)
+                    uid = row.get(self.JOB_NAME_KEY, None)
                     if not uid:
                         print(f"Skipped entry #{i} in {self.csv_data_file}, as it lacks a Profile ID.")
                         continue
                     # Generate a UID + profile pair to act as our key
-                    profile = row.get(self.PROFILE_KEY, None)
+                    profile = row.get(self.JOB_NAME_KEY, None)
                     # Insert it into the data dict
                     csv_data[(uid, profile)] = row
 
@@ -114,7 +102,7 @@ class GenericClassificationOutputManager:
 
     def save_unit(self, data_unit: GenericClassificationUnit):
         # Generate the entry key
-        entry_key = (data_unit.uid, "test")
+        entry_key = (data_unit.uid, self.job_name)
 
         # Edge-case; if no classes are provided, using "" instead of "set()"
         unit_classes = data_unit.classes
@@ -124,7 +112,7 @@ class GenericClassificationOutputManager:
         # Add/replace the corresponding entry in our data dict
         self.csv_data[entry_key] = {
             self.UID_KEY: data_unit.uid,
-            self.PROFILE_KEY: "test",
+            self.JOB_NAME_KEY: self.job_name,
             self.TIMESTAMP_KEY: datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             self.VERSION_KEY: VERSION,
             self.CLASSES_KEY: unit_classes,
@@ -144,7 +132,7 @@ class GenericClassificationOutputManager:
         return result_msg
 
     def read_metadata(self) -> dict[str, str]:
-        # If the json file doesn't exist, return an empty dict
+        # If the JSON file doesn't exist, return an empty dict
         if not self.json_metadata_file.exists():
             return dict()
         # Otherwise, read the JSON file's contents and return it

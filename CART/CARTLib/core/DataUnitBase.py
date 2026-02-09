@@ -133,8 +133,8 @@ class DataUnitBase(ABC):
         "reveal" any resources you are managing here by adding them back to the MRML
         scene.
         """
-        if self._layout_handler:
-            self._layout_handler.apply_layout()
+        if self.layout_handler:
+            self.layout_handler.apply_layout()
 
     def focus_lost(self):
         """
@@ -167,5 +167,5 @@ class DataUnitBase(ABC):
         self.clean()
 
     def __delete__(self, instance):
-        # When the objecte is explicitly deleted, run cleaning first
+        # When the object is explicitly deleted, run cleaning first
         self.clean()

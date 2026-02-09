@@ -6,19 +6,14 @@ from pathlib import Path
 from typing import Optional
 
 from CARTLib.utils.data import save_segmentation_to_nifti
-from CARTLib.utils.config import ProfileConfig
+from CARTLib.utils.config import JobProfileConfig
 
 from SegmentationReviewUnit import (
     SegmentationReviewUnit,
 )
 
 
-VERSION = 0.02
-
-
-class OutputMode(Enum):
-    PARALLEL_DIRECTORY = "parallel"
-    OVERWRITE_ORIGINAL = "overwrite"
+VERSION = 0.03
 
 
 class SegmentationReviewOutputManager:
@@ -30,75 +25,59 @@ class SegmentationReviewOutputManager:
     UID_KEY = "uid"
     AUTHOR_KEY = "author"
     TIMESTAMP_KEY = "timestamp"
-    OUTPUT_MODE_KEY = "output_mode"
     INPUT_SEGMENTATION_KEY = "original_segmentation_path"
     SEGMENTATION_PATH_KEY = "segmentation_path"
     SIDECAR_PATH_KEY = "sidecar_path"
     VERSION_KEY = "version"
-    NOTES_KEY = "notes"
+    # NOTES_KEY = "notes"
 
     HEADERS = [
         UID_KEY,
         AUTHOR_KEY,
         TIMESTAMP_KEY,
-        OUTPUT_MODE_KEY,
         SEGMENTATION_PATH_KEY,
         SIDECAR_PATH_KEY,
         INPUT_SEGMENTATION_KEY,
         VERSION_KEY,
-        NOTES_KEY,
+        # NOTES_KEY,
     ]
 
     def __init__(
         self,
-        profile: ProfileConfig,
-        output_mode: OutputMode = OutputMode.PARALLEL_DIRECTORY,
-        output_dir: Optional[Path] = None,
-        with_logging: bool = True,
-        csv_log_path: Optional[Path] = None,
+        config: JobProfileConfig,
+        with_logging: bool = True
     ):
         """
         Initialize an output manager for the Segmentation Review Task
 
-        :param profile: The configuration profile to reference for settings
-        :param output_mode: The output mode of the task
+        :param config: The job configuration to reference for settings
+
         :param output_dir: Where imaging files should be place, if not in Overwrite mode
         :param with_logging: Whether to track a log of edits in a CSV file.
         :param csv_log_path: A path to the CSV file to log edits too.
             Created if it does not exist.
         """
-        self.profile = profile
-        self.output_mode = output_mode
-        self.output_dir = output_dir
+        self.config = config
 
         # CSV logging
-        self.with_logging = with_logging
-        self._csv_log_path: Path = csv_log_path
         self._csv_log: Optional[dict[tuple[str, str], dict[str, str]]] = None
-
 
     ## PROPERTIES ##
     @property
-    def profile_label(self) -> str:
-        return self.profile.label
+    def input_dir(self) -> Path:
+        return self.config.data_path
 
     @property
-    def csv_log_path(self) -> Optional[Path]:
-        return self._csv_log_path
+    def output_dir(self) -> Path:
+        return self.config.output_path
 
-    @csv_log_path.setter
-    def csv_log_path(self, new_path: Optional[Path]):
-        # Confirm the new path is valid
-        if new_path:
-            if new_path.is_dir():
-                raise ValueError("Cannot use a directory as a log file!")
+    @property
+    def csv_log_path(self):
+        return self.output_dir / "cart_segmentation_log.csv"
 
-        # Blank the CSV log cache
-        if self._csv_log is not None:
-            self._csv_log = None
-
-        # Update the path
-        self._csv_log_path = new_path
+    @property
+    def job_name(self) -> str:
+        return self.config.name
 
     @property
     def csv_log(self) -> Optional[dict[tuple[str, str], dict[str, str]]]:
@@ -147,11 +126,7 @@ class SegmentationReviewOutputManager:
         :return str: A message to report to the user when saving is complete
         """
         # Begin building the return message
-        should_overwrite = self.output_mode == OutputMode.OVERWRITE_ORIGINAL
-        if should_overwrite:
-            result_msg = f"Overwrote the following entries for case '{unit.uid}':\n"
-        else:
-            result_msg = f"Saved the following entries for case '{unit.uid}':\n"
+        result_msg = f"Saved the following entries for case '{unit.uid}':\n"
 
         for s in segments_to_save:
             # Determine the original source path for the segmentation and its sidecar
@@ -159,35 +134,35 @@ class SegmentationReviewOutputManager:
             sidecar_source_path = Path(str(segment_source_path).split('.')[0] + ".json")
 
             # Determine the output paths
-            if self.output_mode == OutputMode.OVERWRITE_ORIGINAL:
-                segment_dest_path = segment_source_path
-                sidecar_dest_path = sidecar_source_path
+            if self.input_dir in segment_source_path.parents:
+                # If the original files were within our data dir, preserve their folder structure
+                segment_dest_path = self.output_dir / segment_source_path.relative_to(self.input_dir)
+                sidecar_dest_path = self.output_dir / sidecar_source_path.relative_to(self.input_dir)
             else:
+                # Otherwise, generate new locations for them from scratch
                 segment_dest_path, sidecar_dest_path = self._get_parallel_outputs(s, unit)
-            # Get the segmentation and volume node for the segmentation from the data unit
+            # Get the corresponding segmentation node from the data unit
             segment_node = unit.segmentation_nodes[s]
 
             # Save the node to the destination path
             save_segmentation_to_nifti(segment_node, unit.primary_volume_node, segment_dest_path)
 
-            # Save/update a copy of the sidecar
+            # Save/update the sidecar
             self._save_sidecar(sidecar_source_path, sidecar_dest_path)
 
-            # If we're in logging mode, try to save a log entry as well
-            if self.with_logging:
-                self._log_to_csv(
-                    unit,
-                    segment_dest_path,
-                    sidecar_dest_path,
-                    segment_source_path
-                )
+            # Save a log entry as well
+            self._log_to_csv(
+                unit,
+                segment_dest_path,
+                sidecar_dest_path,
+                segment_source_path
+            )
 
             # Extend the return message with the segment name
             result_msg += f"  * {s}\n"
 
         # Complete the message by denoting where the (now updated) log file is
-        if self.with_logging:
-            result_msg += f"\nChange logged into file '{str(self.csv_log_path.resolve())}'."
+        result_msg += f"\nLogged into file '{str(self.csv_log_path.resolve())}'."
         return result_msg
 
     def _log_to_csv(
@@ -203,19 +178,18 @@ class SegmentationReviewOutputManager:
         # Create a new log entry for this UID Author pair
         log_entry = {
             self.UID_KEY: data_unit.uid,
-            self.AUTHOR_KEY: self.profile_label,
+            self.AUTHOR_KEY: self.job_name,
             self.TIMESTAMP_KEY: timestamp,
-            self.OUTPUT_MODE_KEY: self.output_mode.value,
             self.SEGMENTATION_PATH_KEY: str(segmentation_path.resolve()),
             self.SIDECAR_PATH_KEY: str(sidecar_path.resolve()),
             self.INPUT_SEGMENTATION_KEY: str(initial_path.resolve()),
             self.VERSION_KEY: VERSION,
             # TODO Populate this with data from a note section or similar
-            self.NOTES_KEY: f"Segmentation review completed using {self.output_mode.value} mode",
+            # self.NOTES_KEY: "FOOBAR!",
         }
 
         # Set/Replace the corresponding entry in our CSV log
-        self.csv_log[(data_unit.uid, self.profile_label)] = log_entry
+        self.csv_log[(data_unit.uid, self.job_name)] = log_entry
 
         # If the CSV file doesn't already exist, create it and its parent directory
         if not self.csv_log_path.exists():
@@ -248,10 +222,9 @@ class SegmentationReviewOutputManager:
         entry_time = datetime.now()
         new_entry = {
             "Name": "Segmentation Review [CART]",
-            "Author": self.profile_label,
+            "Author": self.job_name,
             "Version": VERSION,
             "Date": entry_time.strftime("%Y-%m-%d %H:%M:%S"),
-            "OutputMode": self.output_mode.value,
             "CSVLogPath": (
                 str(self.csv_log_path.resolve()) if self.csv_log_path else None
             ),
@@ -290,24 +263,16 @@ class SegmentationReviewOutputManager:
         if not data_unit:
             return False
 
-        if self.output_mode == OutputMode.PARALLEL_DIRECTORY:
-            return (
-                self.output_dir
-                and self.output_dir.exists()
-                and self.output_dir.is_dir()
-            )
-        elif self.output_mode == OutputMode.OVERWRITE_ORIGINAL:
-            return (
-                True  # Can always attempt to overwrite (file will be created if needed)
-            )
-
-        return False
+        return (
+            self.output_dir
+            and self.output_dir.exists()
+            and self.output_dir.is_dir()
+        )
 
     def is_case_completed(self, case_data: dict[str, str]):
         # Check against the log; other solutions are too complicated
         uid = case_data["uid"]
-        author = self.profile_label
+        author = self.job_name
         if self.csv_log.get((uid, author), None) is not None:
             return True
         return False
-

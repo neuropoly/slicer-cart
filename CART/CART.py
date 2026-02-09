@@ -1,30 +1,28 @@
-import traceback
-from contextlib import contextmanager
+import importlib
+import logging
+import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING, Tuple, Callable
 
 import vtk
-import ctk
+
 import qt
-import slicer
+import slicer.util
+from CARTLib.core.LayoutManagement import OrientationButtonArrayWidget
 from slicer import vtkMRMLScalarVolumeNode
 from slicer.ScriptedLoadableModule import *
 from slicer.i18n import tr as _
 from slicer.util import VTKObservationMixin
 
-from CARTLib.core.CohortGenerator import CohortGeneratorWindow
 from CARTLib.core.DataManager import DataManager
-from CARTLib.core.DataUnitBase import DataUnitBase
-from CARTLib.core.LayoutManagement import OrientationButtonArrayWidget
-from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
-from CARTLib.utils.config import GLOBAL_CONFIG, ProfileConfig
-from CARTLib.utils.task import CART_TASK_REGISTRY, initialize_tasks
+from CARTLib.core.TaskBaseClass import TaskBaseClass
+from CARTLib.core.SetupWizard import CARTSetupWizard, JobSetupWizard
+from CARTLib.utils import CART_PATH, CART_VERSION
+from CARTLib.utils.config import JobProfileConfig, MasterProfileConfig
+from CARTLib.utils.task import CART_TASK_REGISTRY
 
-CURRENT_DIR = Path(__file__).parent
-CONFIGURATION_FILE_NAME = CURRENT_DIR / "configuration.json"
-sample_data_path = CURRENT_DIR.parent / "sample_data"
-sample_data_cohort_csv = sample_data_path / "example_cohort.csv"
-
+if TYPE_CHECKING:
+    import PyQt5.Qt as qt
 
 #
 # CART
@@ -81,1522 +79,907 @@ class CART(ScriptedLoadableModule):
 
     @staticmethod
     def init_env():
-        # Load our configuration
-        GLOBAL_CONFIG.load_from_json()
-
         # Add CARTLib to the Python Path for ease of (re-)use
         import sys
 
         cartlib_path = (Path(__file__) / "CARTLib").resolve()
         sys.path.append(str(cartlib_path))
 
-        # Register all tasks currently configured in our CART Config
-        initialize_tasks()
-
-
-#
-# CARTParameterNode
-#
-
 
 #
 # CARTWidget
 #
-
-
 class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
-    """Uses ScriptedLoadableModuleWidget base class, available at:
-    https://github.com/Slicer/Slicer/blob/main/Base/Python/slicer/ScriptedLoadableModule.py
-    """
-
-    ## Utils ##
-
-    # The size constraints which should be used for small buttons;
-    #  these match the size of the '...' button in a ctk.ctkPathLineEdit
-    # TODO: Remove when we swap the button to be a QToolButton
-    MICRO_BUTTON_WIDTH = 24
-    MICRO_BUTTON_HEIGHT = 25
-
-    ## Initialization ##
     def __init__(self, parent=None) -> None:
-        """Called when the user opens the module the first time and the widget is initialized."""
+        """
+        Called when the module is initialized by Slicer
+        """
         ScriptedLoadableModuleWidget.__init__(self, parent)
-        VTKObservationMixin.__init__(self)  # needed for parameter node observation
+        VTKObservationMixin.__init__(self)
 
         # Initialize our logic instance
         self.logic: CARTLogic = CARTLogic()
-        self._parameterNode = None
-        self._parameterNodeGuiTag = None
 
-        # A "dummy" widget, which holds the TaskGUI. Allows us to swap tasks on the fly.
-        self.dummyTaskWidget: qt.QWidget = None
+        # Core widgets, which can be swapped on the fly
+        self.mainWidget: qt.QStackedWidget = None
+        self.configWidgetIndex = -1
+        self.jobWidgetIndex = -1
+
+        # Widget which holds the task-specific GUI elements
+        self.taskSubWidget: qt.QWidget = None
+
+        # List of things to do when the list of registered jobs changes
+        # TODO: Make this a proper QT signal, or something similar
+        self.onJobListChanged: list[Callable[[], None]] = list()
+
+        # List of things to do when the job is changed
+        # TODO: Make this a proper QT signal, or something similar
+        self.onJobChanged: list[Callable[[str], None]] = list()
+
+        # List of things to do when the case is changed
+        # TODO: Make this a proper QT signal, or something similar
+        self.onCaseChanged: list[Callable[[int], None]] = list()
+
+        # List of keyboard shortcuts to be installed/uninstalled within this widget
+        self.keyboardShortcuts = []
 
     def setup(self) -> None:
-        """Called when the user opens the module the first time and the widget is initialized."""
+        """
+        Called when the user opens the CART module within Slicer for the first time.
+        """
         ScriptedLoadableModuleWidget.setup(self)
 
-        ## Setup ##
-        # The collapsible button to contain everything in
-        mainGUI = ctk.ctkCollapsibleButton()
-        # Not the best translation, but it'll do...
-        mainGUI.text = "CART " + _("Setup")
-        mainLayout = qt.QFormLayout(mainGUI)
+        # The stacking widget, which will hold our sub-menus
+        mainWidget = qt.QStackedWidget(self.parent)
 
-        # Profile selection/registration
-        self.buildProfileUI(mainLayout)
+        # Set up the configuration widget
+        configWidget = self._setupConfigurationWidget()
+        self.configWidgetIndex = mainWidget.addWidget(configWidget)
 
-        # Task UI
-        self.buildTaskUI(mainLayout)
+        # Set up the job widget
+        jobWidget, taskWidget = self._setupJobWidget()
+        self.taskSubWidget = taskWidget
+        self.jobWidgetIndex = mainWidget.addWidget(jobWidget)
 
-        # Base Path input UI
-        self.buildBasePathUI(mainLayout)
+        # Insert the widget into our main layout
+        self.layout.addWidget(mainWidget)
+        self.mainWidget = mainWidget
 
-        # Cohort Selection
-        self.buildCohortUI(mainLayout)
-
-        # Button panel
-        self.buildButtonPanel(mainLayout)
-
-        # Add this "main" widget to our panel
-        self.layout.addWidget(mainGUI)
-
-        # Make the GUI accessible
-        self.mainGUI = mainGUI
-
-        ## Progress Tracker ##
-        # Case Iterator UI
-        self.buildCaseIteratorUI(self.layout)
-
-        ## Task Interaction ##
-        # Add a (currently empty) collapsable tab, in which the Task GUI will be placed later
-        taskGUI = ctk.ctkCollapsibleButton()
-
-        # As its empty, and meaningless to the user, start it out collapsed
-        #  and disabled; it will be re-enabled (and expanded) when a task
-        #  is selected and the iterator set up.
-        # KO: While the header for the associated CTK class has a `setCollapsed`
-        #  function to match the pattern of every other attribute, it doesn't
-        #  work for some reason, hence use breaking the pattern here.
-        taskGUI.collapsed = True
-        taskGUI.setEnabled(False)
-
-        # Not the best translation, but it'll do...
-        taskGUI.text = _("Task Steps")
-
-        # Generate a layout for the Task part of the GUI
-        qt.QVBoxLayout(taskGUI)
-
-        # Add the GUI to our overall layout, and track it for later
-        self.layout.addWidget(taskGUI)
-        self.taskGUI = taskGUI
-
-        # Add the universal orientation widget to the top of the task GUI
-        self.buildLayoutPanel()
-
-        # Add a vertical "stretch" at the bottom, forcing everything to the top;
-        #  now it doesn't look like garbage!
+        # Add a stretch to push everything to the top (seriously, why is this not default?)
         self.layout.addStretch()
 
-        ## Connections ##
-        # These connections ensure that we update parameter node when scene is closed
-        self.addObserver(
-            slicer.mrmlScene, slicer.mrmlScene.StartCloseEvent, self.onSceneStartClose
-        )
-        self.addObserver(
-            slicer.mrmlScene, slicer.mrmlScene.EndCloseEvent, self.onSceneEndClose
-        )
+    def _setupConfigurationWidget(self) -> qt.QWidget:
+        # Setup
+        mainWidget = qt.QWidget(self.parent)
+        layout = qt.QVBoxLayout(mainWidget)
 
-        # Synchronize our state with the logic
-        self.sync_with_logic()
+        # Button panel for creating, editing, or deleting jobs
+        jobManagementPanel = self._jobManagementPanel()
+        layout.addWidget(jobManagementPanel)
 
-    ## Core ##
-    @contextmanager
-    def block_signals(self):
-        """
-        Python context manager which disables signals from being emitted
-        while active. Primarily used when we're synchronizing with the
-        logic instance to avoid feedback loops.
-        """
-        affected_widgets = [
-            self.profileSelectButton,
-            self.cohortFileSelectionButton,
-            self.dataPathSelectionWidget,
-            self.taskOptions
-        ]
+        # Add a stretch to push everything to the top
+        layout.addStretch()
 
-        for w in affected_widgets:
-            w.blockSignals(True)
+        return mainWidget
 
-        yield
+    def _jobManagementPanel(self) -> qt.QWidget:
+        # Setup
+        mainWidget = qt.QWidget(None)
+        layout = qt.QVBoxLayout(mainWidget)
 
-        for w in affected_widgets:
-            w.blockSignals(False)
-
-    def sync_with_logic(self):
-        # Block our widgets from emitting signals while we run
-        with self.block_signals():
-            # Update the profile selection widget with the contents of the logic instance
-            profile_labels = self.logic.get_profile_labels()
-            self.profileSelectButton.clear()
-            self.profileSelectButton.addItems(profile_labels)
-
-            # Select the profile currently selected by the logic
-            try:
-                self.profileSelectButton.currentText = self.logic.active_profile_label
-            except ValueError:
-                # Value error indicates the profile was not in the list, which is fine
-                pass
-
-            # Pull the currently selected cohort file next
-            if self.logic.cohort_path is None:
-                self.cohortFileSelectionButton.currentPath = ""
+        # Job selection dropdown
+        jobSelectorComboBoxLabel = qt.QLabel(_("Please Select or Create a Job:"))
+        jobSelectorComboBox = qt.QComboBox(None)
+        def updateJobSelector():
+            jobSelectorComboBox.clear()
+            jobSelectorComboBox.addItems(self.logic.registered_jobs_names)
+            if len(self.logic.registered_jobs_names) > 0:
+                jobSelectorComboBox.setEnabled(True)
+                jobSelectorComboBox.setCurrentIndex(0)
             else:
-                self.cohortFileSelectionButton.currentPath = self.logic.cohort_path
+                jobSelectorComboBox.setEnabled(False)
+        self.onJobListChanged.append(updateJobSelector)
 
-            # Pull the currently selected data path next
-            if self.logic.data_path is None:
-                self.dataPathSelectionWidget.currentPath = ""
+        layout.addWidget(jobSelectorComboBoxLabel)
+        layout.addWidget(jobSelectorComboBox)
+
+        # Button panel for Job editing operations
+        buttonPanel = qt.QWidget(None)
+        buttonPanelLayout = qt.QHBoxLayout(buttonPanel)
+        layout.addWidget(buttonPanel)
+
+        # "New" button
+        newButton = qt.QPushButton(_("New"))
+        newButton.setToolTip(_("Create a new Job"))
+        def newButtonClicked():
+            # Ask the user to run initial setup
+            if not self.logic.has_run_before():
+                # If they don't, end here
+                if self._cartNotRunBeforePrompt() != qt.QMessageBox.Yes:
+                    return
+                self.runInitialSetup()
+            # Otherwise, skip to job creation
             else:
-                self.dataPathSelectionWidget.currentPath = str(self.logic.data_path)
+                self.runNewJobSetup()
 
-            # Finally, attempt to update our task from the config
-            if self.logic.task_id:
-                self.taskOptions.currentText = self.logic.task_id
+        newButton.clicked.connect(newButtonClicked)
+        buttonPanelLayout.addWidget(newButton)
+
+        # "Edit" button
+        editButton = qt.QPushButton(_("Edit"))
+        editButton.setToolTip(_("Edit the Job's configuration"))
+        def onJobEdit():
+            currentJob: str = jobSelectorComboBox.currentText
+            jobPath = self.logic.registered_jobs.get(currentJob, None)
+            # If the specified job's config is missing, ask if they want to re-create it!
+            if jobPath is None:
+                # If they don't, end here
+                if self._jobMissingPrompt() != qt.QMessageBox.Yes:
+                    return
+                # Create a new config w/ the same name
+                jobConfig = JobProfileConfig()
+                jobConfig.name = currentJob
+            # Otherwise, load the previous job's configuration
             else:
-                # Setting the text to "" fails for ComboBoxes which aren't editable
-                self.taskOptions.setCurrentIndex(-1)
-
-            # Update our button state to match the new setup
-            self.updateButtons()
-            self.updateTaskGUI()
-
-    @contextmanager
-    def freeze(self):
-        """
-        Python context manager which 'freezes' the GUI while in use.
-
-        Prevents the user from modifying the GUI elements while some
-        process is running (such as a task initializing), avoiding
-        de-synchronization or race condition errors
-
-        Also ensures that the GUI is re-enabled after, regardless of
-        how the context is terminated.
-        """
-        # Disable our GUI initially
-        self.mainGUI.setEnabled(False)
-        self.taskGUI.setEnabled(False)
-
-        # Yield, waiting for the context to be finished
-        yield
-
-        # Re-enable the GUI
-        self.mainGUI.setEnabled(True)
-        self.taskGUI.setEnabled(True)
-
-    ## GUI builders ##
-    def buildProfileUI(self, mainLayout: qt.QFormLayout):
-        """
-        Builds the GUI for the profile management section of the Widget
-        :return:
-        """
-        # HBox to ensure everything is draw horizontally
-        profileHBox = qt.QHBoxLayout()
-
-        # Insert this layout in the "main" GUI
-        mainLayout.addRow(_("Profile:"), profileHBox)
-
-        # Existing profiles list
-        profileSelectButton = qt.QComboBox()
-        profileSelectButton.placeholderText = _("[Not Selected]")
-
-        # Provide an informative tooltip
-        profileSelectButton.toolTip = _("Select an existing profile.")
-
-        # When the user selects an existing entry, update the program to match
-        profileSelectButton.activated.connect(self.profileSelected)
-
-        # Add it to the HBox
-        profileHBox.addWidget(profileSelectButton)
-
-        # Make the spacing between widgets (the button and dropdown) 0
-        profileHBox.spacing = 0
-
-        # New profile button
-        # TODO: Make this a QToolButton instead
-        newProfileButton = qt.QPushButton("+")
-
-        # When the button is pressed, prompt them to fill out a form
-        newProfileButton.clicked.connect(self.promptNewProfile)
-
-        # Force its size to not change dynamically
-        newProfileButton.setSizePolicy(qt.QSizePolicy.Fixed, qt.QSizePolicy.Fixed)
-
-        # Force it to be square
-        # KO: We can't just use "resize" here, because either Slicer or QT
-        #  overrides it later; really appreciate 2 hours of debugging to figure
-        #  that out!
-        newProfileButton.setMaximumWidth(CARTWidget.MICRO_BUTTON_WIDTH)
-        newProfileButton.setMaximumHeight(CARTWidget.MICRO_BUTTON_HEIGHT)
-
-        # Add it to the layout!
-        profileHBox.addWidget(newProfileButton)
-
-        # Make the profile selection button accessible
-        self.profileSelectButton = profileSelectButton
-
-    def buildBasePathUI(self, mainLayout: qt.QFormLayout):
-        """
-        Extends the GUI to add widgets for data directory selection
-        """
-        # Base path selection
-        dataPathSelectionWidget = ctk.ctkPathLineEdit()
-        dataPathSelectionWidget.filters = ctk.ctkPathLineEdit.Dirs
-        dataPathSelectionWidget.toolTip = _(
-            "Select the base directory path. Leave empty to use None as base path."
+                jobConfig = JobProfileConfig(file_path=Path(jobPath))
+                jobConfig.reload()
+            # Have the user edit the job
+            self.runJobEdit(jobConfig)
+        editButton.clicked.connect(onJobEdit)
+        buttonPanelLayout.addWidget(editButton)
+        self.onJobListChanged.append(
+            lambda: editButton.setEnabled(jobSelectorComboBox.isEnabled())
         )
 
-        # Add it to our layout
-        mainLayout.addRow(_("Data Path:"), dataPathSelectionWidget)
-
-        # Connect the signal to handle base path changes
-        dataPathSelectionWidget.currentPathChanged.connect(self.onDataPathChanged)
-
-        # Make it accessible
-        self.dataPathSelectionWidget = dataPathSelectionWidget
-
-    def buildCohortUI(self, mainLayout: qt.QFormLayout):
-        # Auto-generator window button
-        self.cohortGeneratorButton = qt.QPushButton(_("Auto-generate cohort file"))
-        self.cohortGeneratorButton.setStyleSheet("background-color: green;")
-
-        # Directory selection button
-        cohortFileSelectionButton = ctk.ctkPathLineEdit()
-
-        # Set file filters to only show readable file types
-        cohortFileSelectionButton.filters = ctk.ctkPathLineEdit.Files
-        cohortFileSelectionButton.nameFilters = [
-            "CSV files (*.csv)",
-        ]
-
-        # When the cohort is changed, update accordingly
-        cohortFileSelectionButton.currentPathChanged.connect(self.onCohortChanged)
-
-        # When clicked, open the auto-generator window
-        self.cohortGeneratorButton.clicked.connect(self.onCohortGeneratorButtonClicked)
-
-        # Create a horizontal layout to hold the file selection and the button
-        hLayout = qt.QHBoxLayout()
-        hLayout.addWidget(cohortFileSelectionButton)
-        hLayout.addWidget(self.cohortGeneratorButton)
-
-        # Add the horizontal layout to our main form layout as a single row
-        mainLayout.addRow(_("Cohort File:"), hLayout)
-
-        # Make it accessible
-        self.cohortFileSelectionButton = cohortFileSelectionButton
-
-    def buildTaskUI(self, mainLayout: qt.QFormLayout):
-        # Task selection list
-        taskOptions = qt.QComboBox()
-        taskOptions.placeholderText = _("[Not Selected]")
-
-        # TODO: Have this pull from configuration instead
-        taskOptions.addItems(list(CART_TASK_REGISTRY.keys()))
-        mainLayout.addRow(_("Task"), taskOptions)
-
-        # Make it accessible
-        self.taskOptions = taskOptions
-
-        # When the task is changed, update everything to match
-        taskOptions.currentIndexChanged.connect(self.onTaskChanged)
-
-    def buildButtonPanel(self, mainLayout: qt.QFormLayout):
-        # Add a state to track whether cohort is in preview mode
-        self.isPreviewMode = False
-
-        # A button to preview the cohort, without starting on a task
-        previewButton = qt.QPushButton(_("Preview"))
-        previewButton.setToolTip(
-            _(
-                """
-            Reads the contents of the cohort.csv for review, without starting the task
-            """
-            )
+        # "Delete" button
+        deleteButton = qt.QPushButton(_("Delete"))
+        deleteButton.setToolTip(_("Delete the Job configuration"))
+        def onJobDelete():
+            self.logic.delete_job_config(jobSelectorComboBox.currentText)
+            self.jobListChanged()
+        deleteButton.clicked.connect(onJobDelete)
+        buttonPanelLayout.addWidget(deleteButton)
+        self.onJobListChanged.append(
+            lambda: deleteButton.setEnabled(jobSelectorComboBox.isEnabled())
         )
 
-        # On click, attempt to load the cohort file and its contents into the GUI
-        previewButton.clicked.connect(self.onPreviewCohortClicked)
+        # Start button; initializes the job, or walks the user through job setup if there isn't one
+        startButton = qt.QPushButton("Start")
+        startButton.setToolTip(_("Start CART!"))
+        def onStartClicked():
+            if jobSelectorComboBox.isEnabled():
+                self.start(jobSelectorComboBox.currentText)
+            else:
+                self.start()
+        startButton.clicked.connect(onStartClicked)
+        layout.addWidget(startButton)
 
-        # Disable the button by default; we need a valid cohort first!
-        previewButton.setEnabled(False)
+        # "Emit" our signal to sync everything up
+        self.jobListChanged()
 
-        # A button to open the Configuration dialog, which changes how CART operates
-        configButton = qt.QPushButton(_("Configure"))
-        configButton.toolTip = _("Change how CART is configured to iterate through your data.")
+        return mainWidget
 
-        # Clicking the config button shows the Config prompt
-        # KO: The lambda is needed, as it forced the "config" state to be re-evaluated
-        #  (if it wasn't, this call would ignore changes to the selected profile)
-        configButton.clicked.connect(lambda: self.logic.config.show_gui())
+    def _setupJobWidget(self) -> Tuple[qt.QWidget, qt.QWidget]:
+        # Setup
+        mainWidget = qt.QWidget(self.parent)
+        layout = qt.QVBoxLayout(mainWidget)
 
-        # A button which confirms the current settings and attempts to start
-        #  task iteration!
-        confirmButton = qt.QPushButton(_("Confirm"))
-        confirmButton.toolTip = _("Begin doing this task on your cases.")
+        # Add the iteration panel
+        caseSelectionPanel = self._caseSelectionPanel()
+        layout.addWidget(caseSelectionPanel)
 
-        # Disable the button by default; the user needs to fill out everything first!
-        confirmButton.setEnabled(False)
+        # Add the save button w/ proper padding
+        savePanel = self._savePanel()
+        layout.addWidget(savePanel)
 
-        # Attempt to load the task, assuming everything is ready
-        confirmButton.clicked.connect(self.loadTaskWhenReady)
+        # Add the layout panel
+        layoutPanel = self._layoutPanel()
+        layout.addWidget(layoutPanel)
 
-        # Place them equally spaced in a single row
-        buttonLayout = qt.QHBoxLayout()
-        for b in [previewButton, configButton, confirmButton]:
-            buttonLayout.addWidget(b)
-        mainLayout.addRow(buttonLayout)
+        # Add the widget in which the task's GUI will be inserted
+        taskWidget = qt.QWidget(mainWidget)
+        layout.addWidget(taskWidget)
 
-        # Make them accessible
-        self.previewButton = previewButton
-        self.configButton = configButton
-        self.confirmButton = confirmButton
+        # Add a stretch to push everything to the top
+        layout.addStretch()
 
-    def buildCaseIteratorUI(self, mainLayout: qt.QFormLayout):
-        # Layout
-        iteratorWidget = qt.QWidget()
-        self.taskLayout = qt.QVBoxLayout(iteratorWidget)
+        return mainWidget, taskWidget
 
-        # Add the task "widget" (just a frame to hold everything in) to the global layout
-        mainLayout.addWidget(iteratorWidget)
+    def _caseSelectionPanel(self) -> qt.QWidget:
+        # Setup
+        buttonPanel = qt.QWidget(None)
+        layout = qt.QHBoxLayout(buttonPanel)
 
-        # Hide this by default, only showing it when we're ready to iterate
-        iteratorWidget.setVisible(False)
-
-        # Iterator buttons, in a horizontal layout
-        buttonLayout = self.buildIteratorButtonPanel()
-        # Add the button layout to the main vertical layout
-        self.taskLayout.addLayout(buttonLayout)
-
-        # Add a text field to display the current case name under the buttons
-        self.currentCaseNameLabel = qt.QLineEdit()
-        self.currentCaseNameLabel.readOnly = True
-        self.currentCaseNameLabel.placeholderText = _(
-            "Current case name will appear here"
+        # Define each of the buttons
+        previousIncompleteButton = qt.QToolButton(None)
+        previousIncompleteButton.setText("<<")
+        previousIncompleteButton.setToolTip(_("Jump to the Previous Incomplete Case"))
+        previousIncompleteButton.clicked.connect(self.previousIncompleteCasePressed)
+        self.onCaseChanged.append(
+            lambda __: previousIncompleteButton.setEnabled(self.logic.has_previous_case())
         )
-        self.taskLayout.addWidget(self.currentCaseNameLabel)
 
-        # Make the groupbox accessible elsewhere, so it can be made visible later
-        self.iteratorWidget = iteratorWidget
+        previousButton = qt.QToolButton(None)
+        previousButton.setText("<")
+        previousButton.setToolTip(_("Switch to the Previous Case"))
+        previousButton.clicked.connect(self.previousCasePressed)
+        self.onCaseChanged.append(
+            lambda __: previousButton.setEnabled(self.logic.has_previous_case())
+        )
 
-    def buildIteratorButtonPanel(self):
-        # Button should be laid out left-to-right
-        buttonLayout = qt.QHBoxLayout()
+        nextButton = qt.QToolButton(None)
+        nextButton.setText(">")
+        nextButton.setToolTip(_("Switch to the Next Case"))
+        nextButton.clicked.connect(self.nextCasePressed)
+        self.onCaseChanged.append(
+            lambda __: nextButton.setEnabled(self.logic.has_next_case())
+        )
 
-        # "Prior Incomplete" Button
-        priorIncompleteButton = qt.QPushButton(_("Prior Incomplete"))
-        priorIncompleteButton.toolTip = _("Jump back to a previous case which has not been completed yet.")
-        priorIncompleteButton.clicked.connect(lambda: self.previousCase(True))
+        nextIncompleteButton = qt.QToolButton(None)
+        nextIncompleteButton.setText(">>")
+        nextIncompleteButton.setToolTip(_("Jump to the Next Incomplete Case"))
+        nextIncompleteButton.clicked.connect(self.nextIncompleteCasePressed)
+        self.onCaseChanged.append(
+            lambda __: nextIncompleteButton.setEnabled(self.logic.has_next_case())
+        )
 
-        # "Previous" Button
-        previousButton = qt.QPushButton(_("Previous"))
-        previousButton.toolTip = _("Return to the previous case.")
-        previousButton.clicked.connect(lambda: self.previousCase(False))
+        # Define a selector/viewer for the current case
+        caseSelector = qt.QComboBox(None)
+        def updateCaseOptions(__):
+            caseSelector.blockSignals(True)
+            caseSelector.clear()
+            caseSelector.addItems(self.logic.data_manager.valid_uids)
+            caseSelector.blockSignals(False)
+        self.onJobChanged.append(updateCaseOptions)
+        def syncCaseSelector(idx: int):
+            caseSelector.blockSignals(True)
+            caseSelector.setCurrentIndex(idx)
+            caseSelector.blockSignals(False)
+        self.onCaseChanged.append(syncCaseSelector)
+        caseSelector.currentIndexChanged.connect(self.selectCaseAt)
 
-        # "Save" Button
+        # Add them each to the panel
+        layout.addWidget(previousIncompleteButton, 1)
+        layout.addWidget(previousButton, 1)
+        layout.addWidget(caseSelector, 10)
+        layout.addWidget(nextButton, 1)
+        layout.addWidget(nextIncompleteButton, 1)
+
+        # Return the result
+        return buttonPanel
+
+    def _savePanel(self) -> qt.QWidget:
+        buttonPanel = qt.QWidget(None)
+        buttonPanelLayout = qt.QHBoxLayout(buttonPanel)
+
         saveButton = qt.QPushButton(_("Save"))
-        saveButton.toolTip = _("Save the task for the current case.")
-        saveButton.clicked.connect(self.saveTask)
+        saveButton.clicked.connect(self.logic.save_case)
 
-        # "Next" Button
-        nextButton = qt.QPushButton(_("Next"))
-        nextButton.toolTip = _("Move onto the next case.")
-        nextButton.clicked.connect(lambda: self.nextCase(False))
+        buttonPanelLayout.addStretch(1)
+        buttonPanelLayout.addWidget(saveButton, 10)
+        buttonPanelLayout.addStretch(1)
 
-        # "Next Incomplete" Button
-        nextIncompleteButton = qt.QPushButton(_("Next Incomplete"))
-        nextIncompleteButton.toolTip = \
-            _("Jump back to the next case which has not been completed yet.")
-        nextIncompleteButton.clicked.connect(lambda: self.nextCase(True))
+        return buttonPanel
 
-        # Add them to the layout in our desired order
-        for b in [priorIncompleteButton, previousButton, saveButton, nextButton, nextIncompleteButton]:
-            buttonLayout.addWidget(b)
+    def _layoutPanel(self):
+        layoutPanel = OrientationButtonArrayWidget()
+        def onNewCase(__: int):
+            new_unit = self.logic.data_manager.select_current_unit()
+            layoutPanel.changeLayoutHandler(new_unit.layout_handler, True)
+        self.onCaseChanged.append(onNewCase)
+        return layoutPanel
 
-        # Track them for later
-        self.priorIncompleteButton = priorIncompleteButton
-        self.previousButton = previousButton
-        self.nextButton = nextButton
-        self.nextIncompleteButton = nextIncompleteButton
-
-        return buttonLayout
-
-    def buildLayoutPanel(self):
-        self.layoutPanel = OrientationButtonArrayWidget()
-        self.taskGUI.layout().addWidget(self.layoutPanel)
-
-    ## Connected Functions ##
-
-    ### Setup Widgets ###
-    def promptNewProfile(self):
-        """
-        Prompt the user to fill out details for a new profile.
-
-        If successful, also updates the logic to match
-        """
-        try:
-            # Get the label for the new profile; None if no
-            # profile was created.
-            new_label = GLOBAL_CONFIG.promptNewProfile(
-                self.logic.config
-            )
-            # If a valid label was returned, update our logic to match
-            if new_label:
-                self.logic.active_profile_label = new_label
-                self.sync_with_logic()
-                # Save the config to entrench this new state
-                GLOBAL_CONFIG.save()
-        except Exception as exc:
-            self.pythonExceptionPrompt(exc)
-
-    def profileSelected(self):
-        # Update the logic with this newly selected profile
-        new_label = self.profileSelectButton.currentText
-        self.logic.active_profile_label = new_label
-
-        # Rebuild the GUI to match
-        self.sync_with_logic()
-
-        # Update the button states to match our current state
-        self.updateButtons()
-
-    def _refreshProfileList(self):
-        """
-        Rebuild the list in the GUI from scratch, ensuring everything is
-        maintained in order.
-
-        KO: an insertion policy only applies to insertions made into an
-         editable combo-box; insertions made by us are always inserted
-         last. Therefore, this song and dance is needed
-        """
-        # Clear all entries
-        self.profileSelectButton.clear()
-
-        # Rebuild its contents from scratch
-        self.profileSelectButton.addItems(self.logic.get_profile_labels())
-
-        # Select the first (most recent) entry in the list
-        self.profileSelectButton.currentIndex = 0
-
-    def onDataPathChanged(self):
-        """
-        Handles changes to the base path selection.
-        Falls back the previous base path if the user provided an empty space.
-        """
-        # Get the current path from the GUI
-        current_path = self.dataPathSelectionWidget.currentPath
-
-        # Strip it of leading/trailing whitespace
-        current_path = current_path.strip()
-
-        # If the data path is now empty, reset to the previous path and end early
-        if not current_path:
-            print("Error: Base path was empty, retaining previous base path.")
-            if self.logic.data_path is None:
-                path_str = ""
-            else:
-                path_str = str(self.logic.data_path)
-            self.dataPathSelectionWidget.currentPath = path_str
-            self.updateButtons()
-            return
-
-        try:
-            # Try to update the logic's path to match
-            self.logic.data_path = Path(current_path)
-
-            # TODO: Find a way to signal when this is changed so our CohortGenerator
-            #  widget can be updated appropriately.
-        except Exception as exc:
-            # Show the user an error
-            self.pythonExceptionPrompt(exc)
-        finally:
-            # In both cases, synchronize with our logic after
-            self.sync_with_logic()
-
-    def onCohortChanged(self, new_cohort_path=None):
-        """
-        Handles cohort file changes from the ctkPathLineEdit widget or internal calls.
-        Ensures the path is converted to a Path object before being passed to the logic.
-        """
-
-        print("COHORT PATH CHANGED")
-        # If an existing cohort file is loaded from config, indicate edit instead of generation
-        if self.cohortFileSelectionButton.currentPath != "":
-            self.cohortGeneratorButton.setText("Edit cohort file")
-
-        if new_cohort_path is None:
-            new_cohort_path = self.cohortFileSelectionButton.currentPath
-
-        # Attempt to update the cohort in our logic instance
-        try:
-            # If the provided path is empty, stop here.
-            if not new_cohort_path:
-                self.destroyCohortTable()
+    ## Connections ##
+    def start(self, job_name=None):
+        # If this is the first time CART has been run, ask to initialize firest
+        if not self.logic.has_run_before():
+            if self._cartNotRunBeforePrompt() != qt.QMessageBox.Yes:
                 return
+            if not self.runInitialSetup():
+                return
+        # If no job was specified, ask if they want to create one.
+        if job_name is None:
+            if self._createFirstJobPrompt() != qt.QMessageBox.Yes:
+                return
+            job_name = self.runNewJobSetup()
+            if job_name is None:
+                return
+        # or, if the job is corrupted (somehow), ask to re-build it
+        elif self.logic.registered_jobs[job_name] is None:
+            if self._jobMissingPrompt() != qt.QMessageBox.Yes:
+                return
+            config = JobProfileConfig()
+            config.name = job_name
+            job_name = self.runJobEdit(config)
+            if not job_name:
+                return
+            job_name = config.name
+        # Finally, initialize the job
+        self.initJob(job_name)
 
-            # Set the logic's cohort path
-            self.logic.cohort_path = new_cohort_path
+    def nextCasePressed(self):
+        # Request the logic switch to the next case
+        self.logic.next_case()
 
-            print(f"Successfully set cohort to {self.logic.cohort_path}")
+        # Emit our case-changed signal
+        self.caseChanged()
 
-            # Disable cohort preview until the user wants it again
-            self.isPreviewMode = False
+    def nextIncompleteCasePressed(self):
+        # Request the logic switch to the next case
+        self.logic.next_incomplete_case()
 
-            # Un-toggle the cohort preview button
-            self.previewButton.setStyleSheet("")
+        # Emit our case-changed signal
+        self.caseChanged()
 
-            # Update relevant GUI elements
-            self.updateCohortTable()
-        except Exception as exc:
-            # Show the error to the user
-            self.pythonExceptionPrompt(exc)
-        finally:
-            # Always sync to the logic after
-            self.sync_with_logic()
+    def previousCasePressed(self):
+        # Request the logic switch to the next case
+        self.logic.previous_case()
 
-    def onPreviewCohortClicked(self):
-        """
-        Load the cohort explicitly, so it can be reviewed.
-        """
-        # Check if the user is in the middle of changing cohorts and data path doesn't match the cohort yet
-        # self.validateDataPathAndCohortMatch()
+        # Emit our case-changed signal
+        self.caseChanged()
 
-        # Update preview mode state
-        self.isPreviewMode = not self.isPreviewMode
+    def previousIncompleteCasePressed(self):
+        # Request the logic switch to the next case
+        self.logic.previous_incomplete_case()
 
-        if self.isPreviewMode:
-            # Change the color of the preview button to indicate preview mode
-            self.previewButton.setStyleSheet(
-                "background-color: #777eb4; color: #777eb4;"
-            )
-            # Load the file's cases into memory
-            self.logic.load_cohort()
+        # Emit our case-changed signal
+        self.caseChanged()
 
-        else:
-            # Reset preview button
-            self.previewButton.setStyleSheet("")
+    def selectCaseAt(self, idx):
+        # Request the logic switch to the next case
+        self.logic.select_case(idx)
 
-        # Update the cohort table
-        self.updateCohortTable()
+        # Emit our case-changed signal
+        self.caseChanged()
 
-    def onTaskChanged(self):
-        try:
-            # Update the currently selected task in our logic
-            task_id = self.taskOptions.currentText
-            self.logic.task_id = task_id
+    def caseChanged(self):
+        # Scuffed, but this doesn't crash at least!
+        case_idx = self.logic.data_manager.current_case_index
+        for f in self.onCaseChanged:
+            f(case_idx)
 
-            # Purge the current task widget, as it is no longer valid
-            if self.dummyTaskWidget:
-                # Disconnect the widget, and all of its children, from the GUI
-                self.dummyTaskWidget.setParent(None)
-                # Delete our reference to it as well
-                self.dummyTaskWidget = None
-        except Exception as exc:
-            # If an error occurs, show it to the user
-            self.pythonExceptionPrompt(exc)
-        finally:
-            # Regardless of what happens, ensure we are synced to our logic
-            self.sync_with_logic()
+        # Always refresh the layout afterward
+        self.logic.refresh_layout()
 
-    def onCohortGeneratorButtonClicked(self):
-        # Before trying to create a prompt, confirm we have a valid setup
-        if not self.dataPathSelectionWidget.currentPath:
-            # We can't generate a cohort without a dataset to reference
-            raise ValueError("Cannot edit a Cohort without a backing data path!")
-        elif not self.cohortFileSelectionButton.currentPath:
-            # If we don't have an initial cohort file, make one from scratch
-            from CARTLib.utils.bids import generate_blank_cohort
-            new_cohort = generate_blank_cohort(self.logic.data_path)
-            self.cohortFileSelectionButton.setCurrentPath(new_cohort)
-
-        # Load the cohort's contents into memory
-        self.logic.load_cohort()
-
-        # Open the cohort generator window, passing in the current data path and cohort (if any)
-        case_data = self.logic.data_manager.case_data
-        cohortGeneratorWindow = CohortGeneratorWindow(
-            self,
-            data_path=self.logic.data_path,
-            profile=self.logic.config,
-            cohort_data=case_data,
-            cohort_path=self.logic.cohort_path
-        )
-        cohortGeneratorWindowResult = cohortGeneratorWindow.exec_()
-
-        if cohortGeneratorWindowResult == qt.QDialog.Accepted:
-            if not self.logic.data_manager:
-                self.logic.rebuild_data_manager()
-            self.logic.data_manager.case_data = cohortGeneratorWindow.logic.cohort_data
-            self.logic.cohort_path = cohortGeneratorWindow.logic.selected_cohort_path
-            self.onCohortChanged(self.logic.cohort_path)
-            self.cohortGeneratorButton.setText("Edit cohort file")
-            self.cohortFileSelectionButton.setCurrentPath(str(cohortGeneratorWindow.logic.selected_cohort_path))
-
-    def buildCohortTable(self):
-
-        # Rebuilds the table using the most updated cohort data
-        self.destroyCohortTable()
-
-        csv_data_raw = self.logic.data_manager.case_data
-
-        self.headers = list(csv_data_raw[0].keys())
-        csv_data_list = [[row[key] for key in self.headers] for row in csv_data_raw]
-        self.rowCount = len(csv_data_list)
-        self.colCount = len(self.headers)
-
-        self.cohortTable = qt.QTableWidget()
-
-        self.cohortTable.setSizePolicy(
-            qt.QSizePolicy.Expanding, qt.QSizePolicy.Expanding
+    ## User Prompts ##
+    @staticmethod
+    def _cartNotRunBeforePrompt():
+        return qt.QMessageBox.question(
+            None,
+            _("Initialize CART?"),
+            _("CART has not been run before. Would you like to run setup now?"),
+            qt.QMessageBox.Yes | qt.QMessageBox.No,
+            qt.QMessageBox.Yes,
         )
 
-        self.cohortTable.setRowCount(self.rowCount)
-        self.cohortTable.setColumnCount(self.colCount)
-        self.cohortTable.setHorizontalHeaderLabels([_(h) for h in self.headers])
-        self.cohortTable.horizontalHeader().setSectionResizeMode(
-            qt.QHeaderView.ResizeToContents
+    @staticmethod
+    def _createFirstJobPrompt():
+        return qt.QMessageBox.question(
+            None,
+            _("Create Job?"),
+            _("You have not run a CART job before. Would you like to set up a job now?"),
+            qt.QMessageBox.Yes | qt.QMessageBox.No,
+            qt.QMessageBox.Yes,
         )
 
-        self.cohortTable.setHorizontalScrollBarPolicy(qt.Qt.ScrollBarAsNeeded)
-
-        # Define a special color for the first column, including the header
-        first_col_brush = qt.QBrush(qt.QColor("#8f6ae7"))
-        self.cohortTable.horizontalHeaderItem(0).setBackground(first_col_brush)
-
-        for row in range(self.rowCount):
-            for col in range(self.colCount):
-                item = qt.QTableWidgetItem(csv_data_list[row][col])
-                item.setTextAlignment(qt.Qt.AlignLeft | qt.Qt.AlignVCenter)
-                if col == 0:
-                    item.setToolTip(_("Data Unit"))
-                    item.setBackground(first_col_brush)
-                else:
-                    item.setToolTip(_("Resource of : " + str(csv_data_list[row][0])))
-
-                self.cohortTable.setItem(row, col, item)
-
-        self.cohortTable.setAlternatingRowColors(True)
-        self.cohortTable.setShowGrid(True)
-        self.cohortTable.verticalHeader().setVisible(False)
-
-        self.cohortTable.setEditTriggers(qt.QAbstractItemView.NoEditTriggers)
-        self.cohortTable.setSelectionBehavior(qt.QAbstractItemView.SelectRows)
-        self.cohortTable.setFocusPolicy(qt.Qt.NoFocus)
-
-        # Disable selection of rows in the table, which may be confused for a highlight
-        self.cohortTable.setSelectionMode(qt.QAbstractItemView.NoSelection)
-
-        self.taskLayout.addWidget(self.cohortTable)
-        self.iteratorWidget.setVisible(True)
-
-    def destroyCohortTable(self):
-        if hasattr(self, "cohortTable"):
-            self.taskLayout.removeWidget(self.cohortTable)
-        self.iteratorWidget.setVisible(False)
-
-    def updateCohortTable(self):
-        # Remove any existing table if not in preview or task mode, e.g. when the cohort csv is changed
-        if not self.isPreviewMode and not self.logic.has_active_task:
-            self.destroyCohortTable()
-            return
-
-        # Disable buttons if in task mode
-        if self.logic.has_active_task:
-            self.previewButton.setEnabled(False)
-            self.confirmButton.setEnabled(False)
-
-        # Disable navigation buttons if only in preview mode
-        if self.isPreviewMode and not self.logic.has_active_task:
-            self.enablePriorButtons(False)
-            self.enableNextButtons(False)
-
-        # Always (re)build the table if in preview or task mode
-        self.buildCohortTable()
-
-    ### Iterator Widgets ###
-    def unHighlightRow(self, row):
-        # Remove the highlight from the current row before proceeding to the following
-        # The first column remains unchanged, as it is the uid
-        for column in range(1, self.colCount):
-            item = self.cohortTable.item(row, column)
-            item.setBackground(qt.QColor())
-
-    def highlightRow(self, row):
-        # Add the highlight to the following current row
-        # The first column remains unchanged, as it is the uid
-        for column in range(1, self.colCount):
-            item = self.cohortTable.item(row, column)
-            item.setBackground(qt.QColor(255, 255, 0, 100))
-
-    def updateIteratorGUI(self):
-        # Update the current UID label
-        new_label = f"Data Unit {self.logic.current_uid()}"
-        self.currentCaseNameLabel.text = new_label
-
-        # Check if we have a next case, and enable/disable the button accordingly
-        self.enableNextButtons(self.logic.has_next_case())
-
-        # Check if we have a previous case, and enable/disable the button accordingly
-        self.enablePriorButtons(self.logic.has_previous_case())
-
-        # Highlight the following (previous or next) row to indicate the current case
-        self.highlightRow(self.logic.data_manager.current_case_index)
-
-    def _loadingCasePrompt(self):
-        prompt = qt.QDialog()
-        prompt.setWindowTitle("Loading...")
-
-        layout = qt.QVBoxLayout()
-        prompt.setLayout(layout)
-
-        description = qt.QLabel(
-            "Reading the contents of a new case into memory; please wait."
+    @staticmethod
+    def _jobMissingPrompt():
+        return qt.QMessageBox.question(
+            None,
+            _("Job Cannot be Found"),
+            _(
+                "It seems the requested job's configuration was deleted or is unavailable; "
+                "would you like to create a new job instead?"
+            ),
+            qt.QMessageBox.Yes | qt.QMessageBox.No,
+            qt.QMessageBox.Yes,
         )
-        layout.addWidget(description)
 
-        return prompt
-
-    def nextCase(self, skip_complete: bool = False) :
+    ## Setup Workflows ##
+    def runInitialSetup(self) -> bool:
         """
-        Request the iterator step into the next case.
+        Run initial CART setup, prompting the user for their name and role.
 
-        :param skip_complete: Whether to skip over already completed
-            cases wherever possible
+        :return: If the setup was successful or not.
         """
-        # Freeze the GUI while running to avoid desync
-        with self.freeze():
-            try:
-                # Confirm we have a next case to step into first
-                if not self.logic.has_next_case():
-                    self.showErrorPopup(
-                        "No Next Case",
-                        "You somehow requested the next case, despite there being none!"
-                    )
-                    return
+        initSetupWizard = CARTSetupWizard(None)
+        result = initSetupWizard.exec()
 
-                # Create a loading prompt
-                loadingPrompt = self._loadingCasePrompt()
-                loadingPrompt.show()
+        # If we got an "accept" signal, update our logic and begin job setup
+        if result == qt.QDialog.Accepted:
+            initSetupWizard.update_logic(self.logic)
+            return True
+        return False
 
-                # Remove highlight from the current row
-                self.unHighlightRow(self.logic.data_manager.current_case_index)
-
-                # Step into the next case
-                newUnit = self.logic.next_case(skip_complete)
-
-                # Update our GUI to match the new state
-                self.updateIteratorGUI()
-
-                # Update our layout to match the new state
-                self.updateLayout(newUnit)
-
-                # Close the loading prompt
-                loadingPrompt.done(qt.QDialog.Accepted)
-            except Exception as e:
-                # Close the loading prompt, if it was created
-                if loadingPrompt:
-                    loadingPrompt.done(qt.QDialog.Rejected)
-                # Create a new error prompt in its place
-                self.pythonExceptionPrompt(e)
-
-    def previousCase(self, skip_complete: bool = False):
-        # Freeze the GUI until we are done
-        with self.freeze():
-            try:
-                # Confirm we have a next case to step into first
-                if not self.logic.has_previous_case():
-                    self.showErrorPopup(
-                        "No Prior Case",
-                        "You somehow requested the previous case, despite there being none!")
-                    return
-                # Create a loading prompt
-                loadingPrompt = self._loadingCasePrompt()
-                loadingPrompt.show()
-
-                # Remove highlight from the current row
-                self.unHighlightRow(self.logic.data_manager.current_case_index)
-
-                # Step into the previous case
-                newUnit = self.logic.previous_case(skip_complete)
-
-                # Update our layout with the new unit's contents
-                self.updateLayout(newUnit)
-
-                # Update our GUI to match the new state
-                self.updateIteratorGUI()
-
-                # Close the loading prompt
-                loadingPrompt.done(qt.QDialog.Accepted)
-            except Exception as e:
-                # Close the loading prompt, if it was created
-                if loadingPrompt:
-                    loadingPrompt.done(qt.QDialog.Rejected)
-                # Create a new error prompt in its place
-                self.pythonExceptionPrompt(e)
-
-    ### Task Related ###
-    def updateTaskGUI(self):
+    def runNewJobSetup(self) -> Optional[str]:
         """
-        Show/hide the Task GUI depending on whether our logic
-        has an actively running task or not.
+        Run CART job creation, prompting the user to provide the following:
+            * The data they want to use, and where to save the results
+            * The task they want to run
+            * How they want to iterate through the data (the "cohort")
+
+        :return: The name of the new job; None if the setup was terminated
         """
-        new_state = self.logic.has_active_task
-        self.taskGUI.setEnabled(new_state)
-        self.taskGUI.collapsed = not new_state
 
-    def updateButtons(self):
+        jobSetupWizard = JobSetupWizard(None, taken_names=self.logic.registered_jobs.keys())
+        result = jobSetupWizard.exec()
+
+        # If we got an "accept" signal, create the job config and initialize it
+        if result == qt.QDialog.Accepted:
+            new_config = jobSetupWizard.save_config(self.logic)
+            self.jobListChanged()
+            return new_config.name
+        return None
+
+    def runJobEdit(self, config: JobProfileConfig = None) -> bool:
         """
-        Updates the state of our buttons to reflect the state of our bound logic
+        Edits an existing job in-place. Re-uses the job creation wizard,
+        skipping the introduction page and filling every field with
+        the previous job's values (if present).
+
+        :return: If the edit was successful or not.
         """
-        # If our logic is running a task,
-        # disable the "confirm" and "preview" buttons and end here
-        if self.logic.has_active_task:
-            self.previewButton.setEnabled(False)
-            self.confirmButton.setEnabled(False)
-            return
 
-        # If we have a cohort file, it can be previewed
-        if self.logic.cohort_path:
-            self.previewButton.setEnabled(True)
-
-        # If the logic says we're ready to start, enable the "confirm" button
-        if self.logic.is_ready():
-            self.confirmButton.setEnabled(True)
-
-    def updateLayout(self, data_unit: DataUnitBase):
-        # Update our layout GUI to use the new handler
-        retain_layout = self.logic.config.retain_layout
-        self.layoutPanel.changeLayoutHandler(data_unit.layout_handler, retain_layout)
-        # Apply the new layout to Slicer's view
-        data_unit.layout_handler.apply_layout()
-
-    def _loadingTaskPrompt(self):
-        prompt = qt.QDialog()
-        prompt.setWindowTitle("Loading...")
-
-        layout = qt.QVBoxLayout()
-        prompt.setLayout(layout)
-
-        description = qt.QLabel(
-            "Initializing the selected task; please be patient."
+        jobSetupWizard = JobSetupWizard(
+            None, taken_names=self.logic.registered_jobs.keys(), config=config
         )
-        layout.addWidget(description)
+        result = jobSetupWizard.exec()
 
-        return prompt
+        # If we got an "accept" signal, create the job config and exit
+        if result == qt.QDialog.Accepted:
+            new_config = jobSetupWizard.save_config(self.logic)
+            self.jobListChanged()
+            return True
+        return False
 
-    def loadTaskWhenReady(self):
-        # If we're not ready to load a task, leave everything untouched
-        if not self.logic.is_ready():
-            return
+    ## Job Management ##
+    def initJob(self, job_name: str):
+        # Initialize the job on the logic-side first
+        self.logic.set_active_job(job_name)
 
-        # If cohort csv and data path aren't matching, display a comprehensive error box
-        error_message = self.logic.validate_cohort_and_data_path_match()
-        if error_message:
-            self.showErrorPopup("Cannot Start Task", error_message)
-            return  # Stop execution if validation fails
+        # Update the GUI to match
+        self.logic.init_task_gui(self.taskSubWidget)
 
-        # Disable the GUI, as to avoid de-synchronization
-        with self.freeze():
-            try:
-                # Create a loading prompt
-                loadingPrompt = self._loadingTaskPrompt()
-                loadingPrompt.show()
+        # Expand the task widget's container, if any
+        self.mainWidget.setCurrentIndex(self.jobWidgetIndex)
 
-                # Try to initialize the new task
-                self.logic.init_task()
+        # "Emit" the job-changed signal
+        self.jobChanged()
 
-                # Create a "dummy" widget that the task can fill
-                self.resetTaskDummyWidget()
-                # Build the Task GUI, using the prior widget as a foundation
-                self.logic.current_task_instance.setup(self.dummyTaskWidget)
-                # Add the widget to our layout
-                self.taskGUI.layout().addWidget(self.dummyTaskWidget)
+        # "Emit" the case-changed signal
+        self.caseChanged()
 
-                # Expand the task GUI, if it wasn't already
-                self.taskGUI.collapsed = False
+    def jobListChanged(self):
+        # QT!!!!!!!!!!!!!!!
+        for f in self.onJobListChanged:
+            f()
 
-                # Attempt to read a data unit
-                # KO: This needs to be done after GUI init, as many task's (including our
-                #  segmentation review) will either load configurations and/or prompt the
-                #  user for things required to determine whether a task is "complete" or
-                #  not for a given case.
-                data_unit = self.logic.load_initial_unit()
+    def jobChanged(self):
+        # I love QT signals not working!
+        job_name = self.logic.active_job_config.name
+        for f in self.onJobChanged:
+            f(job_name)
 
-                # Update our layout with the new unit
-                self.updateLayout(data_unit)
+    ## Keyboard Shortcuts ##
+    def installKeyboardShortcuts(self):
+        # Next/Previous Case
+        nextShortcut = qt.QShortcut(slicer.util.mainWindow())
+        nextShortcut.setKey(qt.QKeySequence(qt.QKeySequence.MoveToNextPage))
+        nextShortcut.activated.connect(
+            self.nextCasePressed
+        )
+        self.keyboardShortcuts.append(nextShortcut)
 
-                # Load the cohort csv data into the table, if it wasn't already
-                self.updateCohortTable()
+        previousShortcut = qt.QShortcut(slicer.util.mainWindow())
+        previousShortcut.setKey(qt.QKeySequence(qt.QKeySequence.MoveToPreviousPage))
+        previousShortcut.activated.connect(
+            self.previousCasePressed
+        )
 
-                # Reveal the iterator GUI, if it wasn't already
-                self.iteratorWidget.setVisible(True)
+    def uninstallKeyboardShortcuts(self):
+        for kbs in self.keyboardShortcuts:
+            kbs.activated.disconnect()
+            kbs.setParent(None)
+        self.keyboardShortcuts = []
 
-                # Update the current UID in the iterator
-                self.updateIteratorGUI()
-
-                # Collapse the main (setup) GUI, if it wasn't already
-                self.mainGUI.collapsed = True
-
-                # Disable preview and confirm buttons, as task has started
-                self.updateButtons()
-
-                # Close the loading prompt
-                loadingPrompt.done(qt.QDialog.Accepted)
-            except Exception as exc:
-                # Close the loading prompt, if it was created
-                if loadingPrompt:
-                    loadingPrompt.done(qt.QDialog.Rejected)
-                # Notify the user of the exception
-                self.pythonExceptionPrompt(exc)
-            finally:
-                # Synchronize with our logic
-                self.sync_with_logic()
-
-    def resetTaskDummyWidget(self):
-        if self.dummyTaskWidget:
-            self.dummyTaskWidget.setParent(None)
-        self.dummyTaskWidget = qt.QWidget()
-
-    def pythonExceptionPrompt(self, exc: Exception):
-        """
-        Prompts the user with the contents of an exception. Also logs the
-         stack-trace to console for debugging purposes
-
-        Should be used to catch exceptions cause by the GUI, so the user can
-         respond appropriately.
-
-        :param exc: The exception that should be handled
-        """
-        # Print out the exception to the Python log, with traceback.
-        print(traceback.format_exc())
-
-        # Display an error message notifying the user
-        errorPrompt = qt.QErrorMessage()
-
-        # Add some details on what's happening for the user
-        errorPrompt.setWindowTitle("PYTHON ERROR!")
-
-        # Show the message
-        errorPrompt.showMessage(exc)
-        errorPrompt.exec_()
-
-        # Disable the confirm button, as the current setup didn't work
-        self.confirmButton.setEnabled(False)
-
-    def saveTask(self):
-        try:
-            result = self.logic.current_task_instance.save()
-            if not result:
-                print("Saved!")
-            else:
-                print(result)
-        except Exception as e:
-            self.pythonExceptionPrompt(e)
-
-    ## Management ##
-    def enablePriorButtons(self, state: bool):
-        for b in [self.priorIncompleteButton, self.previousButton]:
-            b.setEnabled(state)
-
-    def enableNextButtons(self, state: bool):
-        for b in [self.nextButton, self.nextIncompleteButton]:
-            b.setEnabled(state)
-
+    ## View Management ##
     def cleanup(self) -> None:
-        """Called when the application closes and the module widget is destroyed."""
+        """
+        Called when the application closes and this widget is about to be destroyed.
+        """
         pass
 
     def enter(self):
         # Delegate to our logic to have tasks properly update
         self.logic.enter()
 
+        # Install our keyboard shortcuts
+        self.installKeyboardShortcuts()
+
     def exit(self):
         # Delegate to our logic to have tasks properly update
         self.logic.exit()
 
-    def onSceneStartClose(self, caller, event) -> None:
-        """Called just before the scene is closed."""
-        pass
-
-    def onSceneEndClose(self, caller, event) -> None:
-        """Called just after the scene is closed."""
-        pass
-
-    def showErrorPopup(self, title: str, message: str):
-        """
-        Displays a standardized critical error message box.
-        """
-        msgBox = qt.QMessageBox()
-        msgBox.setIcon(qt.QMessageBox.Critical)
-        msgBox.setText(f"<b>{title}</b>")
-        msgBox.setInformativeText(message)
-        msgBox.setWindowTitle("Validation Error")
-        msgBox.setStandardButtons(qt.QMessageBox.Ok)
-        # Allows for selectable text in the error message
-        msgBox.setTextInteractionFlags(qt.Qt.TextSelectableByMouse)
-        msgBox.exec()
+        # Remove our keyboard shortcuts
+        self.uninstallKeyboardShortcuts()
 
 
 #
 # CARTLogic
 #
-
-
+# noinspection PyUnresolvedReferences
 class CARTLogic(ScriptedLoadableModuleLogic):
-    """This class should implement all the actual
-    computation done by your module.  The interface
-    should be such that other python code can import
-    this class and make use of the functionality without
-    requiring an instance of the Widget.
-    Uses ScriptedLoadableModuleLogic base class, available at:
-    https://github.com/Slicer/Slicer/blob/main/Base/Python/slicer/ScriptedLoadableModule.py
-    """
-
-    def __init__(self) -> None:
-        """Called when the logic class is instantiated. Can be used for initializing member variables."""
+    def __init__(self):
         ScriptedLoadableModuleLogic.__init__(self)
 
-        # Current configuration
-        self.config: ProfileConfig = None
-
-        # Path to the cohort file currently in use
-        self._cohort_path: Path = None
-
-        # Path to where the user specified their data is located
-        self._data_path: Path = None
-
-        # The data manager currently managing case iteration
+        # Attribute declaration
+        self.master_profile_config: MasterProfileConfig = MasterProfileConfig()
+        self.active_job_config: Optional[JobProfileConfig] = None
         self._data_manager: Optional[DataManager] = None
+        self._task_instance: Optional[TaskBaseClass] = None
 
-        # The currently selected task Label
-        self._task_id: str = None
+        # Logging
+        self.logger = logging.getLogger("CARTLogic")
 
-        # The current task instance
-        self.current_task_instance: Optional[TaskBaseClass] = None
+        # Attempt to load the config into memory
+        self.reload_master_config()
 
-        # Current data unit factory
-        self.data_unit_factory: Optional[DataUnitFactory] = None
+        # Attempt to fetch all loaded tasks
+        self.load_registered_tasks()
 
-        # Load our last state from the config file
-        self._load_profile_state(GLOBAL_CONFIG.last_profile)
-
-    ## Profile Management ##
+    ## Attributes
     @property
-    def active_profile_label(self) -> str:
-        return self.config.label
+    def author(self) -> str:
+        return self.master_profile_config.author
 
-    @active_profile_label.setter
-    def active_profile_label(self, new_name: str):
-        # Validate the specified profile label is valid first
-        stripped_name = new_name.strip()
+    @author.setter
+    def author(self, new_author: str):
+        self.master_profile_config.author = new_author
 
-        if not stripped_name:
-            raise ValueError("Cannot set the active profile label to blank!")
+    @property
+    def position(self) -> str:
+        return self.master_profile_config.position
 
-        if not stripped_name in GLOBAL_CONFIG.profiles.keys():
-            raise ValueError(f"Cannot select profile '{stripped_name}', as it does not exist!")
+    @position.setter
+    def position(self, new_position: str):
+        self.master_profile_config.position = new_position
 
-        # Sync ourselves with this new profile
-        self._load_profile_state(stripped_name)
+    @property
+    def data_manager(self):
+        # Get only to prevent horrific bugs
+        return self._data_manager
 
-        # Clear any active task, as its no longer relevant
-        self.clear_task()
+    ## Job Management ##
+    @property
+    def registered_jobs(self) -> dict[str, str]:
+        return self.master_profile_config.registered_jobs
 
-        # Update the config to designate that this profile is now the most recent
-        GLOBAL_CONFIG.last_profile = stripped_name
+    @property
+    def registered_jobs_names(self) -> list[str]:
+        # Shortcut function for easy reference.
+        return list(self.master_profile_config.registered_jobs.keys())
 
-    def _load_profile_state(self, profile_label: str):
+    def delete_job_config(self, job_name: str):
+        # Remove the job entry from our registered jobs
+        job_path = self.registered_jobs.pop(job_name, None)
+        # If there was a corresponding job w/ a valid config path, delete it too
+        if job_path and (job_path := Path(job_path)).exists():
+            job_path.unlink()
+        # Save our master config to preserve the change
+        self.master_profile_config.has_changed = True
+        self.master_profile_config.save()
+
+    def set_active_job(self, job_name: str):
         """
-        Attempt to load our last state from the configuration file
+        Loads the specified job, based on its associated config
         """
-        # If a previous profile doesn't exist, leave as-is
-        if not profile_label:
-            raise ValueError("Cannot load a blank profile!")
+        # Confirm the requested job is registered
+        if not job_name in self.registered_jobs.keys():
+            raise ValueError(f"Cannot set job '{job_name}' as active; it has not been registered!")
 
-        # Try to fetch that profile's configuration
-        new_config = GLOBAL_CONFIG.get_profile_config(profile_label)
+        # Confirm the job config file exist
+        job_file = Path(self.registered_jobs.get(job_name))
+        if not job_file.exists() or not job_file.is_file():
+            raise ValueError(f"Cannot set job '{job_name}' as active; its corresponding config file does not exist!")
 
-        # If there is not corresponding config, terminate here
-        if new_config is None:
-            raise ValueError(f"No profile exists for label '{profile_label}'")
+        # Get and load the job's config
+        job_profile = JobProfileConfig(file_path=job_file)
+        job_profile.reload()
 
-        # Try to synchronize the config's state with our own
-        self.config = new_config
-        self._data_path = self.config.last_used_data_path
-        self._cohort_path = self.config.last_used_cohort_file
-        self._task_id = self.config.last_used_task
-        self.select_default_data_factory()
+        # Initialize the job's task
+        new_task_cls = CART_TASK_REGISTRY.get(job_profile.task, None)
+        if new_task_cls is None:
+            raise ValueError(
+                f"Could not load job '{job_profile.name}', "
+                f"no task of name '{job_profile.task}' has been registered."
+            )
+        # TODO: Allow user selection of this instead
+        duf = list(new_task_cls.getDataUnitFactories().values())[0]
 
-    def get_profile_labels(self) -> list[str]:
-        # Simple wrapper for our config
-        return [str(x) for x in GLOBAL_CONFIG.profiles.keys()]
-
-    def new_profile(self, label: str) -> ProfileConfig:
-        """
-        Attempts to create a new profile w/ the provided label,
-        using the previously active profile as reference.
-
-        We also immediately change to this new profile to give the
-        user some feedback
-        """
-        # We always copy from the current profile by default
-        new_profile = GLOBAL_CONFIG.new_profile(
-            label, reference_profile=self.config
+        # Initialize the data loader using the job's settings
+        data_manager = DataManager(
+            cohort_file=job_profile.cohort_path,
+            data_source=job_profile.data_path,
+            data_unit_factory=duf,
+            # TODO: Allow user configuration of this
+            cache_size=2
         )
-        self._load_profile_state(label)
-        return new_profile
 
-    ## Cohort File Management ##
-    @property
-    def cohort_path(self) -> Path:
-        return self._cohort_path
+        # Initialize the new task
+        new_task = new_task_cls(self.master_profile_config, job_profile)
 
-    @cohort_path.setter
-    def cohort_path(self, new_path):
-        # If the input is not a path, try to cast it as one
-        if not isinstance(new_path, Path):
-            new_path = Path(new_path)
+        # Unload the previous task
+        # TODO
 
-        # Confirm the file exists
-        if not new_path.exists():
-            raise ValueError(f"Cohort file '{new_path}' does not exist!")
+        # Install the new task and give it its first data unit!
+        self._data_manager = data_manager
+        self._task_instance = new_task
+        self._task_instance.receive(self._data_manager.current_data_unit())
 
-        # Confirm it is a CSV
-        if new_path.suffix.lower() != ".csv":
-            raise ValueError(f"Selected file '{new_path}' is not a `.csv` file!")
+        # Initialize the new task
+        self.active_job_config = job_profile
 
-        # Warn the user if they're reloading the same file
-        if self._cohort_path is not None and str(new_path.resolve()) == str(
-                self._cohort_path.resolve()
-        ):
-            print("Warning: Reloaded the same cohort file!")
+        # Update the config to use this as our last job
+        self.master_profile_config.set_last_job(job_name)
+        self.master_profile_config.save()
 
-        # If all checks pass, update our state
-        self._cohort_path = new_path
-        self.clear_task()
-        self.rebuild_data_manager()
+    def register_job_config(self, job_config: JobProfileConfig):
+        self.master_profile_config.register_new_job(job_config)
+        self.master_profile_config.save()
 
-        # Update the config to match
-        self.config.last_used_cohort_file = new_path
-
-    def load_cohort(self):
-        """
-        Load the contents of the currently selected cohort file into memory
-        """
-        # If we don't have a data manager yet, create one
-        if self.data_manager is None:
-            self.rebuild_data_manager()
-
-        # Load the cases from the CSV into memory
-        self.data_manager.load_cases()
-
-    ## Data Path Management ##
-    @property
-    def data_path(self) -> Path:
-        return self._data_path
-
-    @data_path.setter
-    def data_path(self, new_path):
-        if not isinstance(new_path, Path):
-            new_path = Path(new_path)
-
-        # Confirm the directory exists
-        if not new_path.exists():
-            raise ValueError(f"Data path '{new_path}' does not exist!")
-
-        # Confirm that it is a directory
-        if not new_path.is_dir():
-            raise ValueError(f"Data path '{new_path}' was not a directory!")
-
-        # Warn the user if they're reloading the same file
-        if self._data_path is not None and str(new_path.resolve()) == str(
-                self._data_path.resolve()
-        ):
-            print("Warning: Selected the same data path!")
-
-        # If that all ran, update our state
-        self._data_path = new_path
-
-        # Reset our state, as the task + data manager is likely no longer valid
-        self.clear_task()
-        self.rebuild_data_manager()
-
-        # Update the config to match
-        self.config.last_used_data_path = new_path
+    def has_run_before(self):
+        # Just checks if we've defined an author before or not
+        return self.author is not None
 
     ## Task Management ##
-    @property
-    def task_id(self) -> str:
-        return self._task_id
-
-    @task_id.setter
-    def task_id(self, new_id: str):
-        # Confirm that the ID isn't blank
-        if not new_id:
-            raise ValueError("Cannot assign to a blank task!")
-
-        # Confirm that the task ID is in our task registry
-        if not CART_TASK_REGISTRY.get(new_id, False):
-            raise ValueError(f"Task '{new_id}' hasn't been registered!")
-
-        # Update our task state
-        self._task_id = new_id
-        self.select_default_data_factory()
-
-        # New task selected means the old manager + task is no longer relevant
-        self.rebuild_data_manager()
-        self.clear_task()
-
-        # Update the config state as well
-        self.config.last_used_task = new_id
-
-    def select_default_data_factory(self):
-        task_type = CART_TASK_REGISTRY.get(self.task_id, None)
-
-        # Get this task's preferred DataUnitFactory method
-        # TODO: Allow the user to select the specific method, rather than always
-        #  using the first in the map
-        if task_type:
-            data_factory_method_map = task_type.getDataUnitFactories()
-            duf = list(data_factory_method_map.values())[0]
-
-            # Update the data manager to use this task's preferred DataUnitFactory
-            self.data_unit_factory = duf
-
-    @property
-    def has_active_task(self) -> bool:
-        # Wrapper property to avoid the need for syncing a bool
-        return self.current_task_instance is not None
-
-    def clear_task(self):
+    def load_registered_tasks(self):
         """
-        Clears the current task instance, ensuring its cleaned itself up before
-        its removed from memory
+        Attempt to load all registered tasks for reference throughout the program
         """
-        if self.current_task_instance:
-            self.current_task_instance.exit()
-            self.current_task_instance.cleanup()
-            self.current_task_instance = None
+        registered_tasks = self.master_profile_config.registered_task_paths
+        # If there are no registered tasks, rebuild the registry from scratch
+        if registered_tasks is None:
+            self.logger.warning(
+                f"No registered task entry found in config file! "
+                f"Resetting the config to use only example tasks."
+            )
+            self.reset_task_registry()
+            return
+        # Otherwise, load each of our registered tasks
+        else:
+            # Load all task paths
+            for p in set(registered_tasks.values()):
+                # Skip the "None" case for now
+                if p is None:
+                    continue
+                # Load the task
+                new_tasks = self.load_tasks_from_file(p)
+                # Filter out tasks which were loaded, but not registered
+                for k in [x for x in new_tasks if x not in registered_tasks.keys()]:
+                    CART_TASK_REGISTRY.pop(k)
+                    self.logger.warning(
+                        f"Task '{k}' was loaded alongside another task, "
+                        f"but has not been registered and was filtered out."
+                    )
+            # Mark tasks which have an invalid associated file in the registry!
+            for task_key in [k for k, p in registered_tasks.items() if p is None]:
+                self.logger.warning(
+                    f"The file for task '{task_key}' was unavailable, and therefore could not "
+                    f"be loaded into CART. Check that drive with the file is mounted, and "
+                    f"that the file on the drive is accessible to a Python program."
+                )
+                CART_TASK_REGISTRY[task_key] = None
 
-    def validate_cohort_and_data_path_match(self) -> Optional[str]:
-        """
-        Returns all errors between the cohort CSV file and the data path, if they exist. Else, returns None.
-        """
-        # If we don't have a data manager, create one
-        if not self.data_manager:
-            self.rebuild_data_manager()
+    def load_tasks_from_file(self, task_path):
+        # Confirm the path exists and can be read as a (python) file
+        if not task_path.exists():
+            raise ValueError(f"File '{task_path}' does not exist; cannot load task!")
+        elif not task_path.is_file():
+            raise ValueError(f"Path '{task_path}' is not a file; cannot load directories!")
+        elif ".py" not in task_path.suffixes:
+            self.logger.warning(
+                f"Registered task file '{task_path}' was not a Python file; "
+                f"will attempt to load it anyways!"
+            )
 
-        validation_result = self.data_manager.validate_cohort_and_data_path_match()
-        if validation_result:
-            return validation_result
-        return None
+        # Track the list of tasks already registered for later
+        prior_tasks = set(CART_TASK_REGISTRY.keys())
 
-    def is_ready(self) -> bool:
-        """
-        Check if we're ready to run a task!
-        :return: True if so, False otherwise.
-        """
-        # We can't proceed if we don't have a selected profile
-        if not self.active_profile_label:
-            print("Missing a valid profile!")
-            return False
-        # We can't proceed if a data path has not been specified
-        elif not self.data_path:
-            print("Missing a valid data path!")
-            return False
-        # We can't proceed if we're missing a cohort path
-        elif not self.cohort_path:
-            print("Missing a valid cohort path!")
-            return False
-        # We can't proceed if we don't have a selected task type
-        elif not self.task_id:
-            print("No task has been selected!")
-            return False
-        elif not self.data_unit_factory:
-            print("No data unit factory has been selected!")
-            return False
+        # Add the parent of the path to our Python path
+        module_path = str(task_path.parent.resolve())
+        sys.path.append(module_path)
+        module_name = task_path.name.split('.')[0]
 
-        # If all checks passed, we can proceed!a
-        return True
+        try:
+            # Try to load the module in question
+            spec = importlib.util.spec_from_file_location(module_name, task_path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        except Exception as e:
+            # If something went wrong, roll back our changes to `sys.path`
+            sys.path.remove(module_path)
+            raise e
 
-    def init_task(self):
-        """
-        Initialize a new Task instance using current settings.
+        # Get the list of tasks that were registered by the decorator
+        new_tasks = set(CART_TASK_REGISTRY.keys()) - prior_tasks
 
-        The task will NOT receive a data unit at this point; that is deferred until after the GUI is built, in case
-        the task needs to prompt the user for details which help determine if a given data unit is complete or not
-        (i.e. output directories); see `CARTLogic:load_first_unit` for details.
-        """
-        # Safety gate: if we're not ready to start a task, return None
-        if not self.is_ready():
+        # If no new tasks were registered, roll back the changes and raise an error
+        if len(new_tasks) < 1:
+            sys.path.remove(module_path)
+            raise ValueError(f"No tasks were registered when importing the file '{task_path}'; "
+                             f"Rolling everything back!")
+        # Otherwise, keep the module loaded!
+        sys.modules[module_name] = module
+
+        # Return the list of (now-loaded) tasks!
+        return new_tasks
+
+    def register_new_task(self, task_path: Path):
+        # Load the task(s) within the task file
+        new_tasks = self.load_tasks_from_file(task_path)
+
+        # Keep track of the task(s) in our configuration file
+        for k in new_tasks:
+            self.master_profile_config.add_task_path(k, task_path)
+
+        # Save the configuration immediately
+        self.master_profile_config.save()
+        return new_tasks
+
+    def reset_task_registry(self):
+        # Try to load all the example tasks
+        examples_path = CART_PATH / "CARTLib/examples"
+        example_task_paths = [
+            examples_path / "SegmentationReview/SegmentationReviewTask.py",
+            examples_path / "GenericClassification/GenericClassificationTask.py",
+            examples_path / "RapidMarkup/RapidMarkupTask.py"
+        ]
+
+        # Make sure the example tasks all exist before doing anything!
+        missing_paths = []
+        for p in example_task_paths:
+            if not p.exists():
+                missing_paths.append(p)
+
+        if len(missing_paths) > 0:
+            err_msg = "CART seems to have been corrupted; was missing the following paths!\n"
+            err_msg += f"\n  * ".join([str(p) for p in missing_paths])
+            raise ValueError(err_msg)
+
+        # Completely reset our task registry and configuration
+        self.master_profile_config.clear_task_paths()
+        CART_TASK_REGISTRY.clear()
+
+        # Register each example task again, one-by-one
+        for p in example_task_paths:
+            self.register_new_task(p)
+
+        # Save the config immediately to preserve the changes
+        self.master_profile_config.save()
+
+    def init_task_gui(self, containerWidget: qt.QWidget):
+        # Return early (with a message) if there's no task to use
+        if self._task_instance is None:
+            self.logger.warning(
+                f"Tried to initialize a task's GUI before the task was created!"
+            )
             return
 
-        # Rebuild our data manager
-        self.rebuild_data_manager()
+        # Initialize the task's GUI itself
+        self._task_instance.setup(containerWidget)
 
-        # Load the cohort file into memory using the new DataManager
-        self.load_cohort()
+    ## Case Management ##
+    def has_next_case(self):
+        if self._data_manager is None:
+            return False
+        return self._data_manager.has_next_case()
 
-        # Ensure the current task has cleaned itself up.
-        self.clear_task()
+    def next_case(self):
+        if self._data_manager and self._data_manager.has_next_case():
+            # If this was somehow done without an active task, return
+            if self._task_instance is None:
+                return
+            # Iterate to the next data unit and update everything
+            # TODO: Restore configuration option for this
+            self._task_instance.save()
+            new_unit = self._data_manager.next()
+            self._task_instance.receive(new_unit)
 
-        # Create the new task instance
-        task_constructor = CART_TASK_REGISTRY.get(self.task_id)
-        self.current_task_instance = task_constructor(self.config)
+    def next_incomplete_case(self):
+        if self._data_manager and self._data_manager.has_next_case():
+            # If this was somehow done without an active task, return
+            if self._task_instance is None:
+                return
+            # Iterate to the next incomplete data unit and update everything
+            # TODO: Restore configuration option for this
+            self._task_instance.save()
+            new_unit = self._data_manager.next_incomplete(self._task_instance)
+            self._task_instance.receive(new_unit)
 
-        # Save any changes made to the configuration
-        self.config.save()
+    def has_previous_case(self):
+        if self._data_manager is None:
+            return False
+        return self._data_manager.has_previous_case()
 
-        # Act as though CART has just been reloaded so the task can initialize
-        #  properly
-        self.enter()
+    def previous_case(self):
+        if self._data_manager and self._data_manager.has_previous_case():
+            # If this was somehow done without an active task, return
+            if self._task_instance is None:
+                return
+            # Iterate to the prior data unit and update everything
+            # TODO: Restore configuration option for this
+            self._task_instance.save()
+            new_unit = self._data_manager.previous()
+            self._task_instance.receive(new_unit)
 
-    def load_initial_unit(self) -> DataUnitBase:
-        """
-        Attempts to load the first data unit into memory and update our task with it
-        """
-        # Pass our first data unit to the task
-        data_unit = self.data_manager.first()
-        # TODO: Add a configuration option for skipping to first incomplete unit
-        # data_unit = self.data_manager.first_incomplete(self.current_task_instance)
-        self.current_task_instance.receive(data_unit)
+    def previous_incomplete_case(self):
+        if self._data_manager and self._data_manager.has_previous_case():
+            # If this was somehow done without an active task, return
+            if self._task_instance is None:
+                return
+            # Iterate to the prior incomplete data unit and update everything
+            # TODO: Restore configuration option for this
+            self._task_instance.save()
+            new_unit = self._data_manager.previous_incomplete(self._task_instance)
+            self._task_instance.receive(new_unit)
 
-        # Return this data unit so the GUI can utilize it
-        return data_unit
+    def select_case(self, idx: int):
+        if self._data_manager and self._task_instance:
+            # TODO: Restore configuration option for this
+            self._task_instance.save()
+            new_unit = self._data_manager.select_unit_at(idx)
+            self._task_instance.receive(new_unit)
 
+    def save_case(self):
+        if self._data_manager and self._task_instance:
+            self._task_instance.save()
+
+    def refresh_layout(self):
+        if self._data_manager is None:
+            self.logger.warning(
+                f"No data manager current exists, cannot apply a data unit layout!"
+            )
+            return
+
+        # Apply the layout of the current data unit
+        self._data_manager.current_data_unit().layout_handler.apply_layout()
+
+    ## Config Management ##
+    def save_master_config(self):
+        self.master_profile_config.save()
+
+    def reload_master_config(self):
+        # Pull the data from the config file
+        self.master_profile_config.reload()
+        # If the config version doesn't match the current CART version, warn the user
+        if self.master_profile_config.version != CART_VERSION:
+            # TODO: Prompt the user directly!
+            print("WARNING: Current CART version does not match that of the master profile! "
+                  "CART may not work as expected!")
+            self.master_profile_config.version = CART_VERSION
+
+    ## GUI Management ##
     def enter(self):
         """
         Called when the CART module is loaded (through our CARTWidget).
 
         Just signals to the current task that CART is now in view again, and it
-        should synchronize its state to the MRML scene.
+        should synchronize its state to the MRML scene. This can include:
+          * Installing any shortcuts
+          * Restoring any active processes
+          * Re-synchronizing with the MRML scene
         """
-        if self.current_task_instance:
-            self.current_task_instance.enter()
+        if self._task_instance:
+            self._task_instance.enter()
 
     def exit(self):
         """
         Called when the CART module is un-loaded (through our CARTWidget).
 
         Just signals to the current task that CART is no longer in view, and it
-        should pause any active processes in the GUI.
+        should pause any active processes in the GUI. This can include:
+          * Uninstalling any shortcuts
+          * Pausing/killing any active processes
         """
-        if self.current_task_instance:
-            self.current_task_instance.exit()
-
-    ## DataUnit Management ##
-    @property
-    def data_manager(self):
-        return self._data_manager
-
-    def rebuild_data_manager(self):
-        # If we had a prior data manager, clean it up first
-        if self.data_manager:
-            self.data_manager.clean()
-
-        # Build a new data manager with the current state
-        self._data_manager = DataManager(
-            cohort_file=self._cohort_path,
-            data_source=self._data_path,
-            data_unit_factory=self.data_unit_factory,
-        )
-
-    def current_uid(self):
-        if self.data_manager:
-            return self.data_manager.current_uid()
-        # In the off chance where we don't have cases loaded, return none
-        else:
-            return ""
-
-    def has_next_case(self):
-        if self.data_manager:
-            return self.data_manager.has_next_case()
-        else:
-            return False
-
-    def has_previous_case(self):
-        if self.data_manager:
-            return self.data_manager.has_previous_case()
-        else:
-            return False
-
-    def select_current_case(self) -> Optional[DataUnitBase]:
-        """
-        Select the current unit managed by the Data Manager, if we have one
-        """
-        # If we don't have a data manager yet, return none
-        if not self.data_manager:
-            return None
-
-        # Otherwise, select the current data unit
-        current_unit = self.data_manager.select_current_unit()
-
-        # Pass it to the current task, so it can update anything it needs to
-        self._update_task_with_new_case(current_unit)
-
-        # Return it for further use
-        return current_unit
-
-    def next_case(self, skip_complete: bool = False) -> Optional[DataUnitBase]:
-        """
-        Try to step into the next case managed by the cohort, pulling it
-        into memory if needed.
-
-        :param skip_complete: Whether to skip over already completed cases
-
-        :return: The next valid case. 'None' if no valid case could be found.
-        """
-        # Grab the next data unit
-        if skip_complete:
-            next_unit = self.data_manager.next_incomplete(self.current_task_instance)
-        else:
-            next_unit = self.data_manager.next()
-
-        # Pass it to the current task, so it can update anything it needs to
-        self._update_task_with_new_case(next_unit)
-
-        # Return it; the data manager is self-managing, no need to do any further checks
-        return next_unit
-
-    def previous_case(self, skip_complete: bool = False):
-        """
-        Try to step into the previous case managed by the cohort, pulling it
-        into memory if needed.
-
-        :param skip_complete: Whether completed cases should be skipped over
-
-        :return: The previous valid case. 'None' if no valid case could be found.
-        """
-        # Get the previous valid case
-        if skip_complete:
-            previous_case = self.data_manager.prior_incomplete(self.current_task_instance)
-        else:
-            previous_case = self.data_manager.previous()
-
-        # Pass it to the current task, so it can update anything it needs to
-        self._update_task_with_new_case(previous_case)
-
-        # Return it; the data manager is self-managing, no need to do any further checks
-        return previous_case
-
-    def _update_task_with_new_case(self, new_case: DataUnitBase):
-        # Only update the task if exists
-        task = self.current_task_instance
-        if not task:
-            return
-
-        # If autosaving is on, have the task save its current case before proceeding
-        if self.config.save_on_iter:
-            task.save_on_iter()
-
-        # Have the task receive the new case
-        task.receive(new_case)
+        if self._task_instance:
+            self._task_instance.exit()

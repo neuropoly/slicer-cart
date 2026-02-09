@@ -53,6 +53,9 @@ class DataManager:
         # The data unit factory to parse case information with
         self.data_unit_factory: DataUnitFactory = data_unit_factory
 
+        # Load the data from file
+        self.load_cases()
+
     def get_cache_size(self):
         return self._get_data_unit.cache_info().maxsize
 
@@ -124,6 +127,10 @@ class DataManager:
 
     def set_data_unit_factory(self, duf: DataUnitFactory):
         self.data_unit_factory = duf
+
+    @property
+    def valid_uids(self):
+        return [v["uid"] for v in self.case_data]
 
     def current_uid(self):
         return self.case_data[self.current_case_index]["uid"]
@@ -220,7 +227,7 @@ class DataManager:
         print("WARNING: All cases were completed, falling back to next")
         return self.next()
 
-    def prior_incomplete(self, task: TaskBaseClass, from_idx: int = None) -> DataUnitBase:
+    def previous_incomplete(self, task: TaskBaseClass, from_idx: int = None) -> DataUnitBase:
         """
         Step back to the most recent prior case which hasn't been completed for the
         provided task, and get its corresponding DataUnit.
@@ -271,7 +278,7 @@ class DataManager:
 
     def last_incomplete(self, task: TaskBaseClass) -> DataUnitBase:
         # Wrapper function for the somewhat unintuitive "find the last" syntax
-        return self.prior_incomplete(task, -1)
+        return self.previous_incomplete(task, -1)
 
     def next(self) -> DataUnitBase:
         """

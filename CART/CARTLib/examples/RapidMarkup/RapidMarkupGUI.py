@@ -215,8 +215,7 @@ class RapidMarkupSetupPrompt(qt.QDialog):
         outputFileEdit.filters = ctk.ctkPathLineEdit.Dirs
 
         # Set its state to match the task's if it has one
-        if self.bound_logic._output_dir:
-            self.outputFileEdit.currentPath = str(self.bound_logic._output_dir)
+        outputFileEdit.currentPath = str(self.bound_logic.output_dir)
 
         # Update the layout and track it for later
         layout.addRow(outputFileEdit)

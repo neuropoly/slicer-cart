@@ -7,7 +7,7 @@ import ctk
 
 from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
 from CARTLib.examples.GenericClassification.GenericClassificationOutputManager import GenericClassificationOutputManager
-from CARTLib.utils.config import ProfileConfig
+from CARTLib.utils.config import JobProfileConfig, MasterProfileConfig
 from CARTLib.utils.task import cart_task
 from CARTLib.utils.widgets import showSuccessPrompt
 
@@ -26,8 +26,10 @@ class GenericClassificationTask(TaskBaseClass[GenericClassificationUnit]):
 
     Saves the classification(s) into a CSV folder
     """
-    def __init__(self, profile: ProfileConfig):
-        super().__init__(profile)
+    README_PATH = Path(__file__).parent / "README.md"
+
+    def __init__(self, master_profile: MasterProfileConfig, job_profile: JobProfileConfig):
+        super().__init__(master_profile, job_profile)
 
         # Track the active GUI instance, if any
         self.gui: Optional[GenericClassificationGUI] = None
@@ -44,22 +46,20 @@ class GenericClassificationTask(TaskBaseClass[GenericClassificationUnit]):
         # The output manager for this class
         self._output_manager: Optional[GenericClassificationOutputManager] = None
 
+    @classmethod
+    def description(cls):
+        with open(cls.README_PATH, 'r') as fp:
+            return fp.read()
+
     @property
     def classes(self) -> list[str]:
         return list(self.class_map.keys())
 
     @cached_property
     def output_manager(self):
-        return GenericClassificationOutputManager(
-            self.profile, self.output_path
-        )
+        return GenericClassificationOutputManager(self.job_profile)
 
     def setup(self, container: qt.QWidget):
-        # Prompt for an output path
-        self.output_path = self._promptForOutput()
-        if not self.output_path:
-            raise ValueError("No output path provided, terminating.")
-
         # Try to retrieve the last-used class map from the metadata
         self.class_map = self.output_manager.read_metadata()
 
@@ -67,65 +67,6 @@ class GenericClassificationTask(TaskBaseClass[GenericClassificationUnit]):
         self.gui = GenericClassificationGUI(self)
         gui_layout = self.gui.setup()
         container.setLayout(gui_layout)
-
-    def _promptForOutput(self):
-        """
-        Prompt the user to provide an output path
-        """
-        prompt = qt.QDialog()
-        prompt.setWindowTitle("Select Output Path")
-
-        # Create a layout for the dialog
-        layout = qt.QVBoxLayout()
-        prompt.setLayout(layout)
-
-        # Instruction label
-        instructionLabel = qt.QLabel(
-            "Specify where this task should save its results:"
-        )
-        instructionLabel.setWordWrap(True)
-        layout.addWidget(instructionLabel)
-
-        # Add a path-line edit button, forcing it to select only directories
-        pathLineEdit = ctk.ctkPathLineEdit()
-        pathLineEdit.setToolTip(
-            "Specify file path for classification results."
-        )
-        pathLineEdit.filters = ctk.ctkPathLineEdit.Dirs
-        layout.addWidget(pathLineEdit)
-
-        # Add a "confirm" button
-        buttonBox = qt.QDialogButtonBox()
-        buttonBox.setStandardButtons(
-            qt.QDialogButtonBox.Ok
-        )
-        def onClick(_):
-            # If not path has been provided, encourage the user to select one
-            if pathLineEdit.currentPath.strip() is "":
-                msg = qt.QMessageBox()
-                msg.setWindowTitle("Missing Path")
-                msg.setText("Please provide a valid output path.")
-                msg.setStandardButtons(
-                    qt.QMessageBox.Ok
-                )
-                msg.exec()
-            else:
-                prompt.accept()
-        buttonBox.clicked.connect(onClick)
-        layout.addWidget(buttonBox)
-
-        # Make the prompt a bit wider
-        prompt.resize(300, prompt.minimumHeight)
-
-        # Show the prompt
-        result = prompt.exec()
-
-        # If the result is an "accept" signal, try to return the resulting path
-        if result:
-            return Path(pathLineEdit.currentPath)
-
-        # Otherwise, return none
-        return None
 
     def receive(self, data_unit: GenericClassificationUnit):
         # Track the data unit for later
@@ -150,3 +91,25 @@ class GenericClassificationTask(TaskBaseClass[GenericClassificationUnit]):
         return {
             "Default": GenericClassificationUnit
         }
+
+    @classmethod
+    def feature_types(cls, data_factory_label: str) -> dict[str, str]:
+        # Defer to the data unit itself
+        duf = cls.getDataUnitFactories().get(data_factory_label, None)
+        if duf == GenericClassificationUnit:
+            return GenericClassificationUnit.feature_types()
+        return {}
+
+    @classmethod
+    def format_feature_label_for_type(
+        cls, initial_label: str, data_unit_factory_type: str, feature_type: str
+    ):
+        # Apply default comma processing
+        initial_label = super().format_feature_label_for_type(
+            initial_label, data_unit_factory_type, feature_type
+        )
+        # Defer to the data unit itself for further processing
+        duf = cls.getDataUnitFactories().get(data_unit_factory_type, None)
+        if duf is GenericClassificationUnit:
+            return GenericClassificationUnit.feature_label_for(initial_label, feature_type)
+        return initial_label
