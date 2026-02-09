@@ -722,6 +722,9 @@ class _CohortWizardPage(qt.QWizardPage):
             cohort = cohort_from_generator(
                 dialog.cohort_name, data_path, output_path, dialog.current_generator
             )
+            # Update the cohort's reference task to match outs
+            task_id = self.wizard().selected_task
+            cohort.reference_task = CART_TASK_REGISTRY.get(task_id, None)
             # Update the GUI's selected file to match the newly created file
             fileSelector.setCurrentPath(str(cohort.csv_path))
             # Spawn and manage a cohort editor to continue building up the cohort
