@@ -510,6 +510,7 @@ class _TaskWizardPage(qt.QWizardPage):
                 taskDescriptionWidget.setText(error_text)
             else:
                 taskDescriptionWidget.setMarkdown(task.description())
+            self.completeChanged()
         taskSelectionWidget.currentTextChanged.connect(onSelectedTaskChanged)
 
         self.taskSelectionWidget = taskSelectionWidget
