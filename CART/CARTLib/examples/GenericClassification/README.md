@@ -2,9 +2,9 @@
 
 This task is designed to allow for rapid classification of subjects, sequences, or other sets of radiological data.
 
-# Creating a Cohort File
+## Cohort File Specification
 
-This task follows the [CART Standard Cohort Specification](../../utils/README.md#the-cart-standard-format)
+This task follows the [CART Standard Cohort Specification](https://github.com/SomeoneInParticular/CART/tree/main/CART/CARTLib/utils#the-cart-standard-format)
 
 # Using this Task
 

@@ -1,5 +1,3 @@
-from CARTLib.core.TaskBaseClass import TaskBaseClassfrom CARTLib.utils.layout import Orientationfrom CARTLib.utils.layout import Orientation
-
 # Standardized CART Utilities
 
 This package contains a number of utilities or structures which have a common enough use case (or have an unintuitive/difficult implementation) to be standardized across most CART applications. This readme provides an overview of the notable utilities provided, with a brief description of each.
@@ -65,10 +63,17 @@ The functions within the `data.py` utility provide wrappers for common data I/O 
 
 All example tasks provided by CART follow the "CART Standard" for cohort formatting. This standard can be summarized as follows:
 
-* Columns which contain `volume` are assumed to be a path to a volume file. 
-  * The first such volume is made the "reference" volume for the case, with its co-ordinate system and orientation being used to place and orient all other volumes, segmentations, and markups.
-* Columns which contain `segmentation` are assumed to be a path to a segmentation file.
-* Columns which contain `markup` are assumed to be a path to a Slicer markup JSON file.
+* **UID**: Identifies each case with a unique name/label.
+  * Each case must have exactly one **UID** column, and it must be named `uid`.
+* **Volume**: A filepath to an anatomical image, in NIfTI or NRRD format.
+  * Any column with `volume` in its name is treated as a **Volume** column.
+  * Each case must have at least one valid **Volume** entry; multiple are allowed as well.
+* **Segmentation**: A filepath to a segmentation image, in NIfTI or NRRD format. 
+  * Any column with `segmentation` in its name is treated as a **Segmentation** column.
+  * Each case can have none, one, or multiple **Segmentation** entries.
+* **Markup**: A filepath to a Slicer Markup JSON file. 
+  * Any column with `markup` in its name is treated as a **Markup** column.
+  * Each case can have none, one, or multiple **Markup** entries.
 
 If you want your data unit to follow this standard (and load each column according to its detected type automatically), you can subclass the `CARTStandardUnit` to do so. If you want to follow the standard, but handling the loading of each file yourself, you can instead use the `parse_volumes`, `parse_segmentations`, and `parse_markups` functions to identify Volume, Segmentation, and Markup columns, respectively.
 

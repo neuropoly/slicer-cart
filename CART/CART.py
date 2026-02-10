@@ -832,7 +832,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         example_task_paths = [
             examples_path / "SegmentationReview/SegmentationReviewTask.py",
             examples_path / "GenericClassification/GenericClassificationTask.py",
-            examples_path / "RapidMarkup/RapidMarkupTask.py"
+            examples_path / "Markup/Markup.py"
         ]
 
         # Make sure the example tasks all exist before doing anything!

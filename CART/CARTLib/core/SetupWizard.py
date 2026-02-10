@@ -480,9 +480,11 @@ class _TaskWizardPage(qt.QWizardPage):
         layout.addRow(taskSelectionLabel, taskSelectionWidget)
 
         # Task description
-        taskDescriptionWidget = qt.QTextEdit(_(
+        taskDescriptionWidget = qt.QTextBrowser(None)
+        taskDescriptionWidget.setText(_(
             "Details about your selected task will appear here."
         ))
+        taskDescriptionWidget.setOpenExternalLinks(True)
         # Make it fill out all available space
         taskDescriptionWidget.setSizePolicy(
             qt.QSizePolicy.Expanding, qt.QSizePolicy.Expanding

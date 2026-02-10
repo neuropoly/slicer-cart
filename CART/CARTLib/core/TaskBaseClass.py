@@ -121,6 +121,8 @@ class TaskBaseClass(ABC, Generic[D]):
         """
         A description for this task, detailing what it should be used for, as well as
         anything else the user should know before they use it.
+
+        Parsed as a Markdown file; images will not load, however!
         """
         return _(
             f"'{cls.__name__}' has no description; you should remind the developer to provide one!"

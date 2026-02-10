@@ -457,11 +457,10 @@ class _NodeComboBoxProxy(qt.QComboBox):
         self._bound_widget.showHidden = val
 
 
-class _VolumeNodeComboBoxProxy(_NodeComboBoxProxy):
+class _OffsetNodeComboBoxProxy(_NodeComboBoxProxy):
     """
-    Due to the first row in the "Source Volume" combobox always being
-    "Select Source Volume for Editting", _NodeComboBoxProxy will have
-    an off-by-one error if used raw.
+    _NodeComboBoxProxy will have an off-by-one error if used raw, when its
+    backing combo box has a "Select Source Volume for Editing" entry.
 
     This subclass corrects for this discrepancy within the index map for our
     ComboBoxProxy class.
@@ -604,7 +603,7 @@ class CARTSegmentationEditorWidget(
 
     def _buildProxyVolumeComboBox(self, comboBox):
         # Generate the widget we want to put in its place
-        proxy = _VolumeNodeComboBoxProxy(comboBox)
+        proxy = _OffsetNodeComboBoxProxy(comboBox)
         # Use it to replace the original widget in the UI
         self.layout().replaceWidget(comboBox, proxy)
         # Share the size policy of the combobox with its proxy
@@ -664,3 +663,76 @@ class CARTSegmentationEditorWidget(
         self.proxySegNodeComboBox.setCurrentText(
             segment_node.GetName()
         )
+
+
+class CARTMarkupEditorWidget(slicer.qSlicerSimpleMarkupsWidget):
+    """
+    A wrapper to aid in handling markup changes, to make it more
+    user-friendly and easier to manage in the context of a CART task.
+
+    Specifically, this automatically does some stuff that each task would have
+    to do themselves manually. This includes:
+        * Hooking itself into an MRML scene
+        * Creating a `vtkMRMLSegmentEditorNode` editor node into said scene
+        * Managing shortcuts for its various functions
+        * Disables adding/removing markup nodes (but NOT markups themselves!)
+        * Ensuring that only visible nodes can be selected by the user (hiding "cached" nodes)
+    """
+
+    MARKUP_EDITOR_NODE_KEY = "vtkMRMLSegmentEditorNode"
+    TOGGLE_VISIBILITY_SHORTCUT_KEY = qt.QKeySequence("g")
+
+    def __init__(self, tag: str = "CARTMarkupEditor", scene=slicer.mrmlScene):
+        """
+        Create a new markup editor widget; basically a carbon copy of
+        `qSlicerSimpleMarkupsWidget` with a few additions to make it play nice
+        with CART constantly replacing nodes in MRML scene.
+
+        :param tag: The tag for the markup editor node in the MRML scene.
+            If you want to have your editor have different active settings than
+            the one in the Rapid Markup module, you should specify something
+            here.
+        :param scene: The MRML scene this widget will hook into. By default, it
+            uses Slicer's MRML scene; passing a different scene will hook into
+            it instead (useful for organization purposes in some cases).
+        """
+        # Run initial setup first
+        super().__init__()
+
+        # Parameters tracking for ease-of-reference
+        self.tag: str = tag
+        self.scene = scene
+
+        # Associate ourselves with the provided scene
+        self.setMRMLScene(self.scene)
+
+        # Replace the markup selection with a proxy combo box
+        self.markupSelectionComboBox = self._replaceSelectionNodes()
+
+        # Do NOT automatically start placing a new markup when a node is changed
+        # KO: For some reason, this is True by default. This resulted in users
+        #   unintentionally placing markup nodes in a "cached" data unit by mistake.
+        self.setEnterPlaceModeOnNodeChange(False)
+
+    ## Setup Helpers ##
+    def _replaceSelectionNodes(self):
+        # Identify and bind to the original markup combobox
+        oldComboBox = self.markupsSelectorComboBox()
+        newComboBox = _OffsetNodeComboBoxProxy(oldComboBox)
+
+        # Make sure it ignores "hidden" nodes
+        newComboBox.showHidden = False
+
+        # Replace the old combo box with our proxy
+        self.layout().replaceWidget(oldComboBox, newComboBox)
+
+        # Hide the original box from view
+        oldComboBox.setVisible(False)
+
+        # Return the result for later user
+        return newComboBox
+
+    def refresh(self):
+        prior_idx = self.markupSelectionComboBox.currentIndex
+        self.markupSelectionComboBox.refresh()
+        self.markupSelectionComboBox.onIndexChanged(prior_idx)

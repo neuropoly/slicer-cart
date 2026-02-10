@@ -8,7 +8,9 @@ This task allows for iterative review (and, if needed, correction) of image segm
   * [Segmentation Review](#segmentation-review)
 * [Detailed Cohort Specifications](#detailed-cohort-specifications)
 
-# Creating a Cohort File
+## Cohort File Specification
+
+This task follows the [CART Standard Cohort Specification](https://github.com/SomeoneInParticular/CART/tree/main/CART/CARTLib/utils#the-cart-standard-format)
 
 The cohort file for this task can contain the following column types:
 
