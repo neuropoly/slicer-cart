@@ -745,3 +745,4 @@ class _CohortWizardPage(qt.QWizardPage):
         # If the user confirmed the edits, preview the result on close
         if result:
             cohortPreview.backing_csv = self.cohort_path
+        dialog.disconnectAll()

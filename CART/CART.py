@@ -197,7 +197,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 # If they don't, end here
                 if self._cartNotRunBeforePrompt() != qt.QMessageBox.Yes:
                     return
-                self.runInitialSetup()
+                if self.runInitialSetup():
+                    self.runNewJobSetup()
             # Otherwise, skip to job creation
             else:
                 self.runNewJobSetup()
@@ -706,7 +707,9 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         )
 
         # Initialize the new task
-        new_task = new_task_cls(self.master_profile_config, job_profile)
+        new_task = new_task_cls(
+            self.master_profile_config, job_profile, data_manager.feature_labels
+        )
 
         # Unload the previous task
         # TODO
@@ -830,7 +833,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # Try to load all the example tasks
         examples_path = CART_PATH / "CARTLib/examples"
         example_task_paths = [
-            examples_path / "SegmentationReview/SegmentationReviewTask.py",
+            examples_path / "Segmentation/SegmentationTask.py",
             examples_path / "GenericClassification/GenericClassificationTask.py",
             examples_path / "Markup/Markup.py"
         ]

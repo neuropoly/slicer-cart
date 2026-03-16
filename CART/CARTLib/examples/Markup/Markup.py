@@ -49,8 +49,13 @@ class MarkupTask(TaskBaseClass[CARTStandardUnit]):
             cleaned.append(l)
         return "\n".join(cleaned)
 
-    def __init__(self, master_profile: MasterProfileConfig, job_profile: JobProfileConfig):
-        super().__init__(master_profile, job_profile)
+    def __init__(
+        self,
+        master_profile: MasterProfileConfig,
+        job_profile: JobProfileConfig,
+        cohort_features: list[str]
+    ):
+        super().__init__(master_profile, job_profile, cohort_features)
 
         # GUI and data unit
         self.gui: Optional[MarkupGUI] = None

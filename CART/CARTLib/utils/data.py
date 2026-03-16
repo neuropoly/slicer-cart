@@ -262,6 +262,13 @@ def save_volume_to_nifti(volume_node, path: Path):
     """
     Save a volume node to the specified path.
     """
+    # Confirm this is a NiFTI file
+    if ".nii" not in path.suffixes:
+        raise ValueError(
+            f"Refusing to save file '{path.name}' into NiFTI format; "
+            "ensure the file is a '.nii' file!"
+        )
+
     slicer.util.saveNode(volume_node, str(path))
 
 
@@ -273,6 +280,13 @@ def save_segmentation_to_nifti(segment_node, volume_node, path: Path):
     convert it back to a label-type node w/ reference to a volume node first,
     then save that.
     """
+    # Confirm this is a NiFTI file
+    if ".nii" not in path.suffixes:
+        raise ValueError(
+            f"Refusing to save file '{path.name}' into NiFTI format; "
+            "ensure the file is a '.nii' file!"
+        )
+
     # Convert the Segmentation back to a Label (for Nifti export)
     label_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
     slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(
@@ -290,8 +304,10 @@ def save_markups_to_json(markups_node, path: Path):
     """
     Save a markups node to the specified path as a JSON file.
     """
+    # Confirm this is a correct file type
+    if not path.name.endswith(".mrk.json"):
+        raise ValueError(f"Refusing to save file '{path.name}' into Slicer MRK format.")
     # Use Slicer's utility function to save the markups node
-    assert path.name.endswith(".mrk.json"), "Path must end with .mrk.json"
     slicer.util.saveNode(markups_node, str(path))
 
 
@@ -319,6 +335,13 @@ def save_markups_to_nifti(
     :param path: Path to a (presumably `.nii`) file where the data should be saved
     :param master_profile: Profile config; used to build the JSON sidecar
     """
+    # Confirm this is a NiFTI file
+    if ".nii" not in path.suffixes:
+        raise ValueError(
+            f"Refusing to save file '{path.name}' into NiFTI format; "
+            "ensure the file is a '.nii' file!"
+        )
+
     # Build the RAS (world) -> IJK (voxel) transform function
     ras_to_kji_transform = vtk.vtkMatrix4x4()
     reference_volume.GetRASToIJKMatrix(ras_to_kji_transform)
@@ -1020,7 +1043,7 @@ class CARTStandardUnit(DataUnitBase):
                 continue
             # Attempt to load the volume and track it
             node = load_volume(path)
-            node.SetName(f"{self.uid}_{key}")
+            node.SetName(f"{key} ({self.uid})")
             self.volume_nodes[key] = node
             self.resources[key] = node
 
@@ -1051,7 +1074,7 @@ class CARTStandardUnit(DataUnitBase):
                 continue
 
             # Set the name of the node, and align it to our primary volume
-            node.SetName(f"{self.uid}_{key}")
+            node.SetName(f"{key} ({self.uid})")
             node.SetReferenceImageGeometryParameterFromVolumeNode(
                 self.primary_volume_node
             )
@@ -1091,13 +1114,13 @@ class CARTStandardUnit(DataUnitBase):
                     )
                 # Determine how the node should be keyed
                 if should_iter:
-                    ikey = f"{key}_{i}"
+                    name = f"{key} ({self.uid}) [{i}]"
                 else:
-                    ikey = key
+                    name = f"{key} ({self.uid})"
                 # Update the node's properties and track it
-                node.SetName(f"{self.uid}_{ikey}")
-                self.markup_nodes[ikey] = node
-                self.resources[ikey] = node
+                node.SetName(name)
+                self.markup_nodes[name] = node
+                self.resources[name] = node
 
     def _set_subject_shown(self, new_state: bool) -> None:
         """

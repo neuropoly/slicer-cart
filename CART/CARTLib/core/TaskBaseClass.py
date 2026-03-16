@@ -40,7 +40,10 @@ class TaskBaseClass(ABC, Generic[D]):
     """
 
     def __init__(
-        self, master_profile: MasterProfileConfig, job_profile: JobProfileConfig
+        self,
+        master_profile: MasterProfileConfig,
+        job_profile: JobProfileConfig,
+        cohort_features: list[str]
     ):
         """
         Basic constructor.
@@ -52,6 +55,7 @@ class TaskBaseClass(ABC, Generic[D]):
         # the profile that is running it.
         self.master_profile: MasterProfileConfig = master_profile
         self.job_profile: JobProfileConfig = job_profile
+        self.cohort_features: list[str] = cohort_features
 
         # Create a logger to track the goings-on of this task.
         self.logger = logging.getLogger(f"{__class__.__name__}")

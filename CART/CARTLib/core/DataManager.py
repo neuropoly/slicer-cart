@@ -1,7 +1,8 @@
 import csv
-from functools import lru_cache
+import logging
+from functools import lru_cache, cached_property
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 
 from .DataUnitBase import DataUnitBase
 from .TaskBaseClass import DataUnitFactory, TaskBaseClass
@@ -42,75 +43,59 @@ class DataManager:
         self.cohort_csv: Path = cohort_file
         self.data_source: Path = data_source
 
-        # Current index in the
+        # Data
+        self.case_data = list()
+        self.feature_labels = list()
+
+        # Current index being tracked
         self.current_case_index: int = 0
 
-        # Dynamically sized cached version of "_get_data_unit"
+        # Convert the protected '_get_data_unit' into a public version,
+        #  w/ the desired number of cached elements.
         lru_cache_wrapper = lru_cache(maxsize=cache_size)
-        old_method = self._get_data_unit
-        self._get_data_unit = lru_cache_wrapper(old_method)
+        self.get_data_unit: Callable[[int], DataUnitBase] = lru_cache_wrapper(
+            self._get_data_unit
+        )
 
         # The data unit factory to parse case information with
         self.data_unit_factory: DataUnitFactory = data_unit_factory
 
+        # Logger
+        self.logger = logging.getLogger("CART Data Manager")
+
         # Load the data from file
-        self.load_cases()
+        self.load_from_file()
 
-    def get_cache_size(self):
-        return self._get_data_unit.cache_info().maxsize
-
-    def set_data_source(self, source: Path):
-        # Confirm the source path exists; if it doesn't,
-        # reject it and do nothing
-        if not source.exists():
-            raise ValueError(f"Data source '{source}' does not exist.")
-        if not source.is_dir():
-            raise ValueError(f"Data source '{source}' is not a directory.")
-
-        self.data_source = source
-
-        # Clear our cache, as it's almost certainly no longer valid
-        self._get_data_unit.cache_clear()
-
-        # Reset to the beginning, as everything is
-        self.current_case_index = 0
-
-        # Begin re-building the pre-fetch cache, if it exists
-        self._pre_fetch_elements()
-
-    def get_data_source(self):
-        return self.data_source
-
-    def load_cases(self) -> None:
-        """
-        Load the cases designated in a cohort CSV into memory, ready to be used
-          to generate DataUnit instances.
-
-        Raises:
-            ValueError: If no path is provided/configured, or if CSV is invalid.
-        """
-        # Notify the user we're loading data
-        print(f"Loading cohort from '{self.cohort_csv}'")
+    ## Data Management ##
+    def load_from_file(self):
+        # Log that we began loading the cohort data
+        self.logger.info(f"Loading cohort from '{self.cohort_csv}'")
 
         # If no path is present, raise an error
         if self.cohort_csv is None:
             raise ValueError("No CSV has been given to load data from.")
 
-        # Try to read the data
-        rows = DataManager._read_csv(self.cohort_csv)
+        # Try to read the data from file
+        with self.cohort_csv.open(newline="") as csvfile:
+            reader = csv.DictReader(csvfile)
+            if reader.fieldnames is None:
+                raise ValueError("CSV file has no header row")
+            self.feature_labels = list(reader.fieldnames)
+            self.case_data = list(reader)
 
-        # If we succeeded, update everything to match and reset the queue
-        self.case_data = rows
-        self.current_case_index = 0  # Start at beginning
-        print(f"Loaded {len(rows)} rows!")
+        # If we succeeded, reset our iteration step
+        self.current_case_index = 0
+
+    def get_cache_size(self):
+        return self.get_data_unit.cache_info().maxsize
 
     def _get_data_unit(self, idx: int) -> DataUnitBase:
         """
         Gets the current DataUnit at our index. This method implicitly caches
-         and does NOT update the state of the DataManager!
+        and does NOT update the state of the DataManager!
 
         Unless you know what you're doing, you should use `select_unit_at`
-         instead!
+        instead!
         """
         current_case_data = self.case_data[idx]
 
@@ -128,9 +113,19 @@ class DataManager:
     def set_data_unit_factory(self, duf: DataUnitFactory):
         self.data_unit_factory = duf
 
-    @property
+    @cached_property
     def valid_uids(self):
-        return [v["uid"] for v in self.case_data]
+        return_list = []
+        for c in self.case_data:
+            for k, v in c.items():
+                if k.lower() == "uid" and v is not None:
+                    return_list.append(v)
+                    break
+        return return_list
+
+    @property
+    def valid_features(self):
+        return [f for f in self.feature_labels if f.lower() != "uid"]
 
     def current_uid(self):
         return self.case_data[self.current_case_index]["uid"]
@@ -145,14 +140,14 @@ class DataManager:
         """
         Return the current DataUnit in the queue without changing the index.
         """
-        return self._get_data_unit(self.current_case_index)
+        return self.get_data_unit(self.current_case_index)
 
     def select_current_unit(self):
         """
         Selects the current data unit again, bringing it into focus if it was
          not already
         """
-        current_unit = self._get_data_unit(self.current_case_index)
+        current_unit = self.get_data_unit(self.current_case_index)
         current_unit.focus_gained()
 
         return current_unit
@@ -184,7 +179,7 @@ class DataManager:
         prior_unit = self.current_data_unit()
 
         # Attempt to grab the next data unit
-        new_unit = self._get_data_unit(idx)
+        new_unit = self.get_data_unit(idx)
 
         # Try to transfer focus from one unit to the other
         if prior_unit:
@@ -298,17 +293,6 @@ class DataManager:
         new_index = self.current_case_index - 1
         return self.select_unit_at(new_index)
 
-    @staticmethod
-    def _read_csv(csv_path: Path) -> list[dict[str, str]]:
-        """
-        Reads the contents of the CSV into a list of str->str dictionaries
-        """
-        with csv_path.open(newline="") as csvfile:
-            reader = csv.DictReader(csvfile)
-            if reader.fieldnames is None:
-                raise ValueError("CSV file has no header row")
-            return list(reader)
-
     # TODO Change rows to rows and define row typing at the definition of rows
     @staticmethod
     def _validate_columns(rows: list[dict[str, str]]) -> None:
@@ -334,88 +318,6 @@ class DataManager:
         if duplicates:
             raise ValueError(f"Duplicate uid values found in file: {duplicates}")
 
-    def requested_cases_in_data_path_errors(
-        self, uids_in_csv: set[str], all_dir_names_in_path: set[str]
-    ) -> list[str]:
-        # Check 1: Find case folders listed in the CSV but not found in the data path
-        errors = []
-
-        missing_folders = uids_in_csv - all_dir_names_in_path
-        if missing_folders:
-            errors.append(
-                f"Error: The following case folders are missing from '{self.data_source}':"
-            )
-            errors.extend(f"  - {uid}" for uid in sorted(list(missing_folders)))
-
-        return errors
-
-    def requested_resources_in_data_path_errors(
-        self, all_cases_in_csv: list[dict[str, str]], all_dir_names_in_path: set[str]
-    ) -> list[str]:
-        # Check 2: For each existing case folder, verify all its resource files exist
-        errors = []
-
-        for case in all_cases_in_csv:
-            case_uid = case["uid"]
-            if (
-                case_uid in all_dir_names_in_path
-            ):  # Only check resources for folders that actually exist
-                case_resource_errors = []
-                # Iterate over resource columns (skipping the 'uid' column)
-                for resource_name, rel_path in list(case.items())[1:]:
-                    expected_file = self.data_source / rel_path
-                    if not expected_file.exists():
-                        case_resource_errors.append(
-                            f"  - Resource '{resource_name}': File not found at '{rel_path}'"
-                        )
-
-                if case_resource_errors:
-                    errors.append(f"\nError: Missing resources for case '{case_uid}':")
-                    errors.extend(case_resource_errors)
-
-        return errors
-
-    def validate_cohort_and_data_path_match(self) -> Optional[str]:
-        """
-        Ensure the cohort CSV aligns with resources in the data path.
-
-        Checks for all missing case folders and resource files and returns a
-        comprehensive report of all discrepancies.
-
-        Returns:
-            (bool, str): A tuple containing a validity status and a detailed
-                        error message if invalid.
-        """
-        errors = []
-        try:
-            # Read and perform basic validation on the cohort file only
-            all_cases_in_csv = DataManager._read_csv(self.cohort_csv)
-            DataManager._validate_columns(all_cases_in_csv)
-            DataManager._validate_unique_uids(all_cases_in_csv)
-        except ValueError as e:
-            return f"Invalid CSV file provided: {e}"
-
-        all_dir_names_in_path = {
-            d.name for d in self.data_source.iterdir() if d.is_dir()
-        }
-
-        # # Check 1: Find case folders listed in the CSV but not found in the data path
-        # uids_in_csv = {row['uid'] for row in all_cases_in_csv}
-        # errors += self.requested_cases_in_data_path_errors(uids_in_csv, all_dir_names_in_path)
-
-        # Check 2: For each existing case folder, verify all its resource files exist
-        errors += self.requested_resources_in_data_path_errors(
-            all_cases_in_csv, all_dir_names_in_path
-        )
-
-        if errors:
-            error_message = (
-                "Data path and cohort file mismatch detected.\n\n" + "\n".join(errors)
-            )
-            return error_message
-
-        return None
-
     def _pre_fetch_elements(self):
         """
         Rebuild the cache of pre-fetched DataUnits.
@@ -431,10 +333,10 @@ class DataManager:
         """
         Explicitly delete the cache right before deletion.
 
-        This is in case the data inside reference the DataManager (or one of its
+        This is in case the data inside references the DataManager (or one of its
          components), forming a cyclical reference that results in a memory leak
         """
-        self._get_data_unit = None
+        del self.get_data_unit
 
     def __del__(self):
         self.clean()

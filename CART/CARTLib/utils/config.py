@@ -539,7 +539,7 @@ class JobProfileConfig(DictBackedConfig):
         The file this configuration will be saved to.
 
         Get-only to encourage the file name to be the similar to
-        the
+        the job's name if at all possible
         """
         if self._file_path:
             return self._file_path

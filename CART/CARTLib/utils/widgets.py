@@ -1,4 +1,5 @@
 import csv
+import logging
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
@@ -660,9 +661,14 @@ class CARTSegmentationEditorWidget(
         # KO: We need to delegate to our proxy widget here,
         # otherwise it and the "real" Slicer state will no longer
         # by in sync
-        self.proxySegNodeComboBox.setCurrentText(
-            segment_node.GetName()
-        )
+        node_idx = self.proxySegNodeComboBox.findText(segment_node.GetName())
+        # If we couldn't find the text, make a log and do nothing else
+        if node_idx < 0:
+            logging.error(
+                f"'{self}' could not find segmentation node '{segment_node.GetName()}'"
+            )
+            return
+        self.proxySegNodeComboBox.setCurrentIndex(node_idx)
 
 
 class CARTMarkupEditorWidget(slicer.qSlicerSimpleMarkupsWidget):

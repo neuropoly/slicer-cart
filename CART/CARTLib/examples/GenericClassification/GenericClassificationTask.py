@@ -28,8 +28,13 @@ class GenericClassificationTask(TaskBaseClass[GenericClassificationUnit]):
     """
     README_PATH = Path(__file__).parent / "README.md"
 
-    def __init__(self, master_profile: MasterProfileConfig, job_profile: JobProfileConfig):
-        super().__init__(master_profile, job_profile)
+    def __init__(
+        self,
+        master_profile: MasterProfileConfig,
+        job_profile: JobProfileConfig,
+        cohort_features: list[str],
+    ):
+        super().__init__(master_profile, job_profile, cohort_features)
 
         # Track the active GUI instance, if any
         self.gui: Optional[GenericClassificationGUI] = None

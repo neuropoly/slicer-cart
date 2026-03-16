@@ -69,14 +69,7 @@ class CohortModel(CSVBackedTableModel):
         self.reference_task = reference_task
 
         # Track whenever anything about this model changes!
-        self.dataChanged.connect(self._mark_changed)
-        self.headerDataChanged.connect(self._mark_changed)
-        self.rowsInserted.connect(self._mark_changed)
-        self.rowsMoved.connect(self._mark_changed)
-        self.rowsRemoved.connect(self._mark_changed)
-        self.columnsInserted.connect(self._mark_changed)
-        self.columnsMoved.connect(self._mark_changed)
-        self.columnsRemoved.connect(self._mark_changed)
+        self.connectChangeEvents()
 
         # Load (or initialize) our sidecar data
         self.use_sidecar = use_sidecar
@@ -90,6 +83,26 @@ class CohortModel(CSVBackedTableModel):
         # Set ourselves to "not changed"
         self.has_changed = False
 
+    def connectChangeEvents(self):
+        self.dataChanged.connect(self._mark_changed)
+        self.headerDataChanged.connect(self._mark_changed)
+        self.rowsInserted.connect(self._mark_changed)
+        self.rowsMoved.connect(self._mark_changed)
+        self.rowsRemoved.connect(self._mark_changed)
+        self.columnsInserted.connect(self._mark_changed)
+        self.columnsMoved.connect(self._mark_changed)
+        self.columnsRemoved.connect(self._mark_changed)
+
+    def disconnectChangeEvents(self):
+        self.dataChanged.disconnect(self._mark_changed)
+        self.headerDataChanged.disconnect(self._mark_changed)
+        self.rowsInserted.disconnect(self._mark_changed)
+        self.rowsMoved.disconnect(self._mark_changed)
+        self.rowsRemoved.disconnect(self._mark_changed)
+        self.columnsInserted.disconnect(self._mark_changed)
+        self.columnsMoved.disconnect(self._mark_changed)
+        self.columnsRemoved.disconnect(self._mark_changed)
+
     @classmethod
     def from_case_map(
         cls,
@@ -100,9 +113,6 @@ class CohortModel(CSVBackedTableModel):
         reference_task: "TaskBaseClass" = None,
         use_sidecar: bool = True
     ):
-        # Exit immediately if the case-map is empty
-        if len(case_map) < 1:
-            raise ValueError("Cannot create a cohort from an empty case map!")
         # Generate the backing CSV immediately using the case map's contents
         row_data = [["uid"], *[[k] for k in case_map.keys()]]
         with open(csv_path, "w") as fp:
@@ -622,12 +632,16 @@ class CohortTableView(qt.QTableView):
             dialog.exec()
         editAction.triggered.connect(_modifyColumn)
 
+    def __del__(self):
+        # Disconnect change events; PythonQT isn't smart enough to clean up
+        #  self-referential actions it seems.
+        self.model().disconnectChangeEvents()
+
 
 class CohortTableWidget(CSVBackedTableWidget):
     """
-    Simple implementation for viewing the contents of a CSV file in Qt.
-
-    Shows an error message when the backing CSV cannot be read.
+    Modified version of the CSVBackedTableWidget which tracks a
+    CohortTableView instead.
     """
 
     def __init__(self, model: CohortModel, parent: qt.QWidget = None):
@@ -735,6 +749,10 @@ class CohortEditorDialog(qt.QDialog):
         if not cohort.is_editable():
             raise ValueError("Cannot edit a un-editable Cohort!")
 
+        # QT is astonishingly shit at handling itself, so we need to track
+        #  connections to disconnect later
+        self._to_disconnect = []
+
         # Backing cohort manager
         self._cohort = cohort
 
@@ -759,6 +777,7 @@ class CohortEditorDialog(qt.QDialog):
             qt.QDialogButtonBox.Ok | qt.QDialogButtonBox.Cancel
         )
 
+        @qt.Slot(qt.QPushButton)
         def onButtonClicked(button: qt.QPushButton):
             button_role = buttonBox.buttonRole(button)
             if button_role == qt.QDialogButtonBox.RejectRole:
@@ -773,6 +792,7 @@ class CohortEditorDialog(qt.QDialog):
                 raise ValueError("Pressed a button with an invalid role!")
 
         buttonBox.clicked.connect(onButtonClicked)
+        self._to_disconnect.append(buttonBox.clicked)
         layout.addWidget(buttonBox)
 
     def _addButtons(self, layout: "qt.QVBoxLayout", cohortWidget: "CohortTableWidget") -> qt.QGridLayout:
@@ -786,6 +806,7 @@ class CohortEditorDialog(qt.QDialog):
             )
         )
 
+        @qt.Slot(None)
         def newCaseClicked():
             dialog = CaseEditorDialog(self._cohort)
             if dialog.exec():
@@ -793,6 +814,7 @@ class CohortEditorDialog(qt.QDialog):
                 cohortWidget.tableView.resizeColumnsToContents()
                 cohortWidget.tableView.resizeRowsToContents()
         newCaseButton.clicked.connect(newCaseClicked)
+        self._to_disconnect.append(newCaseButton.clicked)
 
         newFeatureButton = qt.QPushButton(_("New Feature"))
         newFeatureButton.setToolTip(
@@ -803,6 +825,7 @@ class CohortEditorDialog(qt.QDialog):
             )
         )
 
+        @qt.Slot(None)
         def newFeatureClicked():
             dialog = FeatureEditorDialog(self._cohort)
             if dialog.exec():
@@ -810,6 +833,7 @@ class CohortEditorDialog(qt.QDialog):
                 cohortWidget.tableView.resizeColumnsToContents()
                 cohortWidget.tableView.resizeRowsToContents()
         newFeatureButton.clicked.connect(newFeatureClicked)
+        self._to_disconnect.append(newFeatureButton.clicked)
 
         # Drop Cases (Rows) + Drop Features (Columns) Buttons
         dropCasesButton = qt.QPushButton(_("Drop Case(s)"))
@@ -819,6 +843,7 @@ class CohortEditorDialog(qt.QDialog):
             )
         )
 
+        @qt.Slot(None)
         def dropCasesClicked():
             # Prompt the user to confirm this is what they want to do
             msg = qt.QMessageBox()
@@ -838,12 +863,14 @@ class CohortEditorDialog(qt.QDialog):
             if msg.exec() == qt.QMessageBox.Yes:
                 self._cohort.drop_cases(case_names)
         dropCasesButton.clicked.connect(dropCasesClicked)
+        self._to_disconnect.append(dropCasesButton.clicked)
 
         dropFeatureButton = qt.QPushButton(_("Drop Feature(s)"))
         dropFeatureButton.setToolTip(
             _("Drop the selected feature(s) (columns) in the cohort. THIS CANNOT BE UNDONE!")
         )
 
+        @qt.Slot(None)
         def dropFeatureClicked():
             # Prompt the user to confirm this is what they want to do
             msg = qt.QMessageBox()
@@ -863,6 +890,7 @@ class CohortEditorDialog(qt.QDialog):
             if msg.exec() == qt.QMessageBox.Yes:
                 self._cohort.drop_filters(feature_names)
         dropFeatureButton.clicked.connect(dropFeatureClicked)
+        self._to_disconnect.append(dropFeatureButton.clicked)
 
         buttonPanel = qt.QGridLayout()
         buttonPanel.addWidget(newCaseButton, 0, 0)
@@ -904,6 +932,10 @@ class CohortEditorDialog(qt.QDialog):
         # Generate the cohort manager using the provided paths
         cohort = CohortModel(csv_path, data_path, editable, reference_task)
         return cls(cohort)
+
+    def disconnectAll(self):
+        for v in self._to_disconnect:
+            v.disconnect()
 
 
 class FeatureEditorDialog(qt.QDialog):
@@ -1143,6 +1175,7 @@ class FeatureEditorDialog(qt.QDialog):
         # Make sure a feature of this name doesn't already exist
         label = self.namePreviewField.text.strip()
         if self._reference_feature is None and label in self._cohort.feature_map.keys():
+
             # If it does, show an error and return "False" (no changes made)
             qt.QMessageBox.critical(
                 None,
