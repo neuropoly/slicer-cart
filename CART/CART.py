@@ -2,24 +2,28 @@ import importlib
 import logging
 import sys
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING, Tuple, Callable
+from typing import Optional, TYPE_CHECKING, Tuple
 
-import vtk
-
+import ctk
 import qt
 import slicer.util
-from CARTLib.core.LayoutManagement import OrientationButtonArrayWidget
-from slicer import vtkMRMLScalarVolumeNode
 from slicer.ScriptedLoadableModule import *
 from slicer.i18n import tr as _
 from slicer.util import VTKObservationMixin
 
 from CARTLib.core.DataManager import DataManager
+from CARTLib.core.LayoutManagement import OrientationButtonArrayWidget
 from CARTLib.core.TaskBaseClass import TaskBaseClass
 from CARTLib.core.SetupWizard import CARTSetupWizard, JobSetupWizard
-from CARTLib.utils import CART_PATH, CART_VERSION
+from CARTLib.utils import CART_PATH, get_cart_version
 from CARTLib.utils.config import JobProfileConfig, MasterProfileConfig
 from CARTLib.utils.task import CART_TASK_REGISTRY
+
+# These become available when Slicer initializes
+# noinspection PyUnresolvedReferences
+import vtk
+# noinspection PyUnresolvedReferences
+from slicer import vtkMRMLScalarVolumeNode
 
 if TYPE_CHECKING:
     import PyQt5.Qt as qt
@@ -27,8 +31,6 @@ if TYPE_CHECKING:
 #
 # CART
 #
-
-
 class CART(ScriptedLoadableModule):
     """Uses ScriptedLoadableModule base class, available at:
     https://github.com/Slicer/Slicer/blob/main/Base/Python/slicer/ScriptedLoadableModule.py
@@ -46,8 +48,7 @@ class CART(ScriptedLoadableModule):
             "Kuan Yi (Montréal Polytechnique)",
             "Ivan Johnson-Eversoll (University of Iowa)",
         ]
-        self.parent.helpText = _(
-            """
+        self.parent.helpText = _("""
                 CART (Case Annotation and Review Tool) provides a set
                 of abstract base classes for creating streamlined annotation
                 workflows in 3D Slicer. The framework enables efficient
@@ -56,11 +57,9 @@ class CART(ScriptedLoadableModule):
 
                 See more information on the
                 <a href="https://github.com/SomeoneInParticular/CART/tree/main">GitHub repository</a>.
-            """
-        )
+            """)
         # TODO: replace with organization, grant and thanks
-        self.parent.acknowledgementText = _(
-            """
+        self.parent.acknowledgementText = _("""
                 Originally created during Slicer Project Week #43.
 
                 Special thanks the many members of the Slicer community who
@@ -71,8 +70,7 @@ class CART(ScriptedLoadableModule):
                 <a href="https://github.com/SlicerUltrasound/SlicerUltrasound">SlicerUltrasound/AnnotateUltrasound</a> (basis for our UI design),
                 and the many other projects discussed during the breakout session (notes
                 <a href="https://docs.google.com/document/d/12XuYPVuRgy4RTuIabSIjy_sRrYSliewKhcbB1zJgXVI/">here.</a>)
-            """
-        )
+            """)
 
         # Initialize our working environment
         self.init_env()
@@ -105,23 +103,17 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.configWidgetIndex = -1
         self.jobWidgetIndex = -1
 
+        # Widget which holds the current profile label
+        self.userText: qt.QWidget = None
+
         # Widget which holds the task-specific GUI elements
         self.taskSubWidget: qt.QWidget = None
 
-        # List of things to do when the list of registered jobs changes
-        # TODO: Make this a proper QT signal, or something similar
-        self.onJobListChanged: list[Callable[[], None]] = list()
-
-        # List of things to do when the job is changed
-        # TODO: Make this a proper QT signal, or something similar
-        self.onJobChanged: list[Callable[[str], None]] = list()
-
-        # List of things to do when the case is changed
-        # TODO: Make this a proper QT signal, or something similar
-        self.onCaseChanged: list[Callable[[int], None]] = list()
-
         # List of keyboard shortcuts to be installed/uninstalled within this widget
         self.keyboardShortcuts = []
+
+        # When the logic changes our active job, update ourselves to match
+        self.logic.jobChanged.connect(self._onJobChanged)
 
     def setup(self) -> None:
         """
@@ -153,6 +145,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         mainWidget = qt.QWidget(self.parent)
         layout = qt.QVBoxLayout(mainWidget)
 
+        # Profile configuration elements
+        profileWidget = self._profileManagementPanel()
+        layout.addWidget(profileWidget)
+
         # Button panel for creating, editing, or deleting jobs
         jobManagementPanel = self._jobManagementPanel()
         layout.addWidget(jobManagementPanel)
@@ -160,6 +156,37 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Add a stretch to push everything to the top
         layout.addStretch()
 
+        return mainWidget
+
+    def _profileManagementPanel(self) -> qt.QWidget:
+        # Setup
+        mainWidget = qt.QWidget(self.parent)
+        layout = qt.QVBoxLayout(mainWidget)
+
+        # Current user label + text box
+        userLabel = qt.QLabel(_("Current User:"))
+        userText = qt.QLineEdit()
+        userText.setPlaceholderText(
+            _(
+                "The current username + role will appear here; you need to initialize a profile first!"
+            )
+        )
+        userText.setReadOnly(True)
+        layout.addWidget(userLabel)
+        layout.addWidget(userText)
+
+        # Edit profile button
+        editProfileButton = qt.QPushButton()
+        editProfileButton.setText(_("Edit Profile"))
+        editProfileButton.setToolTip(_("Edit (or create) a user profile."))
+        layout.addWidget(editProfileButton)
+
+        # Connections
+        editProfileButton.pressed.connect(self.runProfileEdit)
+
+        # Setup and return
+        self.userText = userText
+        self.profileChanged()
         return mainWidget
 
     def _jobManagementPanel(self) -> qt.QWidget:
@@ -170,6 +197,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Job selection dropdown
         jobSelectorComboBoxLabel = qt.QLabel(_("Please Select or Create a Job:"))
         jobSelectorComboBox = qt.QComboBox(None)
+
+        # Ensure the job selection dropdown is properly updated upon request
+        @qt.Slot()
         def updateJobSelector():
             jobSelectorComboBox.clear()
             jobSelectorComboBox.addItems(self.logic.registered_jobs_names)
@@ -178,7 +208,10 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 jobSelectorComboBox.setCurrentIndex(0)
             else:
                 jobSelectorComboBox.setEnabled(False)
-        self.onJobListChanged.append(updateJobSelector)
+
+        # Ping to sync up immediately
+        updateJobSelector()
+        self.logic.jobListChanged.connect(updateJobSelector)
 
         layout.addWidget(jobSelectorComboBoxLabel)
         layout.addWidget(jobSelectorComboBox)
@@ -191,72 +224,57 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # "New" button
         newButton = qt.QPushButton(_("New"))
         newButton.setToolTip(_("Create a new Job"))
-        def newButtonClicked():
-            # Ask the user to run initial setup
-            if not self.logic.has_run_before():
-                # If they don't, end here
-                if self._cartNotRunBeforePrompt() != qt.QMessageBox.Yes:
-                    return
-                if self.runInitialSetup():
-                    self.runNewJobSetup()
-            # Otherwise, skip to job creation
-            else:
-                self.runNewJobSetup()
 
-        newButton.clicked.connect(newButtonClicked)
+        newButton.clicked.connect(self.runNewJobSetup)
         buttonPanelLayout.addWidget(newButton)
 
         # "Edit" button
         editButton = qt.QPushButton(_("Edit"))
         editButton.setToolTip(_("Edit the Job's configuration"))
-        def onJobEdit():
-            currentJob: str = jobSelectorComboBox.currentText
-            jobPath = self.logic.registered_jobs.get(currentJob, None)
-            # If the specified job's config is missing, ask if they want to re-create it!
-            if jobPath is None:
-                # If they don't, end here
-                if self._jobMissingPrompt() != qt.QMessageBox.Yes:
-                    return
-                # Create a new config w/ the same name
-                jobConfig = JobProfileConfig()
-                jobConfig.name = currentJob
-            # Otherwise, load the previous job's configuration
-            else:
-                jobConfig = JobProfileConfig(file_path=Path(jobPath))
-                jobConfig.reload()
-            # Have the user edit the job
-            self.runJobEdit(jobConfig)
-        editButton.clicked.connect(onJobEdit)
+
+        @qt.Slot()
+        def editButtonClicked():
+            # Edit the job currently selected by the dropdown
+            job_name: str = jobSelectorComboBox.currentText.strip()
+            # If the user didn't back out of the edit, start the job once they're done
+            if self.editJob(job_name):
+                self.logic.set_active_job(job_name)
+
+        editButton.clicked.connect(editButtonClicked)
         buttonPanelLayout.addWidget(editButton)
-        self.onJobListChanged.append(
+        self.logic.jobListChanged.connect(
             lambda: editButton.setEnabled(jobSelectorComboBox.isEnabled())
         )
+        editButton.setEnabled(jobSelectorComboBox.isEnabled())
 
         # "Delete" button
         deleteButton = qt.QPushButton(_("Delete"))
         deleteButton.setToolTip(_("Delete the Job configuration"))
+
+        @qt.Slot()
         def onJobDelete():
             self.logic.delete_job_config(jobSelectorComboBox.currentText)
-            self.jobListChanged()
+
         deleteButton.clicked.connect(onJobDelete)
         buttonPanelLayout.addWidget(deleteButton)
-        self.onJobListChanged.append(
+        self.logic.jobListChanged.connect(
             lambda: deleteButton.setEnabled(jobSelectorComboBox.isEnabled())
         )
+        deleteButton.setEnabled(jobSelectorComboBox.isEnabled())
 
         # Start button; initializes the job, or walks the user through job setup if there isn't one
         startButton = qt.QPushButton("Start")
         startButton.setToolTip(_("Start CART!"))
+
+        @qt.Slot()
         def onStartClicked():
             if jobSelectorComboBox.isEnabled():
                 self.start(jobSelectorComboBox.currentText)
             else:
                 self.start()
+
         startButton.clicked.connect(onStartClicked)
         layout.addWidget(startButton)
-
-        # "Emit" our signal to sync everything up
-        self.jobListChanged()
 
         return mainWidget
 
@@ -287,57 +305,42 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         return mainWidget, taskWidget
 
     def _caseSelectionPanel(self) -> qt.QWidget:
-        # Setup
+        ## Setup ##
         buttonPanel = qt.QWidget(None)
         layout = qt.QHBoxLayout(buttonPanel)
 
-        # Define each of the buttons
+        # TODO: Replace these with custom icons to ensure standardization
+        UNKNOWN_ICON = buttonPanel.style().standardIcon(qt.QStyle.SP_FileIcon)
+        COMPLETED_ICON = buttonPanel.style().standardIcon(qt.QStyle.SP_DialogApplyButton)
+        FAILED_ICON = buttonPanel.style().standardIcon(qt.QStyle.SP_MessageBoxCritical)
+
+        ## Previous Incomplete ##
         previousIncompleteButton = qt.QToolButton(None)
         previousIncompleteButton.setText("<<")
         previousIncompleteButton.setToolTip(_("Jump to the Previous Incomplete Case"))
-        previousIncompleteButton.clicked.connect(self.previousIncompleteCasePressed)
-        self.onCaseChanged.append(
-            lambda __: previousIncompleteButton.setEnabled(self.logic.has_previous_case())
-        )
+        previousIncompleteButton.clicked.connect(self.logic.previous_incomplete_case)
 
+        ## Previous Button ##
         previousButton = qt.QToolButton(None)
         previousButton.setText("<")
         previousButton.setToolTip(_("Switch to the Previous Case"))
-        previousButton.clicked.connect(self.previousCasePressed)
-        self.onCaseChanged.append(
-            lambda __: previousButton.setEnabled(self.logic.has_previous_case())
-        )
+        previousButton.clicked.connect(self.logic.previous_case)
 
+        ## Next Button ##
         nextButton = qt.QToolButton(None)
         nextButton.setText(">")
         nextButton.setToolTip(_("Switch to the Next Case"))
-        nextButton.clicked.connect(self.nextCasePressed)
-        self.onCaseChanged.append(
-            lambda __: nextButton.setEnabled(self.logic.has_next_case())
-        )
+        nextButton.clicked.connect(self.logic.next_case)
 
+        ## Next Incomplete ##
         nextIncompleteButton = qt.QToolButton(None)
         nextIncompleteButton.setText(">>")
         nextIncompleteButton.setToolTip(_("Jump to the Next Incomplete Case"))
-        nextIncompleteButton.clicked.connect(self.nextIncompleteCasePressed)
-        self.onCaseChanged.append(
-            lambda __: nextIncompleteButton.setEnabled(self.logic.has_next_case())
-        )
+        nextIncompleteButton.clicked.connect(self.logic.next_incomplete_case)
 
-        # Define a selector/viewer for the current case
-        caseSelector = qt.QComboBox(None)
-        def updateCaseOptions(__):
-            caseSelector.blockSignals(True)
-            caseSelector.clear()
-            caseSelector.addItems(self.logic.data_manager.valid_uids)
-            caseSelector.blockSignals(False)
-        self.onJobChanged.append(updateCaseOptions)
-        def syncCaseSelector(idx: int):
-            caseSelector.blockSignals(True)
-            caseSelector.setCurrentIndex(idx)
-            caseSelector.blockSignals(False)
-        self.onCaseChanged.append(syncCaseSelector)
-        caseSelector.currentIndexChanged.connect(self.selectCaseAt)
+        ## Case Viewer/Selector ##
+        caseSelector: qt.QComboBox = ctk.ctkComboBox(None)
+        caseSelector.currentIndexChanged.connect(self.logic.select_case)
 
         # Add them each to the panel
         layout.addWidget(previousIncompleteButton, 1)
@@ -346,37 +349,136 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         layout.addWidget(nextButton, 1)
         layout.addWidget(nextIncompleteButton, 1)
 
+        ## Logic Connections ##
+        @qt.Slot(int)
+        def updateCaseIcon(idx: int):
+            # Update the previous case's state to match
+            case_completed = self.logic.is_case_completed(idx)
+            if case_completed:
+                # True -> task saved correctly
+                caseSelector.setItemIcon(idx, COMPLETED_ICON)
+                self.saveButton.setText(self.SAVE_BUTTON_SUCCESS_TEXT)
+                self.saveStateTimer.start(3000)  # 3 seconds
+            elif case_completed is None:
+                # None -> the task isn't sure (the default)
+                caseSelector.setItemIcon(idx, UNKNOWN_ICON)
+                self.saveButton.setText(self.SAVE_BUTTON_UNKNOWN_TEXT)
+                self.saveStateTimer.start(5000)  # 5 seconds
+            else:
+                # False -> a failure to save when the case swapped over
+                caseSelector.setItemIcon(idx, FAILED_ICON)
+                self.saveButton.setText(self.SAVE_BUTTON_FAILURE_TEXT)
+                self.saveStateTimer.start(5000)  # 5 seconds
+        self.logic.caseSaved.connect(updateCaseIcon)
+
+        @qt.Slot()
+        def updateCaseOptions():
+            # Block signals to prevent accidental cyclic chains
+            caseSelector.blockSignals(True)
+            try:
+                caseSelector.clear()
+                for i, u in enumerate(self.logic.data_manager.valid_uids):
+                    caseSelector.addItem(u)
+                    # Update the previous case's state to match
+                    updateCaseIcon(i)
+                # Immediately set our save button's text back to default
+                self.saveButton.setText(self.SAVE_BUTTON_DEFAULT_TEXT)
+            # Re-enable signals no matter what
+            finally:
+                caseSelector.blockSignals(False)
+        self.logic.jobChanged.connect(updateCaseOptions)
+
+        @qt.Slot(int, int)
+        def updatePriorButtons(__, ___):
+            has_prior = self.logic.has_previous_case()
+            previousIncompleteButton.setEnabled(has_prior)
+            previousButton.setEnabled(has_prior)
+        self.logic.caseChanged.connect(updatePriorButtons)
+
+        @qt.Slot(int, int)
+        def updateNextButtons(__, ___):
+            has_next = self.logic.has_next_case()
+            nextIncompleteButton.setEnabled(has_next)
+            nextButton.setEnabled(has_next)
+        self.logic.caseChanged.connect(updateNextButtons)
+
+        @qt.Slot(int, int)
+        def updateSelectedCase(__: int, new_idx: int):
+            # Block signals to prevent it from causing an infinite loop
+            caseSelector.blockSignals(True)
+            try:
+                # Update our case selector to match the newly chosen case
+                caseSelector.setCurrentIndex(new_idx)
+            # Re-enable signals
+            finally:
+                caseSelector.blockSignals(False)
+        self.logic.caseChanged.connect(updateSelectedCase)
+
         # Return the result
         return buttonPanel
 
+    SAVE_BUTTON_DEFAULT_TEXT = _("Save")
+    SAVE_BUTTON_SUCCESS_TEXT = _("Saved!")
+    SAVE_BUTTON_FAILURE_TEXT = _("Failed to Save!")
+    SAVE_BUTTON_UNKNOWN_TEXT = _("Save Status Unknown")
+
     def _savePanel(self) -> qt.QWidget:
+        # The main content panel
         buttonPanel = qt.QWidget(None)
         buttonPanelLayout = qt.QHBoxLayout(buttonPanel)
 
-        saveButton = qt.QPushButton(_("Save"))
+        # The primary "save" button
+        saveButton = qt.QPushButton(self.SAVE_BUTTON_DEFAULT_TEXT)
         saveButton.clicked.connect(self.logic.save_case)
+        self.saveButton = saveButton
 
+        # A "Save an Iterate" button, as requested by collaborators
+        saveAndNextButton = qt.QPushButton(_(
+            "Save and Next Case"
+        ))
+        @qt.Slot()
+        def save_and_next():
+            self.logic.save_case()
+            self.logic.next_case()
+        saveAndNextButton.clicked.connect(save_and_next)
+
+        # Timer which will automatically "reset" the button's text when it expires
+        self.saveStateTimer = qt.QTimer(None)
+        self.saveStateTimer.setSingleShot(True)  # Stop after being triggered
+        @qt.Slot()
+        def resetSaveButtonText():
+            saveButton.setText(self.SAVE_BUTTON_DEFAULT_TEXT)
+        self.saveStateTimer.timeout.connect(resetSaveButtonText)
+
+        # Lay them out side-by-side with some padding.
         buttonPanelLayout.addStretch(1)
         buttonPanelLayout.addWidget(saveButton, 10)
+        buttonPanelLayout.addStretch(1)
+        buttonPanelLayout.addWidget(saveAndNextButton, 10)
         buttonPanelLayout.addStretch(1)
 
         return buttonPanel
 
     def _layoutPanel(self):
         layoutPanel = OrientationButtonArrayWidget()
-        def onNewCase(__: int):
-            new_unit = self.logic.data_manager.select_current_unit()
+
+        @qt.Slot(int, int)
+        def onNewCase(__: int, ___: int):
+            new_unit = self.logic.data_manager.current_data_unit()
             layoutPanel.changeLayoutHandler(new_unit.layout_handler, True)
-        self.onCaseChanged.append(onNewCase)
+            new_unit.layout_handler.apply_layout()
+
+        self.logic.caseChanged.connect(onNewCase)
+
         return layoutPanel
 
     ## Connections ##
     def start(self, job_name=None):
-        # If this is the first time CART has been run, ask to initialize firest
+        # Check if a user profile exists, prompting the user to create one if not.
         if not self.logic.has_run_before():
-            if self._cartNotRunBeforePrompt() != qt.QMessageBox.Yes:
+            if self._noProfileFoundPrompt() != qt.QMessageBox.Yes:
                 return
-            if not self.runInitialSetup():
+            if not self.runProfileEdit(show_walkthrough=True):
                 return
         # If no job was specified, ask if they want to create one.
         if job_name is None:
@@ -385,70 +487,36 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             job_name = self.runNewJobSetup()
             if job_name is None:
                 return
-        # or, if the job is corrupted (somehow), ask to re-build it
-        elif self.logic.registered_jobs[job_name] is None:
-            if self._jobMissingPrompt() != qt.QMessageBox.Yes:
+        # If the corresponding job path doesn't exist on file, prompt the user to "edit" the job instead.
+        job_path = self.logic.registered_jobs.get(job_name, None)
+        if job_path is None or not Path(job_path).exists():
+            # If the user backs out of re-creating the new job, end here
+            if not self.editJob(job_name):
                 return
-            config = JobProfileConfig()
-            config.name = job_name
-            job_name = self.runJobEdit(config)
-            if not job_name:
-                return
-            job_name = config.name
         # Finally, initialize the job
-        self.initJob(job_name)
+        self.logic.set_active_job(job_name)
 
-    def nextCasePressed(self):
-        # Request the logic switch to the next case
-        self.logic.next_case()
-
-        # Emit our case-changed signal
-        self.caseChanged()
-
-    def nextIncompleteCasePressed(self):
-        # Request the logic switch to the next case
-        self.logic.next_incomplete_case()
-
-        # Emit our case-changed signal
-        self.caseChanged()
-
-    def previousCasePressed(self):
-        # Request the logic switch to the next case
-        self.logic.previous_case()
-
-        # Emit our case-changed signal
-        self.caseChanged()
-
-    def previousIncompleteCasePressed(self):
-        # Request the logic switch to the next case
-        self.logic.previous_incomplete_case()
-
-        # Emit our case-changed signal
-        self.caseChanged()
-
-    def selectCaseAt(self, idx):
-        # Request the logic switch to the next case
-        self.logic.select_case(idx)
-
-        # Emit our case-changed signal
-        self.caseChanged()
-
-    def caseChanged(self):
-        # Scuffed, but this doesn't crash at least!
-        case_idx = self.logic.data_manager.current_case_index
-        for f in self.onCaseChanged:
-            f(case_idx)
-
-        # Always refresh the layout afterward
-        self.logic.refresh_layout()
+    def profileChanged(self):
+        # Update the text in the profile to match the current config settings
+        if (author := self.logic.master_profile_config.author) is not None:
+            position = self.logic.master_profile_config.position
+            if position is None:
+                new_text = author
+            else:
+                new_text = f"{author} ({position})"
+            self.userText.setText(new_text)
+        else:
+            self.userText.clear()
 
     ## User Prompts ##
     @staticmethod
-    def _cartNotRunBeforePrompt():
+    def _noProfileFoundPrompt():
         return qt.QMessageBox.question(
             None,
-            _("Initialize CART?"),
-            _("CART has not been run before. Would you like to run setup now?"),
+            _("Initialize Profile?"),
+            _(
+                "You have not set up your user profile yet. Would you like to do so now?"
+            ),
             qt.QMessageBox.Yes | qt.QMessageBox.No,
             qt.QMessageBox.Yes,
         )
@@ -464,118 +532,118 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         )
 
     @staticmethod
-    def _jobMissingPrompt():
-        return qt.QMessageBox.question(
+    def _jobMissingPrompt(job_name: str):
+        return qt.QMessageBox.warning(
             None,
-            _("Job Cannot be Found"),
+            _(f"Job '{job_name}' Not Found"),
             _(
-                "It seems the requested job's configuration was deleted or is unavailable; "
-                "would you like to create a new job instead?"
+                f"The configuration for {job_name} was deleted or is unavailable; "
+                "would you like to create a new job of the same name instead?"
             ),
             qt.QMessageBox.Yes | qt.QMessageBox.No,
             qt.QMessageBox.Yes,
         )
 
     ## Setup Workflows ##
-    def runInitialSetup(self) -> bool:
+    @qt.Slot()
+    def runProfileEdit(self, show_walkthrough: bool = False) -> bool:
         """
-        Run initial CART setup, prompting the user for their name and role.
+        Run the cart profile editor, only applying its changes if the user confirms them.
+
+        :param show_walkthrough: Whether introductory and conclusion pages should be displayed.
+          Usually only needed when the user is "brand new", and just clicked 'start' without
+          knowing any better.
 
         :return: If the setup was successful or not.
         """
-        initSetupWizard = CARTSetupWizard(None)
-        result = initSetupWizard.exec()
-
-        # If we got an "accept" signal, update our logic and begin job setup
+        profileWizard = CARTSetupWizard(None, self.logic.master_profile_config, show_walkthrough)
+        result = profileWizard.exec()
         if result == qt.QDialog.Accepted:
-            initSetupWizard.update_logic(self.logic)
+            # Save the results and report the user made changes
+            self.logic.save_master_config()
+            self.profileChanged()
             return True
-        return False
+        else:
+            # Otherwise, reset the config to what it was and report no changes made
+            self.logic.reload_master_config()
+            return False
 
+    @qt.Slot()
     def runNewJobSetup(self) -> Optional[str]:
         """
         Run CART job creation, prompting the user to provide the following:
-            * The data they want to use, and where to save the results
-            * The task they want to run
-            * How they want to iterate through the data (the "cohort")
+            * The data they want to use, and where to save the results.
+            * The task they want to run.
+            * How they want to iterate through the data (the "cohort").
+            * Relevant configurations for each of the previous options.
 
-        :return: The name of the new job; None if the setup was terminated
+        :return: The name of the new job; None if the setup was terminated.
         """
 
-        jobSetupWizard = JobSetupWizard(None, taken_names=self.logic.registered_jobs.keys())
+        jobSetupWizard = JobSetupWizard(
+            None, taken_names=self.logic.registered_jobs.keys()
+        )
         result = jobSetupWizard.exec()
 
         # If we got an "accept" signal, create the job config and initialize it
         if result == qt.QDialog.Accepted:
             new_config = jobSetupWizard.save_config(self.logic)
-            self.jobListChanged()
             return new_config.name
         return None
 
-    def runJobEdit(self, config: JobProfileConfig = None) -> bool:
+    def editJob(self, job_name: str) -> bool:
         """
-        Edits an existing job in-place. Re-uses the job creation wizard,
-        skipping the introduction page and filling every field with
-        the previous job's values (if present).
+        Begin editing the job with the provided name. If no such job exists,
+        the user will be prompted to create a job of the same name instead.
 
-        :return: If the edit was successful or not.
+        :return: True if the job was successfully edited, False otherwise.
         """
+        job_path = self.logic.registered_jobs.get(job_name, None)
+        # If the specified job's path is missing, ask if they want to re-create it!
+        if job_path is None or not Path(job_path).exists():
+            # If they don't, end here
+            if self._jobMissingPrompt(job_name) != qt.QMessageBox.Yes:
+                return False
+            # Create a new config w/ the same name
+            job_config = JobProfileConfig()
+            job_config.name = job_name
+        # Otherwise, load the previous job's configuration
+        else:
+            job_config = JobProfileConfig(file_path=Path(job_path))
+            job_config.reload()
 
+        # Initialize the wizard which will walk the user through the edits.
         jobSetupWizard = JobSetupWizard(
-            None, taken_names=self.logic.registered_jobs.keys(), config=config
+            None, taken_names=self.logic.registered_jobs.keys(), config=job_config
         )
-        result = jobSetupWizard.exec()
 
-        # If we got an "accept" signal, create the job config and exit
-        if result == qt.QDialog.Accepted:
-            new_config = jobSetupWizard.save_config(self.logic)
-            self.jobListChanged()
+        # If we got an "accept" signal, register the changes and return True
+        if jobSetupWizard.exec() == qt.QDialog.Accepted:
+            jobSetupWizard.save_config(self.logic)
             return True
+        # Otherwise the user backed out, return False
         return False
 
     ## Job Management ##
-    def initJob(self, job_name: str):
-        # Initialize the job on the logic-side first
-        self.logic.set_active_job(job_name)
-
-        # Update the GUI to match
+    @qt.Slot(str)
+    def _onJobChanged(self):
+        # Initialize our GUI
         self.logic.init_task_gui(self.taskSubWidget)
 
-        # Expand the task widget's container, if any
+        # Swap to this new job widget
         self.mainWidget.setCurrentIndex(self.jobWidgetIndex)
-
-        # "Emit" the job-changed signal
-        self.jobChanged()
-
-        # "Emit" the case-changed signal
-        self.caseChanged()
-
-    def jobListChanged(self):
-        # QT!!!!!!!!!!!!!!!
-        for f in self.onJobListChanged:
-            f()
-
-    def jobChanged(self):
-        # I love QT signals not working!
-        job_name = self.logic.active_job_config.name
-        for f in self.onJobChanged:
-            f(job_name)
 
     ## Keyboard Shortcuts ##
     def installKeyboardShortcuts(self):
         # Next/Previous Case
         nextShortcut = qt.QShortcut(slicer.util.mainWindow())
         nextShortcut.setKey(qt.QKeySequence(qt.QKeySequence.MoveToNextPage))
-        nextShortcut.activated.connect(
-            self.nextCasePressed
-        )
+        nextShortcut.activated.connect(self.logic.next_case)
         self.keyboardShortcuts.append(nextShortcut)
 
         previousShortcut = qt.QShortcut(slicer.util.mainWindow())
         previousShortcut.setKey(qt.QKeySequence(qt.QKeySequence.MoveToPreviousPage))
-        previousShortcut.activated.connect(
-            self.previousCasePressed
-        )
+        previousShortcut.activated.connect(self.logic.previous_case)
 
     def uninstallKeyboardShortcuts(self):
         for kbs in self.keyboardShortcuts:
@@ -588,7 +656,12 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """
         Called when the application closes and this widget is about to be destroyed.
         """
-        pass
+        # Disconnect from the signals we hooked into so Slicer can close cleanly
+        self.logic.jobChanged.disconnect()
+        self.logic.jobListChanged.disconnect()
+        self.logic.caseSaved.disconnect()
+        self.logic.caseChanged.disconnect()
+        self.saveStateTimer.timeout.disconnect()
 
     def enter(self):
         # Delegate to our logic to have tasks properly update
@@ -609,7 +682,23 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 # CARTLogic
 #
 # noinspection PyUnresolvedReferences
-class CARTLogic(ScriptedLoadableModuleLogic):
+class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
+
+    # Emitted when the active job has been changed;
+    # currently only happens once, when the first job is initialized.
+    jobChanged = qt.Signal()
+
+    # Emitted when the list of jobs managed by CART has changed
+    # (a job was added, removed, or renamed)
+    jobListChanged = qt.Signal()
+
+    # Signal for when a given case (the first int) is changed to another (the second)
+    # The first int is -1 when no prior case exists (this is the first case loaded)
+    caseChanged = qt.Signal(int, int)
+
+    # Emitted when the case at a given index just tried to save
+    caseSaved = qt.Signal(int)
+
     def __init__(self):
         ScriptedLoadableModuleLogic.__init__(self)
 
@@ -669,6 +758,8 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # Save our master config to preserve the change
         self.master_profile_config.has_changed = True
         self.master_profile_config.save()
+        # Emit the appropriate signal
+        self.jobListChanged()
 
     def set_active_job(self, job_name: str):
         """
@@ -676,12 +767,16 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         """
         # Confirm the requested job is registered
         if not job_name in self.registered_jobs.keys():
-            raise ValueError(f"Cannot set job '{job_name}' as active; it has not been registered!")
+            raise ValueError(
+                f"Cannot set job '{job_name}' as active; it has not been registered!"
+            )
 
         # Confirm the job config file exist
         job_file = Path(self.registered_jobs.get(job_name))
         if not job_file.exists() or not job_file.is_file():
-            raise ValueError(f"Cannot set job '{job_name}' as active; its corresponding config file does not exist!")
+            raise ValueError(
+                f"Cannot set job '{job_name}' as active; its corresponding config file does not exist!"
+            )
 
         # Get and load the job's config
         job_profile = JobProfileConfig(file_path=job_file)
@@ -694,16 +789,15 @@ class CARTLogic(ScriptedLoadableModuleLogic):
                 f"Could not load job '{job_profile.name}', "
                 f"no task of name '{job_profile.task}' has been registered."
             )
-        # TODO: Allow user selection of this instead
-        duf = list(new_task_cls.getDataUnitFactories().values())[0]
+        duf = new_task_cls.getDataUnitFactory()
 
-        # Initialize the data loader using the job's settings
+        # Initialize a new data manager
         data_manager = DataManager(
             cohort_file=job_profile.cohort_path,
             data_source=job_profile.data_path,
             data_unit_factory=duf,
             # TODO: Allow user configuration of this
-            cache_size=2
+            cache_size=2,
         )
 
         # Initialize the new task
@@ -714,10 +808,21 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # Unload the previous task
         # TODO
 
+        if self.master_profile_config.load_previous_outputs:
+            # If the user has requested we load previous outputs, pass
+            # the task to the data manager so it can "seek" them.
+            data_manager.reference_task = new_task
+
         # Install the new task and give it its first data unit!
         self._data_manager = data_manager
         self._task_instance = new_task
-        self._task_instance.receive(self._data_manager.current_data_unit())
+
+        # Pass the appropriate case to the task, skipping to the first "incomplete" if requested
+        if self.master_profile_config.skip_to_first_incomplete:
+            unit = self.data_manager.first_incomplete(self._task_instance)
+        else:
+            unit = self.data_manager.first()
+        self._task_instance.receive(unit)
 
         # Initialize the new task
         self.active_job_config = job_profile
@@ -726,9 +831,15 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         self.master_profile_config.set_last_job(job_name)
         self.master_profile_config.save()
 
+        # Emit our job changed + a syncing case changed signal
+        self.jobChanged()
+        self.caseChanged(-1, self.data_manager.current_case_index)
+
     def register_job_config(self, job_config: JobProfileConfig):
         self.master_profile_config.register_new_job(job_config)
         self.master_profile_config.save()
+        # Emit the appropriate signal
+        self.jobListChanged()
 
     def has_run_before(self):
         # Just checks if we've defined an author before or not
@@ -778,7 +889,9 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         if not task_path.exists():
             raise ValueError(f"File '{task_path}' does not exist; cannot load task!")
         elif not task_path.is_file():
-            raise ValueError(f"Path '{task_path}' is not a file; cannot load directories!")
+            raise ValueError(
+                f"Path '{task_path}' is not a file; cannot load directories!"
+            )
         elif ".py" not in task_path.suffixes:
             self.logger.warning(
                 f"Registered task file '{task_path}' was not a Python file; "
@@ -791,7 +904,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # Add the parent of the path to our Python path
         module_path = str(task_path.parent.resolve())
         sys.path.append(module_path)
-        module_name = task_path.name.split('.')[0]
+        module_name = task_path.name.split(".")[0]
 
         try:
             # Try to load the module in question
@@ -809,8 +922,10 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # If no new tasks were registered, roll back the changes and raise an error
         if len(new_tasks) < 1:
             sys.path.remove(module_path)
-            raise ValueError(f"No tasks were registered when importing the file '{task_path}'; "
-                             f"Rolling everything back!")
+            raise ValueError(
+                f"No tasks were registered when importing the file '{task_path}'; "
+                f"Rolling everything back!"
+            )
         # Otherwise, keep the module loaded!
         sys.modules[module_name] = module
 
@@ -835,7 +950,7 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         example_task_paths = [
             examples_path / "Segmentation/SegmentationTask.py",
             examples_path / "GenericClassification/GenericClassificationTask.py",
-            examples_path / "Markup/Markup.py"
+            examples_path / "Markup/Markup.py",
         ]
 
         # Make sure the example tasks all exist before doing anything!
@@ -845,7 +960,9 @@ class CARTLogic(ScriptedLoadableModuleLogic):
                 missing_paths.append(p)
 
         if len(missing_paths) > 0:
-            err_msg = "CART seems to have been corrupted; was missing the following paths!\n"
+            err_msg = (
+                "CART seems to have been corrupted; was missing the following paths!\n"
+            )
             err_msg += f"\n  * ".join([str(p) for p in missing_paths])
             raise ValueError(err_msg)
 
@@ -872,80 +989,144 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         self._task_instance.setup(containerWidget)
 
     ## Case Management ##
+    def is_case_completed(self, idx: int) -> bool:
+        # Confirm we're in a valid state first; if not, the case is not complete
+        if self.data_manager is None or self._task_instance is None:
+            self.logger.warning("Could not check for case completion, CART has not initialized!")
+            return False
+        # Check if the selected case is completed or not
+        case = self.data_manager.case_data[idx]
+        return self._task_instance.isTaskComplete(case)
+
     def has_next_case(self):
         if self._data_manager is None:
             return False
         return self._data_manager.has_next_case()
 
-    def next_case(self):
-        if self._data_manager and self._data_manager.has_next_case():
-            # If this was somehow done without an active task, return
-            if self._task_instance is None:
-                return
-            # Iterate to the next data unit and update everything
-            # TODO: Restore configuration option for this
-            self._task_instance.save()
+    def next_case(self) -> bool:
+        # If we're in an invalid state, return False
+        if not (
+            self._data_manager
+            and self.has_next_case()
+            and self._task_instance
+        ):
+            return False
+        # Tell the task to save its current unit
+        self._autosave_case()
+        # Iterate to the next data unit and proceed
+        old_idx = self._data_manager.current_case_index
+        try:
             new_unit = self._data_manager.next()
             self._task_instance.receive(new_unit)
+            self.caseChanged(old_idx, self._data_manager.current_case_index)
+        except Exception as e:
+            # Roll back to the previous case if the task failed to receive the new unit
+            self.select_case(old_idx)
+            raise e
+        return True
 
     def next_incomplete_case(self):
-        if self._data_manager and self._data_manager.has_next_case():
-            # If this was somehow done without an active task, return
-            if self._task_instance is None:
-                return
-            # Iterate to the next incomplete data unit and update everything
-            # TODO: Restore configuration option for this
-            self._task_instance.save()
+        # If we're in an invalid state, return False
+        if not (
+            self._data_manager
+            and self._data_manager.has_next_case()
+            and self._task_instance
+        ):
+            return
+        # Tell the task to save its current unit
+        self._autosave_case()
+        # Iterate to the next incomplete data unit and proceed
+        old_idx = self._data_manager.current_case_index
+        try:
             new_unit = self._data_manager.next_incomplete(self._task_instance)
             self._task_instance.receive(new_unit)
+            self.caseChanged(old_idx, self._data_manager.current_case_index)
+        except Exception as e:
+            # Roll back to the previous case if the task failed to receive the new unit
+            self.select_case(old_idx)
+            raise e
 
     def has_previous_case(self):
         if self._data_manager is None:
             return False
         return self._data_manager.has_previous_case()
 
-    def previous_case(self):
-        if self._data_manager and self._data_manager.has_previous_case():
-            # If this was somehow done without an active task, return
-            if self._task_instance is None:
-                return
-            # Iterate to the prior data unit and update everything
-            # TODO: Restore configuration option for this
-            self._task_instance.save()
+    def previous_case(self) -> bool:
+        # If we're in an invalid state, return False
+        if not (
+            self._data_manager
+            and self.has_previous_case()
+            and self._task_instance
+        ):
+            return False
+        # Tell the task to save its current unit
+        self._autosave_case()
+        # Iterate to the previous data unit and proceed
+        old_idx = self._data_manager.current_case_index
+        try:
             new_unit = self._data_manager.previous()
             self._task_instance.receive(new_unit)
+            self.caseChanged(old_idx, self._data_manager.current_case_index)
+        except Exception as e:
+            # Roll back to the previous case if the task failed to receive the new unit
+            self.select_case(old_idx)
+            raise e
+        return True
 
-    def previous_incomplete_case(self):
-        if self._data_manager and self._data_manager.has_previous_case():
-            # If this was somehow done without an active task, return
-            if self._task_instance is None:
-                return
-            # Iterate to the prior incomplete data unit and update everything
-            # TODO: Restore configuration option for this
-            self._task_instance.save()
+    def previous_incomplete_case(self) -> bool:
+        # If we're in an invalid state, return False
+        if not (
+            self._data_manager
+            and self.has_previous_case()
+            and self._task_instance
+        ):
+            return False
+        # Tell the task to save its current unit
+        self._autosave_case()
+        # Iterate to the previous data unit and proceed
+        old_idx = self._data_manager.current_case_index
+        try:
             new_unit = self._data_manager.previous_incomplete(self._task_instance)
             self._task_instance.receive(new_unit)
+            self.caseChanged(old_idx, self._data_manager.current_case_index)
+        except Exception as e:
+            # Roll back to the previous case if the task failed to receive the new unit
+            self.select_case(old_idx)
+            raise e
+        return True
 
     def select_case(self, idx: int):
-        if self._data_manager and self._task_instance:
-            # TODO: Restore configuration option for this
-            self._task_instance.save()
-            new_unit = self._data_manager.select_unit_at(idx)
-            self._task_instance.receive(new_unit)
+        # If we aren't in a state to swap cases, raise an error
+        if self._data_manager is None:
+            raise ValueError("CART cannot change cases; we do not have a data manager yet!")
+        if self._task_instance is None:
+            raise ValueError("CART cannot change cases; there is no task to receive the new one!")
+        # Auto-save the case, if the user has configured it
+        self._autosave_case()
+        # Swap to the new unit
+        prior_idx = self._data_manager.current_case_index
+        new_unit = self._data_manager.select_unit_at(idx)
+        self._task_instance.receive(new_unit)
+        self.caseChanged(prior_idx, idx)
+
+    def _autosave_case(self):
+        # Just checks the profile's configuration option before proceeding
+        if self.master_profile_config.autosave_on_switch:
+            self.save_case()
 
     def save_case(self):
-        if self._data_manager and self._task_instance:
+        try:
+            # If we don't have what we need to save, raise an error
+            if self._task_instance is None:
+                raise ValueError("CART could not save; no task has been initialized!")
+            if self._data_manager is None:
+                raise ValueError(
+                    "CART could not save; the data manager has not been initialized!"
+                )
             self._task_instance.save()
-
-    def refresh_layout(self):
-        if self._data_manager is None:
-            self.logger.warning(
-                f"No data manager current exists, cannot apply a data unit layout!"
-            )
-            return
-
-        # Apply the layout of the current data unit
-        self._data_manager.current_data_unit().layout_handler.apply_layout()
+        finally:
+            # Always emit a signal so any GUIs can sync properly
+            self.caseSaved(self.data_manager.current_case_index)
 
     ## Config Management ##
     def save_master_config(self):
@@ -955,11 +1136,18 @@ class CARTLogic(ScriptedLoadableModuleLogic):
         # Pull the data from the config file
         self.master_profile_config.reload()
         # If the config version doesn't match the current CART version, warn the user
-        if self.master_profile_config.version != CART_VERSION:
+        current_cart_version = get_cart_version()
+        config_cart_version = self.master_profile_config.version
+        if config_cart_version != current_cart_version:
+            # Warn the user the versions are being updated.
             # TODO: Prompt the user directly!
-            print("WARNING: Current CART version does not match that of the master profile! "
-                  "CART may not work as expected!")
-            self.master_profile_config.version = CART_VERSION
+            logging.warning(
+                f"Current CART version ({current_cart_version}) is not the same that was used to "
+                f"generate the user profile ({config_cart_version}). This may result in unexpected "
+                f"behaviour!"
+            )
+            # Update the config to use the new version
+            self.master_profile_config.version = current_cart_version
 
     ## GUI Management ##
     def enter(self):

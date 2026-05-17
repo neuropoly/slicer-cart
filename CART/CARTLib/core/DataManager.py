@@ -1,11 +1,192 @@
 import csv
 import logging
-from functools import lru_cache, cached_property
+from functools import cached_property
 from pathlib import Path
+from threading import RLock
 from typing import Optional, Callable
 
-from .DataUnitBase import DataUnitBase
-from .TaskBaseClass import DataUnitFactory, TaskBaseClass
+from .DataUnitBase import DataUnitBase, DataUnitFactory
+from .TaskBaseClass import TaskBaseClass
+
+
+def dynamic_lru_cache_wrapper(func: Callable, maxsize: int, n_hashing_vars: int = None) -> Callable:
+    """
+    Re-implementation of `functools:lru_cache` extended to allow for the following:
+      * Dynamically resizing.
+      * Considers only n variables when checking for a cached value.
+      * Check whether the given value already exists in the cache or not.
+
+    You really shouldn't use this; if you need specialized caches, you should
+    consider the cachetools package instead. The only reason this exists is to
+    keep CART dependency free.
+    """
+    # Make sure the n_hashing_vars variable is greater than 0
+    if n_hashing_vars is not None and n_hashing_vars < 0:
+        raise ValueError("Number of considered ")
+
+    # Ensure the maximum size is valid
+    def _validate_maxsize(new_size: int):
+        # If the max size is invalid, raise an error
+        if type(new_size) != int or new_size < 0:
+            raise ValueError(
+                "Dynamic LRUs must have a positive integer as its max size!"
+            )
+
+    def make_key(*args, **kwargs):
+        nonlocal n_hashing_vars
+
+        arglist = [*args, *kwargs.values()]
+        if n_hashing_vars is not None:
+            return hash(tuple(arglist[:n_hashing_vars]))
+        else:
+            return hash(tuple(arglist))
+
+
+    _validate_maxsize(maxsize)
+
+    # The cache itself, plus some statistics
+    cache: dict[int, list[int]] = {}
+    hits = misses = 0
+    full = False
+
+    # Explict binds to make it run a little faster
+    cache_get = cache.get
+    cache_len = cache.__len__
+
+    # Lock to help with thread safety
+    lock = RLock()
+
+    # Linked list to track the elements
+    PREV, NEXT, KEY, RESULT = 0, 1, 2, 3
+    root = []
+    # Initialize by pointing to ourselves in both directions
+    root[:] = [root, root, None, None]
+
+    # Build the wrapper function
+    def wrapper(*args, **kwargs):
+        nonlocal root, hits, misses, maxsize, full
+        key = make_key(*args, **kwargs)
+        with lock:
+            new_link = cache_get(key)
+            if new_link is not None:
+                # Move the link to the front of our list
+                prev_link, next_link, old_key, result = new_link
+                prev_link[NEXT] = next_link
+                next_link[PREV] = prev_link
+                last = root[PREV]
+                last[NEXT] = root[PREV] = new_link
+                new_link[PREV] = last
+                new_link[NEXT] = root
+                # Return the result and report a hit
+                hits += 1
+                return result
+            # Otherwise we had a miss, track it and run the function
+            misses += 1
+        result = func(*args, **kwargs)
+        with lock:
+            if key in cache:
+                # Getting here means that this same key was added to the
+                # cache while the lock was released.  Since the link
+                # update is already done, we need only return the
+                # computed result and update the count of misses.
+                pass
+            # If we're at capacity, trim off the last-used link
+            elif full:
+                # Insert our new values into the previous root
+                old_root = root
+                old_root[KEY] = key
+                old_root[RESULT] = result
+                # Empty the oldest link and make it the new root
+                root = old_root[NEXT]
+                old_key = root[KEY]
+                # De-allocate the old root's contents so it can be garbage collected.
+                # NOTE: We hold out the old result to prevent it from being garbage
+                # collected early. Doing so could run arbitrary code (via a __del__
+                # dunder, for example) which could break things.
+                result_holdout = root[RESULT]
+                root[KEY] = root[RESULT] = None
+                # Drop the corresponding element in our cache
+                del cache[old_key]
+                # Re-insert last to ensure everything is consistent before risking
+                # and override (re-entrant key)
+                cache[key] = old_root
+            # If not, insert our new result and check if we're at capacity now
+            else:
+                # Put the result in a new link at the front
+                last_link = root[PREV]
+                new_link = [last_link, root, key, result]
+                last_link[NEXT] = root[PREV] = cache[key] = new_link
+                # Check if we're full now
+                full = (cache_len() >= maxsize)
+        # Finally return the result
+        return result
+
+    # Utility functions
+    def cache_hits() -> int:
+        with lock:
+            return hits
+
+    def cache_misses() -> int:
+        with lock:
+            return misses
+
+    def cache_size() -> int:
+        with lock:
+            return cache_len()
+
+    def is_cached(*args, **kwargs) -> bool:
+        key = make_key(*args, **kwargs)
+        with lock:
+            return key in cache.keys()
+
+    def clear_cache():
+        nonlocal hits, misses, full
+        with lock:
+            cache.clear()
+            root[:] = [root, root, None, None]
+            hits = misses = 0
+            full = False
+
+    def set_maxsize(new_size: int):
+        nonlocal root, full, maxsize
+
+        # Make sure our max size is valid
+        _validate_maxsize(new_size)
+
+        # If the new size is smaller than our current size, we need to trim
+        with lock:
+            if new_size < cache_len():
+                # Hold onto the cached results until the end to avoid premature garbage collection
+                results_holdout = []
+                # Iterate through our cache until we've reached where we should cut
+                current_tail = root[PREV]
+                current_idx = cache_len() - 1
+                while current_idx >= new_size:
+                    results_holdout.append(current_tail[RESULT])
+                    key = current_tail[KEY]
+                    del cache[key]
+                    current_tail[NEXT] = current_tail[RESULT] = current_tail[KEY] = None
+                    current_tail = current_tail[PREV]
+                    current_idx -= 1
+                # Re-connect the tail to the root; this will isolate the trimmed section, allowing
+                # it to be garbage collected.
+                current_tail[NEXT] = root
+                # Mark ourselves as full
+                full = True
+            # If its larger and we were full, we're no longer full!
+            elif full and new_size > maxsize:
+                full = False
+            # Update our size to match
+            maxsize = new_size
+
+    wrapper.cache_hits = cache_hits
+    wrapper.cache_misses = cache_misses
+    wrapper.cache_size = cache_size
+    wrapper.is_cached = is_cached
+    wrapper.clear_cache = clear_cache
+    wrapper.set_maxsize = set_maxsize
+
+    return wrapper
 
 
 class DataManager:
@@ -24,9 +205,10 @@ class DataManager:
 
     def __init__(
         self,
-        cohort_file: Optional[Path] = None,
-        data_source: Optional[Path] = None,
-        data_unit_factory: DataUnitFactory = None,
+        cohort_file: Optional[Path],
+        data_source: Optional[Path],
+        data_unit_factory: DataUnitFactory,
+        reference_task: Optional[TaskBaseClass] = None,
         cache_size: int = 2,
     ):
         """
@@ -42,19 +224,20 @@ class DataManager:
         # The cohort data, and the file from which it was pulled
         self.cohort_csv: Path = cohort_file
         self.data_source: Path = data_source
+        self.data_unit_factory: DataUnitFactory = data_unit_factory
+        self.reference_task: Optional[TaskBaseClass] = reference_task
 
         # Data
         self.case_data = list()
         self.feature_labels = list()
 
-        # Current index being tracked
-        self.current_case_index: int = 0
+        # Current index being tracked; -1 indicates one hasn't been selected yet
+        self.current_case_index: int = -1
 
         # Convert the protected '_get_data_unit' into a public version,
         #  w/ the desired number of cached elements.
-        lru_cache_wrapper = lru_cache(maxsize=cache_size)
-        self.get_data_unit: Callable[[int], DataUnitBase] = lru_cache_wrapper(
-            self._get_data_unit
+        self.get_data_unit: Callable[[int, dict], DataUnitBase] = dynamic_lru_cache_wrapper(
+            self._get_data_unit, maxsize=cache_size, n_hashing_vars=1
         )
 
         # The data unit factory to parse case information with
@@ -64,10 +247,25 @@ class DataManager:
         self.logger = logging.getLogger("CART Data Manager")
 
         # Load the data from file
-        self.load_from_file()
+        self._load_from_file()
+
+    ## Properties ##
+    @cached_property
+    def valid_uids(self):
+        return_list = []
+        for c in self.case_data:
+            for k, v in c.items():
+                if k.lower() == "uid" and v is not None:
+                    return_list.append(v)
+                    break
+        return return_list
+
+    @property
+    def valid_features(self):
+        return [f for f in self.feature_labels if f.lower() != "uid"]
 
     ## Data Management ##
-    def load_from_file(self):
+    def _load_from_file(self):
         # Log that we began loading the cohort data
         self.logger.info(f"Loading cohort from '{self.cohort_csv}'")
 
@@ -84,12 +282,9 @@ class DataManager:
             self.case_data = list(reader)
 
         # If we succeeded, reset our iteration step
-        self.current_case_index = 0
+        self.current_case_index = -1
 
-    def get_cache_size(self):
-        return self.get_data_unit.cache_info().maxsize
-
-    def _get_data_unit(self, idx: int) -> DataUnitBase:
+    def _get_data_unit(self, idx: int, prior_data: dict = None) -> DataUnitBase:
         """
         Gets the current DataUnit at our index. This method implicitly caches
         and does NOT update the state of the DataManager!
@@ -101,7 +296,9 @@ class DataManager:
 
         # TODO: replace this with a user-selectable data unit type
         new_unit = self.data_unit_factory(
-            case_data=current_case_data, data_path=self.data_source
+            case_data=current_case_data,
+            data_path=self.data_source,
+            prior_data=prior_data,
         )
 
         # Validate the data unit (and thus before it enters the cache)
@@ -110,46 +307,41 @@ class DataManager:
         # Return the new data unit
         return new_unit
 
-    def set_data_unit_factory(self, duf: DataUnitFactory):
-        self.data_unit_factory = duf
+    def _unit_at(self, idx: int) -> Optional[DataUnitBase]:
+        # If we have no task to check for prior outputs, delegate to `get_data_unit` directly
+        if self.reference_task is None:
+            return self.get_data_unit(idx)
 
-    @cached_property
-    def valid_uids(self):
-        return_list = []
-        for c in self.case_data:
-            for k, v in c.items():
-                if k.lower() == "uid" and v is not None:
-                    return_list.append(v)
-                    break
-        return return_list
+        # If the unit is already in cache, just return the cached entry outright
+        if self.get_data_unit.is_cached(idx):
+            return self.get_data_unit(idx)
 
-    @property
-    def valid_features(self):
-        return [f for f in self.feature_labels if f.lower() != "uid"]
+        # If we somehow lack a UID, raise an error
+        case_data = self.case_data[idx]
+        uid = self.case_data[idx].get("uid")
+        if uid is None:
+            raise ValueError("Tried to get a data unit for a case without a UID!")
 
-    def current_uid(self):
-        return self.case_data[self.current_case_index]["uid"]
-
-    def current_case(self):
-        """
-        Return the case information for the current index
-        """
-        return self.case_data[self.current_case_index]
+        # Using the reference task, generate our prior data and build the corresponding data unit
+        prior_data = None
+        if self.reference_task is not None:
+            prior_data = self.reference_task.generate_prior_data_for(case_data)
+        return self.get_data_unit(idx, prior_data)
 
     def current_data_unit(self) -> DataUnitBase:
         """
-        Return the current DataUnit in the queue without changing the index.
+        Return the current DataUnit in the queue without changing the index or
+        re-focusing it.
         """
-        return self.get_data_unit(self.current_case_index)
+        return self._unit_at(self.current_case_index)
 
     def select_current_unit(self):
         """
         Selects the current data unit again, bringing it into focus if it was
-         not already
+        not already
         """
-        current_unit = self.get_data_unit(self.current_case_index)
+        current_unit = self.current_data_unit()
         current_unit.focus_gained()
-
         return current_unit
 
     def has_next_case(self) -> bool:
@@ -175,14 +367,12 @@ class DataManager:
         elif idx >= len(self.case_data):
             raise ValueError("Index cannot be greater than the number of loaded cases.")
 
-        # Keep tabs on the prior data unit for later
-        prior_unit = self.current_data_unit()
+        # Attempt to grab the next data unit and focus it
+        new_unit = self._unit_at(idx)
 
-        # Attempt to grab the next data unit
-        new_unit = self.get_data_unit(idx)
-
-        # Try to transfer focus from one unit to the other
-        if prior_unit:
+        # Try to transfer focus from the previous unit (if any) to our new one
+        if self.current_case_index != -1:
+            prior_unit = self.current_data_unit()
             prior_unit.focus_lost()
         new_unit.focus_gained()
 
@@ -191,6 +381,15 @@ class DataManager:
 
         # Return the new unit
         return new_unit
+
+    def next(self) -> DataUnitBase:
+        """
+        Advance to the next case, and get its corresponding DataUnit.
+
+        :return: The next data unit; None if it doesn't exist/is invalid
+        """
+        new_index = self.current_case_index + 1
+        return self.select_unit_at(new_index)
 
     def next_incomplete(self, task: TaskBaseClass, from_idx: int = None) -> DataUnitBase:
         """
@@ -219,8 +418,17 @@ class DataManager:
             idx += 1
         # Fallback; if all subsequent cases are completed, print a warning and return the
         # next case instead
-        print("WARNING: All cases were completed, falling back to next")
+        logging.warning("All cases were completed! Loaded next unit instead.")
         return self.next()
+
+    def previous(self) -> DataUnitBase:
+        """
+        Advance to the next case, and get its corresponding DataUnit.
+
+        :return: The previous data unit; None if it doesn't exist/is invalid
+        """
+        new_index = self.current_case_index - 1
+        return self.select_unit_at(new_index)
 
     def previous_incomplete(self, task: TaskBaseClass, from_idx: int = None) -> DataUnitBase:
         """
@@ -254,13 +462,12 @@ class DataManager:
 
         # Fallback; if all prior cases are completed, print a warning and return the
         # previous case instead
-        print("WARNING: All cases were completed, falling back to previous!")
+        logging.warning("All cases were completed! Loaded previous unit instead.")
         return self.previous()
 
     def first(self) -> DataUnitBase:
         # Wrapper to jump to the very first data unit
-        self.current_case_index = 0
-        return self.select_current_unit()
+        return self.select_unit_at(0)
 
     def first_incomplete(self, task: TaskBaseClass) -> DataUnitBase:
         # Wrapper function for the somewhat unintuitive "find the first" syntax
@@ -268,30 +475,12 @@ class DataManager:
 
     def last(self) -> DataUnitBase:
         # Wrapper to jump to the last first data unit
-        self.current_case_index = len(self.case_data) - 1
-        return self.select_current_unit()
+        last_idx = len(self.case_data) - 1
+        return self.select_unit_at(last_idx)
 
     def last_incomplete(self, task: TaskBaseClass) -> DataUnitBase:
         # Wrapper function for the somewhat unintuitive "find the last" syntax
         return self.previous_incomplete(task, -1)
-
-    def next(self) -> DataUnitBase:
-        """
-        Advance to the next case, and get its corresponding DataUnit.
-
-        :return: The next data unit; None if it doesn't exist/is invalid
-        """
-        new_index = self.current_case_index + 1
-        return self.select_unit_at(new_index)
-
-    def previous(self) -> DataUnitBase:
-        """
-        Advance to the next case, and get its corresponding DataUnit.
-
-        :return: The previous data unit; None if it doesn't exist/is invalid
-        """
-        new_index = self.current_case_index - 1
-        return self.select_unit_at(new_index)
 
     # TODO Change rows to rows and define row typing at the definition of rows
     @staticmethod

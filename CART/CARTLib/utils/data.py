@@ -3,16 +3,35 @@ from datetime import datetime
 import json
 from functools import singledispatch
 from pathlib import Path
-from typing import Optional, Any, Callable
+from typing import Any, Optional, Protocol, TYPE_CHECKING
 
 import numpy as np
 
+import qt
 import slicer
+from slicer.i18n import tr as _
+
+from CARTLib.core.DataUnitBase import DataUnitBase, ResourceType
+from CARTLib.core.LayoutManagement import Orientation, LayoutHandler
+from CARTLib.utils.config import (
+    DictBackedConfig,
+    MasterProfileConfig,
+    ResourceSpecificConfig,
+)
+
+# These become available when Slicer initializes
+# noinspection PyUnresolvedReferences
 import vtk
 
-from CARTLib.core.DataUnitBase import DataUnitBase
-from CARTLib.utils.config import MasterProfileConfig, JobProfileConfig
-from CARTLib.core.LayoutManagement import Orientation, LayoutHandler
+if TYPE_CHECKING:
+    # NOTE: this isn't perfect (this only exposes Widgets, and Slicer's QT impl
+    # isn't the same as PyQT5 itself), but it's a LOT better than constant
+    # cross-referencing
+    import PyQt5.Qt as qt
+
+
+NIFTI_SIDECAR_LABELS_KEY = "Labels"
+GENERATED_BY_KEY = "GeneratedBy"
 
 
 ## LOADING ##
@@ -61,6 +80,12 @@ def load_segmentation(path: Path):
         label_node, segment_node
     )
 
+    # Copy the source filename from the label node to the segmentation node
+    segment_node.AddDefaultStorageNode()
+    storage_node = segment_node.GetStorageNode()
+    print("IGNORE THE FOLLOWING ERROR, VTK IS DRUNK!")
+    storage_node.Copy(label_node.GetStorageNode())
+
     # Hide it from view by default
     segment_node.SetDisplayVisibility(False)
 
@@ -73,11 +98,13 @@ def load_segmentation(path: Path):
 
 
 def load_markups(path: Path) -> list[slicer.vtkMRMLMarkupsFiducialNode]:
-    # If the path points to a NiFTI file, load it using our custom loader
+    # If the path points to a NIfTI file, load it using our custom loader
     if ".nii" in path.suffixes:
-        return [load_nifti_markups(path)]
+        markup_nodes = [load_nifti_markups(path)]
+    else:
+        markup_nodes = load_slicer_markups(path)
     # Otherwise, assume it's a native Slicer format
-    return load_slicer_markups(path)
+    return markup_nodes
 
 
 def load_slicer_markups(path: Path) -> list[slicer.vtkMRMLMarkupsFiducialNode]:
@@ -85,11 +112,11 @@ def load_slicer_markups(path: Path) -> list[slicer.vtkMRMLMarkupsFiducialNode]:
     Loads a markup from a file which is in an official Slicer
     format (.json or .csv).
 
-    If you are loading a points list from a NiFTI file,
+    If you are loading a points list from a NIfTI file,
     you should use `load_nifti_markups` instead.
 
     Note that, due to a mismatch between Slicer's documentation and
-    its actual behaviour when loading markups from a file containing
+    its actual behavior when loading markups from a file containing
     multiple markup sets, we have implemented a workaround to make it
     "act" as documented instead. Hopefully this will be fixed in
     upcoming Slicer releases, though!
@@ -139,21 +166,18 @@ def load_slicer_markups(path: Path) -> list[slicer.vtkMRMLMarkupsFiducialNode]:
     return markups_nodes
 
 
-NIFTI_SIDECAR_LABELS_KEY = "Labels"
-
-
 def load_nifti_markups(path: Path) -> slicer.vtkMRMLMarkupsFiducialNode:
     """
-    Loads a set of markups from a NiFTI style binary label set.
+    Loads a set of markups from a NIfTI style binary label set.
 
-    Note that markups stored in NiFTI cannot support overlapping markup positions!
-    As well, NiFTI cannot natively save the label names for each value within it;
+    Note that markups stored in NIfTI cannot support overlapping markup positions!
+    As well, NIfTI cannot natively save the label names for each value within it;
     we work around this via a .json sidecar, but this is a non-standard format that
     WILL NOT WORK in a non-CART context!
 
     TODO: Implement the aforementioned side-car implementation
 
-    :param path: Path to the NiFTI file to load
+    :param path: Path to the NIfTI file to load
     :param reference_volume: Volume node to use as reference for IJK co-ordinates.
         If none, the markups will be placed using their native IJK values
     """
@@ -162,7 +186,7 @@ def load_nifti_markups(path: Path) -> slicer.vtkMRMLMarkupsFiducialNode:
     volume_rep_node = None
     markup_node = None
     try:
-        # Load the NiFTI file initially as a volume
+        # Load the NIfTI file initially as a volume
         volume_rep_node = load_volume(path)
 
         # Get the voxel array from the node
@@ -171,13 +195,13 @@ def load_nifti_markups(path: Path) -> slicer.vtkMRMLMarkupsFiducialNode:
         # Get the set of indices for non-zero values in the "volume"
         nonzero_map = np.nonzero(volume_array)
 
-        # It is exceedingly unlikely that a NiFTI-style markup has more than
+        # It is exceedingly unlikely that a NIfTI-style markup has more than
         # 100 markups in it; if this is the case, warn the user!
         if nonzero_map[0].shape[0] > 100:
             print(
-                f"WARNING: The number of markups in the NiFTI file '{path}' "
+                f"WARNING: The number of markups in the NIfTI file '{path}' "
                 "is abnormally large (more than 100), and will likely cause lag.\n"
-                "Are you sure this is a markup-style NiFTI file?"
+                "Are you sure this is a markup-style NIfTI file?"
             )
 
         # Generate an empty markup node
@@ -242,6 +266,12 @@ def load_nifti_markups(path: Path) -> slicer.vtkMRMLMarkupsFiducialNode:
                 (ras_pos[0], ras_pos[1], ras_pos[2]),
                 label
             )
+
+        # Finally, copy the volume node's other attributes over
+        markup_node.AddDefaultStorageNode()
+        storage_node = markup_node.GetStorageNode()
+        print("IGNORE THE FOLLOWING ERROR, VTK IS DRUNK!")
+        storage_node.Copy(volume_rep_node.GetStorageNode())
     except Exception as e:
         # If an error occurs, delete the markup node from the scene (if it exists)
         if markup_node:
@@ -262,10 +292,10 @@ def save_volume_to_nifti(volume_node, path: Path):
     """
     Save a volume node to the specified path.
     """
-    # Confirm this is a NiFTI file
+    # Confirm this is a NIfTI file
     if ".nii" not in path.suffixes:
         raise ValueError(
-            f"Refusing to save file '{path.name}' into NiFTI format; "
+            f"Refusing to save file '{path.name}' into NIfFTI format; "
             "ensure the file is a '.nii' file!"
         )
 
@@ -280,24 +310,25 @@ def save_segmentation_to_nifti(segment_node, volume_node, path: Path):
     convert it back to a label-type node w/ reference to a volume node first,
     then save that.
     """
-    # Confirm this is a NiFTI file
+    # Confirm this is a NIfTI file
     if ".nii" not in path.suffixes:
         raise ValueError(
-            f"Refusing to save file '{path.name}' into NiFTI format; "
+            f"Refusing to save file '{path.name}' into NIfTI format; "
             "ensure the file is a '.nii' file!"
         )
 
     # Convert the Segmentation back to a Label (for Nifti export)
     label_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
-    slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(
-        segment_node, label_node, volume_node
-    )
+    try:
+        slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(
+            segment_node, label_node, volume_node
+        )
 
-    # Save the active segmentation node to the desired directory
-    slicer.util.saveNode(label_node, str(path))
-
-    # Clean up the label node after so it doesn't pollute the scene
-    slicer.mrmlScene.RemoveNode(label_node)
+        # Save the active segmentation node to the desired directory
+        slicer.util.saveNode(label_node, str(path))
+    finally:
+        # Clean up the label node after so it doesn't pollute the scene
+        slicer.mrmlScene.RemoveNode(label_node)
 
 
 def save_markups_to_json(markups_node, path: Path):
@@ -317,12 +348,12 @@ def save_markups_to_nifti(
         path: Path,
         master_profile: Optional[MasterProfileConfig] = None):
     """
-    Saves a set of markup labels to a NiFTI file.
+    Saves a set of markup labels to a NIfTI file.
 
     This format is BIDS compliant, but has several caveats to its use:
-        * Markups stored in NiFTI cannot support overlapping markup positions!
-        * NiFTI cannot natively save the label names for each value within it
-        * NiFTI can only save co-ordinates at IJK integer precision,
+        * Markups stored in NIfTI cannot support overlapping markup positions!
+        * NIfTI cannot natively save the label names for each value within it
+        * NIfTI can only save co-ordinates at IJK integer precision,
             unlike Slicer's JSON format (which tracks floating point RAS positions)
         * Requires a reference volume to convert the markups RAS co-ordinates to
             IJK voxel positions
@@ -335,10 +366,10 @@ def save_markups_to_nifti(
     :param path: Path to a (presumably `.nii`) file where the data should be saved
     :param master_profile: Profile config; used to build the JSON sidecar
     """
-    # Confirm this is a NiFTI file
+    # Confirm this is a NIfTI file
     if ".nii" not in path.suffixes:
         raise ValueError(
-            f"Refusing to save file '{path.name}' into NiFTI format; "
+            f"Refusing to save file '{path.name}' into NIfTI format; "
             "ensure the file is a '.nii' file!"
         )
 
@@ -397,7 +428,7 @@ def save_markups_to_nifti(
         creation_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         # If we have a user profile, add its contents to the GeneratedBy entry
         if master_profile:
-            sidecar_data["GeneratedBy"] = [{
+            sidecar_data[GENERATED_BY_KEY] = [{
                 "Name": "CART",
                 "Author": master_profile.author,
                 "Position": master_profile.position,
@@ -405,7 +436,7 @@ def save_markups_to_nifti(
             }]
         # Otherwise, just note that this was created by CART
         else:
-            sidecar_data["GeneratedBy"] = [{
+            sidecar_data[GENERATED_BY_KEY] = [{
                 "Name": "CART",
                 "Date": creation_time
             }]
@@ -500,9 +531,6 @@ def save_json_sidecar(main_file_path: Path, sidecar_data: dict):
     # Otherwise, try to load the contents of the file and return it
     with open(sidecar_path, 'w') as fp:
         json.dump(sidecar_data, fp, indent=2)
-
-
-GENERATED_BY_KEY = "GeneratedBy"
 
 
 # noinspection PyUnusedLocal
@@ -690,6 +718,7 @@ def stack_json_dicts(source: dict, dest: dict):
         else:
             dest[k] = v
 
+
 ## ORGANIZATION ##
 def create_subject(label: str, *child_nodes):
     # Get Slicer's hierarchy node
@@ -705,39 +734,6 @@ def create_subject(label: str, *child_nodes):
 
     # Return the ID for the newly created subject
     return subject_id
-
-
-def extract_case_keys_by_prefix(
-    case_data: dict[str, str], prefix: str, force_present: bool = False
-) -> list[str]:
-    """
-    Extract keys from a case_data dictionary where the given prefix
-    appears as a full word (split by "_"), case-insensitively.
-
-    Parameters
-    ----------
-    case_data : dict[str, str]
-        Dictionary containing keys like 'T2w_Volume', 'Lesion_Segmentation', etc.
-    prefix : str
-        The prefix to match exactly (e.g., "Volume", "Segmentation", "Markup").
-    force_present: bool
-        Whether to raise an error if no keys match the prefix.
-
-    Returns
-    -------
-    list[str]
-        Keys in case_data that contain the prefix as a full word.
-
-    """
-    prefix_lower = prefix.lower()
-    keys = [
-        k for k in case_data if prefix_lower in (part.lower() for part in k.split("_"))
-    ]
-    if not keys and force_present:
-        raise ValueError(
-            f"No keys found with prefix '{prefix}' in case_data: {case_data}"
-        )
-    return keys
 
 
 def create_empty_segmentation_node(
@@ -777,93 +773,144 @@ def create_empty_segmentation_node(
     return seg_node
 
 
-## COHORT STRATIFICATION ##
-# TODO: Move these 'parse' functions into CARTStandardUnit
-#  to prevent accidental mis-use
-VOLUME_PREFIX = 'Volume'
-SEGMENTATION_PREFIX = 'Segmentation'
-MARKUP_PREFIX = 'Markup'
+## "Standard" Resource Types + Configs ##
+class SimpleResource(ResourceType, Protocol):
+    """
+    Simple resource class which implements several of the abstract methods
+    class methods, allowing the class itself to act as a flyweight object.
+    """
+    @classmethod
+    def format_for_csv(cls, resource_name: str) -> str:
+        if cls.id in resource_name:
+            return resource_name
+        return f"{resource_name}_{cls.id}"
 
-def parse_volumes(
-    case_data: dict[str, Any], data_path: Path
-) -> tuple[list[str], dict[str, Path], str]:
-    # Get the keys from the case data
-    volume_keys = extract_case_keys_by_prefix(case_data, VOLUME_PREFIX, force_present=True)
+    @classmethod
+    def format_for_gui(cls, resource_name: str) -> str:
+        return f"{resource_name} ({cls.pretty_name})"
 
-    # We need at least one volume key; otherwise theirs nothing to reference against
-    if len(volume_keys) < 1:
-        raise ValueError("At least one feature in the cohort must be a volume!")
+    @classmethod
+    def is_type(cls, csv_label: str) -> bool:
+        return cls.id in csv_label
 
-    # Parse the volume paths
+    @classmethod
+    def get_short_name(cls, resource_id: str):
+        id_str = f"_{cls.id}"
+        if not resource_id.endswith(id_str):
+            return resource_id
+        return resource_id.replace(id_str, "")
 
-    volume_paths: dict[str, Optional[Path]] = {
-        (k): (data_path / v if (v := case_data.get(k, "")) != "" else None)
-        for k in volume_keys
-    }
 
-    # We need at least one non-blank path to reference against
-    valid_paths: dict[str, Path] = {
-        k: v for k, v in volume_paths.items() if v is not None
-    }
-    if len(valid_paths) < 1:
-        raise ValueError(
-            f"No valid volumes were found for case '{case_data.get('uid', 'UNKNOWN')}'!"
-        )
+class VolumeResource(SimpleResource):
 
-    # Set the primary volume to reference segmentations against
-    # KO: Note that this will select a non-primary volume if all primary volumes are
-    #  blank; not the most intuitive, but much better than just crashing
-    primary_volume_key = next(
-        # Prefer a key explicitly designated as "primary" if possible
-        (k for k in valid_paths.keys() if "primary" in k.lower()),
-        # Failing that, select the first valid volume instead
-        next(iter(valid_paths.keys())),
+    id = "volume"
+    pretty_name = "Secondary Volume"
+    description = _(
+        "An anatomical volume to load and view for each case. "
+        "If no reference volume is specified, the first of these "
+        "(from left to right) will be made the reference volume.",
     )
 
-    # Move the primary key to the front of our list
-    volume_keys.remove(primary_volume_key)
-    volume_keys = [primary_volume_key, *volume_keys]
-    return volume_keys, volume_paths, primary_volume_key
+    @classmethod
+    def buildConfigGUI(
+        cls, task_config: "DictBackedConfig", resource_id: Optional[str] = None
+    ) -> "Optional[qt.QLayout]":
+        """
+        Required to be implemented for this class to act like a flyweight,
+        even though it doesn't do anything.
+        """
+        return None
 
 
-# TODO: Remove the "default fallback"
-def parse_segmentations(
-    case_data, data_path
-) -> tuple[list[str], dict[str, Path]]:
-    # Parse our segmentation keys
-    segmentation_keys = extract_case_keys_by_prefix(
-        case_data, SEGMENTATION_PREFIX, force_present=False
+class ReferenceVolumeResource(VolumeResource):
+    id = "volume_reference"
+    pretty_name = "Reference Volume"
+    description = _(
+        "An anatomical volume to load and view for each case. "
+        "The first of these (from left to right) will be used as the "
+        "reference volume, with all other resources being aligned to it."
     )
 
-    # If there were none, end here
-    if not segmentation_keys:
-        return [], {}
-
-    # Initialize our segmentation paths
-    segmentation_paths: dict[str, Path] = {
-        (k): (data_path / v if (v := case_data.get(k, "")) != "" else None)
-        for k in segmentation_keys
-    }
-    valid_segmentation_paths = {
-        k: v for k, v in segmentation_paths.items() if v is not None
-    }
-    return segmentation_keys, valid_segmentation_paths
+    @classmethod
+    def buildConfigGUI(
+        cls, task_config: "DictBackedConfig", resource_id: Optional[str] = None
+    ) -> "Optional[qt.QLayout]":
+        """
+        Required to be implemented for this class to act like a flyweight,
+        even though it doesn't do anything.
+        """
+        return None
 
 
-def parse_markups(case_data, data_path) -> tuple[list[str], dict[str, Path]]:
-    # TODO Handle Case for allowing a "Primary" Markup even if we dont currently have a need.
-    # This would allow us to dry out this code combining all 3 parse_* functions
+class SegmentationResourceConfig(DictBackedConfig):
+    @classmethod
+    def default_config_label(cls) -> str:
+        raise ValueError("You should use `config_key_override` instead!")
 
-    # Get our list of
-    markup_keys = extract_case_keys_by_prefix(case_data, MARKUP_PREFIX, force_present=False)
+    HIDE_ON_LOAD_KEY = "hide_on_load"
 
-    # Initialize our markup paths
-    markup_paths: dict[str, Path] = {
-        (k): (data_path / v if (v := case_data.get(k, "")) != "" else None)
-        for k in markup_keys
-    }
-    valid_markup_paths = {k: v for k, v in markup_paths.items() if v is not None}
-    return markup_keys, valid_markup_paths
+    @property
+    def hide_on_load(self) -> bool:
+        return self.get_or_default(self.HIDE_ON_LOAD_KEY, False)
+
+    @hide_on_load.setter
+    def hide_on_load(self, new_val: bool):
+        self.backing_dict[self.HIDE_ON_LOAD_KEY] = new_val
+
+
+class SegmentationResource(SimpleResource):
+
+    id = "segmentation"
+    pretty_name = "Segmentation"
+    description = _("A segmentation label to overlay on viewed volumes.")
+
+    @classmethod
+    def buildConfigGUI(
+        cls, task_config: "DictBackedConfig", resource_id: Optional[str] = None
+    ) -> "Optional[qt.QLayout]":
+        """
+        Required to be implemented for this class to act like a flyweight,
+        even though it doesn't do anything.
+        """
+        # Initialize the backing config instance to better isolate these options from the "global" ones
+        resource_handling_config = ResourceSpecificConfig(task_config)
+
+        # Initialize the resource-specific config instance
+        resource_config = SegmentationResourceConfig(resource_handling_config, resource_id)
+
+        # Initialize a layout which wraps it
+        layout = qt.QFormLayout(None)
+        hideOnLoadCheckbox = qt.QCheckBox()
+        hideOneLoadLabel = qt.QLabel(_("Hide On Load"))
+        hideOnLoadCheckbox.setChecked(resource_config.hide_on_load)
+
+        @qt.Slot()
+        def hideOnLoadToggled():
+            resource_config.hide_on_load = hideOnLoadCheckbox.isChecked()
+
+        hideOnLoadCheckbox.toggled.connect(hideOnLoadToggled)
+
+        layout.addRow(hideOneLoadLabel, hideOnLoadCheckbox)
+        return layout
+
+
+class MarkupResource(SimpleResource):
+
+    id = "markup"
+    pretty_name = "Markup"
+    description = _(
+        "A set of markups to display over viewed volumes."
+    )
+
+    @classmethod
+    def buildConfigGUI(
+        cls, task_config: "DictBackedConfig", resource_id: Optional[str] = None
+    ) -> "Optional[qt.QLayout]":
+        """
+        Required to be implemented for this class to act like a flyweight,
+        even though it doesn't do anything.
+        """
+        return None
 
 
 ## "Standard" Data Unit ##
@@ -879,50 +926,52 @@ class CARTStandardUnit(DataUnitBase):
 
     DEFAULT_ORIENTATION = Orientation.AXIAL
 
-    FEATURE_CLASSES = {
-        VOLUME_PREFIX:
-            "An anatomical volume you want to view. "
-            "Must have 'volume' in its name.",
-        SEGMENTATION_PREFIX:
-            "A segmentation label to overlay on viewed volumes. "
-            "Must have 'segmentation' in its name.",
-        MARKUP_PREFIX:
-            "A set of named point markups to indicate on viewed volumes. "
-            "Must have 'markup' in its name."
+    RESOURCE_TYPES = {
+        ReferenceVolumeResource.id: ReferenceVolumeResource,
+        VolumeResource.id: VolumeResource,
+        SegmentationResource.id: SegmentationResource,
+        MarkupResource.id: MarkupResource
     }
 
     def __init__(
         self,
         case_data: dict[str, str],
         data_path: Path,
+        prior_data: dict = None,  # TODO: Utilize this to "recall" prior markups
         scene: slicer.vtkMRMLScene = slicer.mrmlScene,
     ) -> None:
         super().__init__(case_data, data_path, scene)
 
-        # The primary volume acts as the "reference" co-ordinate system + orientation
-        # for all other volumes, segmentation, and markups
-        self.volume_keys: list[str]
-        self.volume_paths: dict[str, Path]
-        self.primary_volume_key: str
-        self.volume_keys, self.volume_paths, self.primary_volume_key = parse_volumes(
-            case_data, data_path
-        )
+        # Start by finding volumes, as CART cannot proceed w/o at least one
+        reference_volume_key, volume_paths = self._find_volumes(case_data)
+
+        # Find the segmentations and markups next
+        segmentation_paths = self._find_segmentations(case_data)
+        markup_paths = self._find_markups(case_data)
+
+        # Define the public attributes we will be filling in later
+        self.reference_volume_key = reference_volume_key
         self.volume_nodes: dict[str, slicer.vtkMRMLScalarVolumeNode] = dict()
-
-        # Segmentation-related parameters
-        self.segmentation_keys: list[str]
-        self.segmentation_paths: dict[str, Path]
-        self.segmentation_keys, self.segmentation_paths = parse_segmentations(case_data, data_path)
         self.segmentation_nodes: dict[str, slicer.vtkMRMLSegmentationNode] = dict()
-
-        # Markup-related parameters
-        self.markup_keys: list[str]
-        self.markup_paths: dict[str, Path]
-        self.markup_keys, self.markup_paths = parse_markups(case_data, data_path)
         self.markup_nodes: dict[str, slicer.vtkMRMLMarkupsFiducialNode] = dict()
 
-        # Load everything into memory
-        self._initialize_resources()
+        # Load the primary volume into memory first
+        self._load_primary_volume(volume_paths)
+
+        # Load everything else
+        try:
+            self._load_volume_nodes(volume_paths)
+            self._load_segmentation_nodes(segmentation_paths)
+            self._load_markups_nodes(markup_paths)
+        except Exception as e:
+            # If something fails, clean up everything before raising the error
+            for n in [
+                *self.volume_nodes.values(),
+                *self.segmentation_nodes.values(),
+                *self.markup_nodes.values(),
+            ]:
+                slicer.mrmlScene.RemoveNode(n)
+            raise e
 
         # Create a subject associated with this data unit
         self.hierarchy_node = scene.GetSubjectHierarchyNode()
@@ -933,14 +982,213 @@ class CARTStandardUnit(DataUnitBase):
             *self.markup_nodes.values(),
         )
 
-        self.is_complete = case_data.get(self.COMPLETED_KEY, False)
+    def _find_volumes(self, case_data: dict[str, str]) -> tuple[str, dict[str, Path]]:
+        """
+        Find all volumes within a set of case data; will also identify
+        one to be the "reference" volume.
 
+        Raises an error if none are found (as CART needs at least one
+        volume to act as "reference" for other resources in the cohort).
+        """
+
+        # Find all volume keys first, skipping over "blanks"
+        volumes = {}
+        reference_key = None
+        for k, v in case_data.items():
+            # Skip blanks; we can't view them!
+            if v is None or v == "":
+                continue
+            # Skip over non-volume entries as well
+            if not VolumeResource.is_type(k):
+                continue
+            # Track the first reference key we come across
+            if reference_key is None and ReferenceVolumeResource.is_type(k):
+                reference_key = k
+            # Track the path to this volume
+            p = Path(v)
+            if not p.is_absolute():
+                p = self.data_path / p
+            volumes[k] = p
+
+        # If there are no volumes, raise an error, as it doesn't make sense to continue
+        if len(volumes) < 1:
+            raise ValueError(
+                "Cohort must have at least one volume specified for reference!"
+            )
+
+        # Find the first "reference" volume in the set, if any
+        for k, v in volumes.items():
+            if ReferenceVolumeResource.is_type(k):
+                # Once its found, end there
+                reference_key = k
+                break
+        # If we didn't find one, use the first key instead
+        else:
+            reference_key = list(volumes.keys())[0]
+
+        # Return the result
+        return reference_key, volumes
+
+    def _find_segmentations(self, case_data: dict[str, str]) -> dict[str, Path]:
+        """
+        Find all segmentations within a set of case data.
+        """
+        segmentations = {}
+        for k, v in case_data.items():
+            # Skip resources that aren't the correct type
+            if not SegmentationResource.is_type(k):
+                continue
+            # If this entry is empty, denote so explicitly
+            if v == "":
+                segmentations[k] = None
+                continue
+            # Otherwise, resolve the full path and track that
+            p = Path(v)
+            if not p.is_absolute():
+                p = self.data_path / p
+            segmentations[k] = p
+
+        return segmentations
+
+    def _find_markups(self, case_data: dict[str, str]) -> dict[str, Path]:
+        """
+        Find all markups within a set of case data.
+        """
+        markups = {}
+        for k, v in case_data.items():
+            # Skip resources that aren't the correct type
+            if not MarkupResource.is_type(k):
+                continue
+            # If this entry is empty, denote so explicitly
+            if v == "":
+                markups[k] = None
+                continue
+            # Track the path to this segmentation
+            p = Path(v)
+            if not p.is_absolute():
+                p = self.data_path / p
+            markups[k] = p
+
+        return markups
+
+    def _load_primary_volume(self, volume_paths: dict[str, Path]):
+        node = None
+        try:
+            # Adjust the path if it was relative
+            p = volume_paths.get(self.reference_volume_key)
+            if not p.is_absolute():
+                p = self.data_path / p
+            node = load_volume(p)
+            self.volume_nodes[self.reference_volume_key] = node
+        except Exception as e:
+            # Clean up the node if it was loaded already
+            if node is not None:
+                slicer.mrmlScene.RemoveNode(node)
+            raise e
+
+    def _load_volume_nodes(self, volume_paths: dict[str, Path]) -> None:
+        """
+        Load each segmentation path into a Slicer node, name it, store in resources,
+        and align it to our primary volume.
+        """
+        for key, path in volume_paths.items():
+            # If the volume is blank, skip it
+            if path is None:
+                continue
+
+            # If this is our primary volume, skip (it will be loaded already)
+            if key == self.reference_volume_key:
+                continue
+
+            # Attempt to load the volume and track it
+            node = load_volume(path)
+            node.SetName(f"{VolumeResource.format_for_gui(key)} [{self.uid}]")
+            self.volume_nodes[key] = node
+
+    def _load_segmentation_nodes(self, segmentation_paths: dict[str, Path]) -> None:
+        """
+        For each segmentation key, load if file exists.
+        """
+        # If we don't have a primary volume yet, this method was called too early
+        if not self.reference_volume_key:
+            raise ValueError(
+                "Cannot initialize segmentation nodes prior to volume nodes!"
+            )
+
+        # Slight optimization to avoid querying the dict repeatedly
+        reference_volume = self.reference_volume_node
+
+        # Prepare to set the color of each segment
+        color_table = slicer.util.getNode("GenericColors").GetLookupTable()
+        c_idx = 1  # Start at 1, as 0 has special meaning in Slicer
+        for key, path in segmentation_paths.items():
+            # By default we skip over blank segmentations
+            if path is None or not path.exists():
+                continue
+
+            # Load the node and set its attributes
+            node = load_segmentation(path)
+            node.SetReferenceImageGeometryParameterFromVolumeNode(
+                reference_volume
+            )
+
+            # Apply a unique color to all segments within the segmentation
+            for segment_id in node.GetSegmentation().GetSegmentIDs():
+                segment = node.GetSegmentation().GetSegment(segment_id)
+
+                # Get the corresponding color, w/ Alpha stripped from it
+                segmentation_color = color_table.GetTableValue(c_idx)[:-1]
+                segment.SetColor(*segmentation_color)
+
+                # Increment the color index
+                c_idx += 1
+
+            # Track the node for later
+            self.segmentation_nodes[key] = node
+
+    def _load_markups_nodes(self, markup_paths: dict[str, Path]) -> None:
+        """
+        Load each markup path into a Slicer node, name it, store in resources,
+        and align it to our primary volume.
+        """
+        for key, path in markup_paths.items():
+            # If the markup was blank or points to an invalid path, skip it
+            if path is None or not path.exists():
+                continue
+
+            # Try to load the markup from the provided file
+            nodes = load_markups(path)
+
+            # Label each markup label iteratively
+            # TODO: move this logic to the `load_markups` function so it can reference sidecars
+            should_iter = len(nodes) > 1
+            for i, node in enumerate(nodes):
+                # Error out if the node is of the wrong type
+                if not isinstance(node, slicer.vtkMRMLMarkupsFiducialNode):
+                    raise TypeError(
+                        f"Expected a MarkupsFiducialNode, got {type(node)} for key {key}."
+                    )
+                # Determine how the node should be named
+                if should_iter:
+                    name = f"{MarkupResource.format_for_gui(key)} [{self.uid} - {i}]"
+                else:
+                    name = f"{key} [{self.uid}]"
+                # Update the node's properties and track it
+                node.SetName(name)
+                self.markup_nodes[key] = node
+
+    ## Properties ##
+    @property
+    def reference_volume_node(self):
+        # Alias for an otherwise cumbersome call
+        return self.volume_nodes.get(self.reference_volume_key)
+
+    ## ABC Functions ##
     def to_dict(self) -> dict[str, str]:
-        """Serialize back to case_data format."""
-        output = {key: self.case_data[key] for key in self.volume_keys}
-        output.update({key: self.case_data[key] for key in self.segmentation_keys})
-        output.update({key: self.case_data[key] for key in self.markup_keys})
-        output[self.COMPLETED_KEY] = self.is_complete
+        """Serialize back to the format use by the cohort."""
+        output = {key: self.case_data[key] for key in self.volume_nodes.keys()}
+        output.update({key: self.case_data[key] for key in self.segmentation_nodes.keys()})
+        output.update({key: self.case_data[key] for key in self.markup_nodes.keys()})
         return output
 
     @property
@@ -949,7 +1197,7 @@ class CARTStandardUnit(DataUnitBase):
         if not self._layout_handler:
             self._layout_handler = LayoutHandler(
                 volume_nodes=list(self.volume_nodes.values()),
-                primary_volume_node=self.primary_volume_node,
+                primary_volume_node=self.reference_volume_node,
                 orientation=self.DEFAULT_ORIENTATION,
             )
         return self._layout_handler
@@ -998,129 +1246,17 @@ class CARTStandardUnit(DataUnitBase):
 
     def validate(self) -> None:
         """
-        Ensure that all discovered volume keys and the segmentation key
-        refer to existing files.
-        """
-        for key in self.volume_keys:
-            self.validate_key_is_file(key)
-        for key in self.segmentation_keys:
-            if key is not None:
-                self.validate_key_is_file(key)
+        Currently does nothing, as this is agnostic to its contents by design.
 
-    def validate_key_is_file(self, key: str) -> None:
+        You'll likely want to override this to ensure each data unit has
+        what it needs for your task to operate on it.
         """
-        Confirm that `case_data[key]` exists, is a path under data_path,
-        and refers to a file.
-        """
-        rel_path = self.case_data.get(key)
-        # If the path wasn't specified, we assume the user wants it skipped/created
-        if not rel_path:
-            return
-        # If there was a path, ensure it exists and is a file
-        full_path = self.data_path / rel_path
-        if not full_path.exists():
-            raise ValueError(f"Path for '{key}' does not exist: {full_path}")
-        if not full_path.is_file():
-            raise ValueError(f"Path for '{key}' is not a file: {full_path}")
+        pass
 
-    def _initialize_resources(self) -> None:
-        """
-        Load volume nodes and segmentation nodes, align geometry,
-        and register under a single subject in the hierarchy.
-        """
-        self._init_volume_nodes()
-        self._init_segmentation_nodes()
-        self._init_markups_nodes()
-
-    def _init_volume_nodes(self) -> None:
-        """
-        Load each volume path into a volume node, name it,
-        store in resources, and identify the primary.
-        """
-        for key, path in self.volume_paths.items():
-            # If the volume is blank, skip it
-            if path is None:
-                continue
-            # Attempt to load the volume and track it
-            node = load_volume(path)
-            node.SetName(f"{key} ({self.uid})")
-            self.volume_nodes[key] = node
-            self.resources[key] = node
-
-            # If this is our primary volume, track it outright for ease of reference
-            if key == self.primary_volume_key:
-                self.primary_volume_node = node
-
-    def _init_segmentation_nodes(self) -> None:
-        """
-        For each segmentation key, load if file exists.
-        """
-        # If we don't have a primary volume yet, this method was called too early
-        if not self.primary_volume_node:
-            raise ValueError(
-                "Cannot initialize segmentation nodes prior to volume nodes!"
-            )
-
-        # Prepare to set the color of each segment
-        color_table = slicer.util.getNode("GenericColors").GetLookupTable()
-        c_idx = 2  # Start at 2, so newly created segments can have a unique color
-        for key in self.segmentation_keys:
-            seg_path = self.segmentation_paths.get(key, None)
-            if seg_path and seg_path.exists():
-                # Try to load the segmentation first
-                node = load_segmentation(seg_path)
-            else:
-                # If that fails, skip over it
-                continue
-
-            # Set the name of the node, and align it to our primary volume
-            node.SetName(f"{key} ({self.uid})")
-            node.SetReferenceImageGeometryParameterFromVolumeNode(
-                self.primary_volume_node
-            )
-
-            # Apply a unique color to all segments within the segmentation
-            for segment_id in node.GetSegmentation().GetSegmentIDs():
-                print(f"Setting color for segment '{segment_id}' in '{key}'.")
-                segment = node.GetSegmentation().GetSegment(segment_id)
-
-                # TODO MAKE THIS COLOR SETTING A UTIL FUNCTION AND MORE CONFIGURABLE
-                # Get the corresponding color, w/ Alpha stripped from it
-                segmentation_color = color_table.GetTableValue(c_idx)[:-1]
-                segment.SetColor(*segmentation_color)
-
-                # Increment the color index
-                c_idx += 1
-            self.segmentation_nodes[key] = node
-            self.resources[key] = node
-
-    def _init_markups_nodes(self) -> None:
-        """
-        Load each markup path into a markups node, name it,
-        store in resources, and identify the primary.
-        """
-        for key, path in self.markup_paths.items():
-            # If the markup was blank, skip it
-            if path is None:
-                continue
-            # Try to load all markups from the file
-            nodes = load_markups(path)
-            should_iter = len(nodes) > 1
-            for i, node in enumerate(nodes):
-                # Error out if the node is of the wrong type
-                if not isinstance(node, slicer.vtkMRMLMarkupsFiducialNode):
-                    raise TypeError(
-                        f"Expected a MarkupsFiducialNode, got {type(node)} for key {key}"
-                    )
-                # Determine how the node should be keyed
-                if should_iter:
-                    name = f"{key} ({self.uid}) [{i}]"
-                else:
-                    name = f"{key} ({self.uid})"
-                # Update the node's properties and track it
-                node.SetName(name)
-                self.markup_nodes[name] = node
-                self.resources[name] = node
+    ## Utilities ##
+    @classmethod
+    def resource_types(cls) -> dict[str, ResourceType]:
+        return cls.RESOURCE_TYPES
 
     def _set_subject_shown(self, new_state: bool) -> None:
         """
@@ -1129,32 +1265,3 @@ class CARTStandardUnit(DataUnitBase):
         if self.subject_id is not None:
             self.hierarchy_node.SetItemExpanded(self.subject_id, new_state)
             self.hierarchy_node.SetItemDisplayVisibility(self.subject_id, new_state)
-
-    ## Utilities ##
-    @classmethod
-    def feature_types(cls) -> dict[str, str]:
-        """
-        Report our own valid feature types for Tasks which use this class
-        as a data unit factory
-        """
-        return cls.FEATURE_CLASSES
-
-    @classmethod
-    def feature_label_for(cls, init_label: str, feature_type: str):
-        # Always skip over the "None" feature type
-        if feature_type.lower() == "none":
-            return init_label
-        # Check all prefixes one-at-a-time
-        # TODO; convert this to a switch statement
-        for prefix in [VOLUME_PREFIX, SEGMENTATION_PREFIX, MARKUP_PREFIX]:
-            # If the feature type doesn't match, skip
-            if feature_type != prefix:
-                continue
-            # If the prefix is already in the label, return untouched
-            if prefix in init_label:
-                return init_label
-            # Otherwise, add the prefix to the label and return
-            return f"{prefix}_{init_label}"
-        # If the feature type doesn't match any known type, return unchanged w/ a warning
-        print(f"Unknown feature type '{feature_type}' for a data unit of type '{cls.__name__}'")
-        return init_label

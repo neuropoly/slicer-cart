@@ -1,5 +1,6 @@
 import csv
 from datetime import datetime
+from enum import Enum
 from functools import cached_property
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
@@ -7,7 +8,8 @@ from typing import Optional, TYPE_CHECKING
 import qt
 from slicer.i18n import tr as _
 
-from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory, D
+from CARTLib.core.TaskBaseClass import TaskBaseClass
+from CARTLib.core.DataUnitBase import DataUnitFactory
 from CARTLib.utils.config import JobProfileConfig, DictBackedConfig, MasterProfileConfig
 from CARTLib.utils.data import (
     CARTStandardUnit,
@@ -81,7 +83,7 @@ class MarkupTask(TaskBaseClass[CARTStandardUnit]):
         if self.data_unit:
             self.gui.sync()
 
-    def receive(self, data_unit: D):
+    def receive(self, data_unit: CARTStandardUnit):
         # Update the data unit
         self.data_unit = data_unit
 
@@ -100,34 +102,12 @@ class MarkupTask(TaskBaseClass[CARTStandardUnit]):
         return self._output_manager.is_unit_complete(author, uid)
 
     @classmethod
-    def getDataUnitFactories(cls) -> dict[str, DataUnitFactory]:
-        return {
-            "Default": CARTStandardUnit
-        }
+    def getDataUnitFactory(cls) -> DataUnitFactory:
+        return CARTStandardUnit
 
     @classmethod
-    def feature_types(cls, data_factory_label: str) -> dict[str, str]:
-        # Defer to the data unit itself
-        duf = cls.getDataUnitFactories().get(data_factory_label, None)
-        if duf == CARTStandardUnit:
-            return CARTStandardUnit.feature_types()
-        return {}
-
-    @classmethod
-    def format_feature_label_for_type(
-        cls, initial_label: str, data_unit_factory_type: str, feature_type: str
-    ):
-        # Apply default comma processing
-        initial_label = super().format_feature_label_for_type(
-            initial_label, data_unit_factory_type, feature_type
-        )
-        # Defer to the data unit itself for further processing
-        duf = cls.getDataUnitFactories().get(data_unit_factory_type, None)
-        if duf is CARTStandardUnit:
-            return CARTStandardUnit.feature_label_for(
-                initial_label, feature_type
-            )
-        return initial_label
+    def init_config(cls, job_config: JobProfileConfig) -> DictBackedConfig:
+        return MarkupConfig(job_config)
 
 
 class MarkupGUI:
@@ -250,7 +230,12 @@ class MarkupOutput:
         failed_files = []
         for key, node in data_unit.markup_nodes.items():
             # Determine how the file should be named
-            input_path = data_unit.markup_paths.get(key, None)
+            input_path = node.GetStorageNode().GetFileName()
+            if input_path is None or input_path == "":
+                input_path = None
+            else:
+                input_path = Path(input_path)
+
             # If this is a node w/o a previous file name, save it as such
             if input_path is None:
                 file_name = f"{key}_unknown_{unknown_idx}.mrk.json"
@@ -265,10 +250,10 @@ class MarkupOutput:
 
             # Save the node's contents to this file
             if ".nii" in output_file.suffixes:
-                # Save the node to a NiFTI file, w/ a sidecar containing label data!
+                # Save the node to a NIfTI file, w/ a sidecar containing label data!
                 save_markups_to_nifti(
                     markup_node=node,
-                    reference_volume=data_unit.primary_volume_node,
+                    reference_volume=data_unit.reference_volume_node,
                     path=output_file
                 )
                 saved_files.append(output_file)
@@ -324,12 +309,136 @@ class MarkupOutput:
         return (author, uid) in self.log.keys()
 
 
+class MarkupOutputStructure(Enum):
+    BIDS = "BIDS"
+    FolderPerCase = "Folder-per-Case"
+
+
+class MarkupOutputFormat(Enum):
+    NIFTI = "NIfTI"
+    NRRD = "NRRD"
+    JSON = "JSON"
+
+
 class MarkupConfig(DictBackedConfig):
     CONFIG_KEY = "markup"
+
+    def __init__(self, parent_config: JobProfileConfig = None):
+        super().__init__(parent_config)
 
     @classmethod
     def default_config_label(cls) -> str:
         return cls.CONFIG_KEY
 
-    def show_gui(self) -> None:
-        pass
+    OUTPUT_STRUCTURE_KEY = "output_structure"
+
+    @property
+    def output_structure(self) -> MarkupOutputStructure:
+        str_val = self.get_or_default(
+            self.OUTPUT_STRUCTURE_KEY, MarkupOutputStructure.BIDS.value
+        )
+        return MarkupOutputStructure(str_val)
+
+    @output_structure.setter
+    def output_structure(self, new_val: MarkupOutputStructure):
+        self.backing_dict[self.OUTPUT_STRUCTURE_KEY] = new_val.value
+        self.has_changed = True
+
+    OUTPUT_FORMAT_KEY = "output_format"
+
+    @property
+    def output_format(self):
+        str_val = self.get_or_default(
+            self.OUTPUT_FORMAT_KEY, MarkupOutputFormat.NRRD.value
+        )
+        return MarkupOutputFormat(str_val)
+
+    @output_format.setter
+    def output_format(self, new_val: MarkupOutputFormat):
+        self.backing_dict[self.OUTPUT_FORMAT_KEY] = new_val.value
+        self.has_changed = True
+
+    ALLOW_DUPLICATES_KEY = "allow_duplicates"
+
+    @property
+    def allow_duplicates(self) -> bool:
+        return self.get_or_default(self.ALLOW_DUPLICATES_KEY, False)
+
+    @allow_duplicates.setter
+    def allow_duplicates(self, new_val: bool):
+        self.backing_dict[self.ALLOW_DUPLICATES_KEY] = new_val
+        self.has_changed = True
+
+    HIDE_TO_EDIT = "hide_to_edit"
+
+    @property
+    def hide_to_edit(self) -> bool:
+        return self.get_or_default(self.HIDE_TO_EDIT, False)
+
+    @hide_to_edit.setter
+    def hide_to_edit(self, new_val: bool):
+        self.backing_dict[self.HIDE_TO_EDIT] = new_val
+        self.has_changed = True
+
+    def generateGUILayout(self) -> Optional[tuple[str, qt.QLayout]]:
+        return _("Markup Configuration"), MarkupConfigGUILayout(self)
+
+
+class MarkupConfigGUILayout(qt.QFormLayout):
+    def __init__(self, config: MarkupConfig, parent = None):
+        super().__init__(parent)
+
+        # Output folder structure selection
+        fileStructureComboBox = qt.QComboBox(None)
+        fileStructureComboBox.addItems([x.value for x in MarkupOutputStructure])
+        fileStructureComboBox.setCurrentText(config.output_structure.value)
+        fileStructureLabel = qt.QLabel(_("Output File Structure:"))
+        self.addRow(fileStructureLabel, fileStructureComboBox)
+
+        # Output file structure selection
+        fileFormatComboBox = qt.QComboBox(None)
+        fileFormatComboBox.addItems([x.value for x in MarkupOutputFormat])
+        fileFormatComboBox.setCurrentText(config.output_structure.value)
+        fileFormatLabel = qt.QLabel(_("Output File Format:"))
+        self.addRow(fileFormatLabel, fileFormatComboBox)
+
+        # Toggle-able options
+        toggleLayout = qt.QFormLayout(None)
+        self.addRow(toggleLayout)
+
+        ## Duplicate Markups
+        duplicateMarkupsCheckBox = qt.QCheckBox()
+        duplicateMarkupsCheckBox.setChecked(config.allow_duplicates)
+        duplicateMarkupsLabel = qt.QLabel(_("Allow Duplicate Markups"))
+        toggleLayout.addRow(duplicateMarkupsCheckBox, duplicateMarkupsLabel)
+
+        ## Hide To-Edit Segments on Load
+        hideEditSegmentsCheckBox = qt.QCheckBox()
+        hideEditSegmentsCheckBox.setChecked(config.hide_to_edit)
+        hideEditSegmentsLabel = qt.QLabel(
+            _("Initially Hide To-Edit Markups")
+        )
+        toggleLayout.addRow(
+            hideEditSegmentsCheckBox, hideEditSegmentsLabel
+        )
+
+        # Connections
+        @qt.Slot(str)
+        def onStructureChanged(new_val: str):
+            config.output_structure = MarkupOutputStructure(new_val)
+        fileFormatComboBox.currentTextChanged.connect(onStructureChanged)
+
+        @qt.Slot(str)
+        def onFormatChanged(new_val: str):
+            config.output_format = MarkupOutputFormat(new_val)
+        fileFormatComboBox.currentTextChanged.connect(onFormatChanged)
+
+        @qt.Slot(None)
+        def onDuplicatesToggled():
+            config.allow_duplicates = duplicateMarkupsCheckBox.isChecked()
+        duplicateMarkupsCheckBox.toggled.connect(onDuplicatesToggled)
+
+        @qt.Slot(None)
+        def onHideEditsToggled():
+            config.hide_to_edit = hideEditSegmentsCheckBox.isChecked()
+        hideEditSegmentsCheckBox.toggled.connect(onHideEditsToggled)

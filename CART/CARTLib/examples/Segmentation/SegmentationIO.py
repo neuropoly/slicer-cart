@@ -1,24 +1,31 @@
 import csv
-import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 
+import numpy as np
 import slicer.util
 
-from CARTLib.examples.Segmentation.SegmentationUnit import SegmentationUnit
+from CARTLib.utils import get_cart_version
 from CARTLib.utils.config import JobProfileConfig, MasterProfileConfig
 from CARTLib.utils.data import (
     save_segmentation_to_nifti,
     save_json_sidecar,
+    load_json_sidecar,
     find_json_sidecar_path,
 )
-from CARTLib.utils.formatting import FilePathFormatter
 
-if TYPE_CHECKING:
-    # Avoid a cyclic reference
-    from SegmentationConfig import SegmentationConfig
+from SegmentationConfig import (
+    SegmentationConfig,
+    SegmentationFileFormat,
+    SegmentationFileStructure,
+)
+from SegmentationUnit import (
+    SegmentationUnit,
+    ReferenceSegmentationResource,
+    EditableSegmentationResource,
+)
 
 VERSION = 0.04
 
@@ -30,99 +37,48 @@ class SegmentationIO:
     """
 
     ## LOGGING CONSTANTS ##
+    # Key Columns
     UID_KEY = "uid"
+    SEG_KEY = "segmentation_name"
+    # Value Columns
     AUTHOR_KEY = "author"
     TIMESTAMP_KEY = "timestamp"
-    INPUT_SEGMENTATION_KEY = "original_segmentation_path"
-    SEGMENTATION_PATH_KEY = "segmentation_path"
-    SIDECAR_PATH_KEY = "sidecar_path"
+    SAVED_KEY = "saved_segmentations"
+    FAILED_KEY = "failed_segmentations"
     VERSION_KEY = "version"
 
     HEADERS = [
         UID_KEY,
         AUTHOR_KEY,
         TIMESTAMP_KEY,
-        SEGMENTATION_PATH_KEY,
-        SIDECAR_PATH_KEY,
-        INPUT_SEGMENTATION_KEY,
+        SAVED_KEY,
+        FAILED_KEY,
         VERSION_KEY,
     ]
 
-    ## OUTPUT PARSING CONSTANTS ##
-    UID_PLACEHOLDER = "%u"
-    NAME_PLACEHOLDER = "%n"
-    FULLNAME_PLACEHOLDER = "%N"
-    JOBNAME_PLACEHOLDER = "%j"
-    FILENAME_PLACEHOLDER = "%f"
-
-    REPLACEMENT_MAP_DESCRIPTIONS = {
-        UID_PLACEHOLDER: "The UID of the case, as specified in the Cohort file.",
-        NAME_PLACEHOLDER: "The name of the segmentation, stripped of any 'Segmentation_' prefix.",
-        FULLNAME_PLACEHOLDER: "The name of the segmentation, with 'Segmentation_' prefixes retained.",
-        JOBNAME_PLACEHOLDER: "The name of the job, as defined during the job's initial creation.",
-        FILENAME_PLACEHOLDER: "The original filename (without its extensions). Only valid for segmentations loaded from a file.",
-    }
-
-    @classmethod
-    def build_placeholder_map(
-        cls,
-        uid: str = "sub-abc123",
-        segmentation_name: str = "Segmentation_Example",
-        job_name: str = "Job_Name",
-        file_name: str = None,
-    ) -> dict[str, str]:
-        short_name = segmentation_name
-        if short_name.lower().startswith("segmentation_"):
-            short_name = short_name[13:]
-
-        placeholder_map = {
-            cls.UID_PLACEHOLDER: uid,
-            cls.NAME_PLACEHOLDER: short_name,
-            cls.FULLNAME_PLACEHOLDER: segmentation_name,
-            cls.JOBNAME_PLACEHOLDER: job_name,
-        }
-        if file_name is not None:
-            placeholder_map[cls.FILENAME_PLACEHOLDER] = file_name.split('.')[0]
-        return placeholder_map
-
-    @classmethod
-    def format_output_str(
-        cls,
-        output_str: str,
-        placeholder_map: dict[str, str],
-        output_path: Path = Path("..."),
-    ) -> Optional[str]:
-        # Empty strings, and strings with trailing slashes, are invalid
-        if len(output_str) < 1 or (output_str[-1] in {"/", "\\"}):
-            return None
-
-        # Format the string
-        formatted_str = output_str
-        for k, v in placeholder_map.items():
-            formatted_str = formatted_str.replace(k, v)
-
-        # Prepend the "output_path" if this isn't an absolute path
-        if Path(formatted_str).is_absolute():
-            return formatted_str
-        else:
-            return str(output_path / formatted_str)
-
+    ## Constructor ##
     def __init__(self, master_config: MasterProfileConfig, job_config: JobProfileConfig, task_config: "SegmentationConfig"):
         self.master_config: MasterProfileConfig = master_config
         self.job_config: JobProfileConfig = job_config
         self.task_config: "SegmentationConfig" = task_config
 
         # Map of previous CSV log entries
-        self._log_data: Optional[dict[tuple[str, str], dict[str, str]]] = None
+        self._log_data: Optional[dict[str, dict[str, str]]] = None
 
+    ## Log Management ##
     @property
     def log_path(self) -> Path:
-        return self.job_config.output_path / f"{self.job_config.name}_log.csv"
+        """
+        Path to where the logs for this owning IO's Job should be saved.
+
+        Returns a TSV file which may or may not exist yet!
+        """
+        return self.job_config.output_path / f"{self.job_config.name}_log.tsv"
 
     @property
-    def log_data(self) -> Optional[dict[tuple[str, str], dict[str, str]]]:
+    def log_data(self) -> Optional[dict[str, dict[str, str]]]:
         """
-        The data currently stored within the CSV-based log file
+        The data currently stored within the TSV-based log file
 
         Get-only, as the log file and its contents are tightly bound to
         the output directory.
@@ -138,251 +94,278 @@ class SegmentationIO:
 
         # Otherwise, try to (re-)build the CSV log
         log_data = dict()
+        self._log_data = log_data
+
+        # If there's not existing TSV file to pull from, end here
+        if not self.log_path.exists():
+            return log_data
 
         # If the CSV file already exists, load its contents
-        if self.log_path.exists():
-            with open(self.csv_log_path, newline="") as csvfile:
-                reader = csv.DictReader(csvfile)
-                for i, row in enumerate(reader):
-                    # Confirm the row has a UID; if not, skip it
-                    uid = row.get(self.UID_KEY, None)
-                    if uid is None:
-                        logging.warning(
-                            f"Skipping entry #{i} in {self.csv_log_path}, lacked a valid UID."
-                        )
-                        continue
-                    # Likewise, skip entries without an author
-                    author = row.get(self.AUTHOR_KEY, None)
-                    if author is None:
-                        logging.warning(
-                            f"Skipping entry #{i} in {self.csv_log_path}, lacked a valid author."
-                        )
-                        continue
-                    # Update CSV log dictionary
-                    log_data[(uid, author)] = row
+        with open(self.log_path, newline="") as csvfile:
+            reader = csv.DictReader(csvfile, delimiter='\t')
+            for i, row in enumerate(reader):
+                # Confirm the row has a UID; if not, skip it
+                uid = row.get(self.UID_KEY, None)
+                if uid is None:
+                    logging.warning(
+                        f"Skipping entry #{i} in {self.log_path}, lacked a valid UID."
+                    )
+                    continue
+                # Update CSV log dictionary
+                log_data[uid] = row
 
         # Track and return the result
         self._log_data = log_data
         return log_data
 
-    def save_unit(self, unit: SegmentationUnit):
-        # Save each edited segmentation if they were requested by the user
-        saved_edited = dict()
-        error_edited = dict()
-        for seg_id, seg_node in unit.segmentation_nodes.items():
-            # Don't save custom segmentations twice
-            if seg_id in unit.custom_segmentations.keys():
-                continue
-            seg_path = unit.segmentation_paths.get(seg_id, None)
-            try:
-                result = self._save_edited_segmentation(seg_node, unit, seg_id, seg_path)
-                if result is None:
-                    continue
-                saved_edited[seg_id] = str(result)
-            except Exception as e:
-                error_edited[seg_id] = str(e)
-
-        # Save each custom segmentation
-        saved_customs = dict()  # Name: Destination Path
-        error_customs = dict()  # Name: Reason
-        for seg_id, seg_node in unit.custom_segmentations.items():
-            try:
-                result = self._save_custom_segmentation(seg_node, unit, seg_id)
-                saved_customs[seg_id] = str(result)
-            except Exception as e:
-                error_customs[seg_id] = str(e)
-        return saved_edited, saved_customs, error_edited, error_customs
-
-    def _save_edited_segmentation(
-        self,
-        seg_node: "slicer.vtkMRMLSegmentationNode",
-        unit: SegmentationUnit,
-        seg_id: str,
-        source_path: Path = None,
-    ):
+    ## Save/Load Management ##
+    def is_case_done(self, uid: str, input_volume_path: Optional[Path] = None):
         """
-        Save edits made to the specified segmentation node, referencing the given data
-        unit and segmentation ID to fill in the resulting files w/ additional
-        details.
+        Check whether the expected output files for the given case
+        UID exist or not.
 
-        :param seg_node: The segmentation node that should be saved
-        :param unit: The data unit the segmentation node is part of
-        :param seg_id: The identifier used by the segmentation within the data unit
-        :param source_path: The path the original segmentation was loaded from
-        :return: The output path of the MAIN (.nii.gz) saved file
-        :raises ValueError: If the values provided would result in a corrupted save file.
+        :param uid: The case UID to check.
+        :param input_volume_path: Path to the source volume file. When provided,
+            BIDS entities beyond the uid (e.g. acq-*, modality suffix) are
+            included in the expected output filename, matching what
+            _generate_output_paths_for would produce at save time.
         """
-        # Find the corresponding segmentation name
-        seg_name = None
-        for k in self.task_config.segmentations_to_save:
-            if k in seg_id:
-                seg_name = k
-                break
-
-        # If none was found, skip over it
-        if seg_name is None:
+        # If our log file doesn't have an entry, return None
+        log_entry = self.log_data.get(uid)
+        if log_entry is None:
             return None
 
-        # Skip blank segmentations
-        for sid in seg_node.GetSegmentation().GetSegmentIDs():
-            if not self.task_config.save_blank_segmentations and (
-                not slicer.util.arrayFromSegmentBinaryLabelmap(seg_node, sid).max()
-                > 0
-            ):
-                msg = f"Skipped '{seg_name}'; segmentation was blank!"
-                logging.info(msg)
-                raise ValueError(msg)
+        # Check if there were any failures last time
+        failed_keys = log_entry.get(self.FAILED_KEY)
+        if failed_keys != '':
+            failed_keys = failed_keys.split(", ")
+            if len(failed_keys) > 0:
+                return False
 
-        # Determine the short name for this segmentation
-        short_name = seg_name
-        if short_name.lower().startswith("segmentation_"):
-            short_name = short_name[len("segmentation_") :]
+        # Iterate through the saved keys and confirm they're there
+        saved_keys = log_entry.get(self.SAVED_KEY)
+        if saved_keys != "":
+            for seg_id in saved_keys.split(", "):
+                # Get the "final" name for this segmentation
+                seg_name = EditableSegmentationResource.get_short_name(seg_id)
+                nifti_path = self._generate_output_paths_for(uid, seg_name, input_volume_path)
+                if not nifti_path.exists():
+                    return False
+                # If it's a NIfTI file, check for the sidecar as well
+                if self.task_config.file_format == SegmentationFileFormat.NIFTI:
+                    json_path = find_json_sidecar_path(nifti_path)
+                    if not json_path.exists():
+                        return False
 
-        # Change the file-name
-        if source_path is None:
-            file_name = f"{unit.uid}_{short_name}"
-            output_str = self.task_config.default_custom_output_path
+        return True
+
+    def get_saved_segmentation_paths(self, uid: str, input_volume_path: Optional[Path] = None):
+        """
+        Get the case name -> output path map for this case.
+
+        :param uid: The case UID to look up.
+        :param input_volume_path: Path to the source volume file. When provided,
+            BIDS entities beyond the uid (e.g. acq-*, modality suffix) are
+            included in the expected output filename, matching what
+            _generate_output_paths_for would produce at save time.
+        """
+        unit_data = self.log_data.get(uid, {})
+        saved_keys = unit_data.get(self.SAVED_KEY, '')
+
+        if saved_keys == '':
+            return {}
+
+        # Iteratively find each segment within the path
+        segmentation_paths = {}
+        for seg_name in saved_keys.split(", "):
+            # Find where the file should be, skipping it if one does not exist
+            nifti_path = self._generate_output_paths_for(uid, seg_name, input_volume_path)
+            if not nifti_path.is_file():
+                continue
+            # Track the file within the dictionary
+            segment_key = EditableSegmentationResource.format_for_csv(seg_name)
+            segmentation_paths[segment_key] = nifti_path
+
+        return segmentation_paths
+
+    def _generate_output_paths_for(self, uid: str, seg_name: str, input_volume_path: Optional[Path] = None):
+        # TODO: Allow user-configurable file structure
+
+        # If this is a BIDS structure, try to place the outputs in roughly BIDS-compliant format
+        if self.task_config.file_structure == SegmentationFileStructure.BIDS:
+            # Split the "subject" and "session" parts of the UID, if they're present
+            if "sub" in uid and "ses" in uid:
+                sub, ses = uid.split("__")  # TODO: Define this "magic" string somewhere explicitly
+                stem_path = self.job_config.output_path / sub / ses
+            # Otherwise, use the UID "raw"
+            else:
+                stem_path = self.job_config.output_path / uid
+            # Add an "anat" dir to the end to meet BIDS requirements
+            stem_path /= "anat"
+        # Otherwise (file-per-case), just create a folder for each UID
+        elif self.task_config.file_structure == SegmentationFileStructure.FolderPerCase:
+            stem_path = self.job_config.output_path / uid
+        # If we had an invalid option, raise a value error
         else:
-            file_name = source_path.name.split(".")[0]
-            output_str = self.task_config.edit_output_path
-        placeholder_map = FilePathFormatter.build_default_placeholder_map(
-            uid=unit.uid,
-            short_name=short_name,
-            long_name=seg_name,
-            job_name=self.job_config.name,
-            file_name=file_name,
-        )
-        # TODO: Make the extension configurable
-        formatter = FilePathFormatter(
-            root_path=self.job_config.output_path,
-            placeholder_map=placeholder_map,
-            extension=".nii.gz",
-        )
+            raise ValueError("Invalid output structure detected for the Segmentation Task!")
 
-        # If this is a new (previously missing) segmentation, use the default custom path
-        output_str = formatter.format_string(output_str)
+        # Derive the file stem from the input volume name when available, so
+        # that BIDS entities such as acq-* and the modality suffix (e.g. _T2w)
+        # are preserved in the output filename.
+        #
+        # Example:
+        #   input : sub-001_ses-20111118_acq-axCerv_T2w.nii.gz
+        #   output: sub-001_ses-20111118_acq-axCerv_T2w_label-lesion_seg.nii.gz
+        if input_volume_path is not None:
+            # Strip one or two extensions to handle both .nii.gz and .nii
+            volume_stem = input_volume_path.name
+            for ext in (".nii.gz", ".nii", ".nrrd"):
+                if volume_stem.endswith(ext):
+                    volume_stem = volume_stem[: -len(ext)]
+                    break
+            file_name = f"{volume_stem}_{seg_name}"
+        else:
+            # Fallback: use only the uid (original behavior)
+            file_name = f"{uid}_{seg_name}"
 
-        # If the output string is none (invalid), log an error and end this loop
-        if output_str is None:
-            msg = f"Could not save '{seg_name}', output path string was invalid"
-            logging.error(msg)
-            raise ValueError(msg)
+        # Define the final file paths based on the format requested
+        if self.task_config.file_format == SegmentationFileFormat.NIFTI:
+            output_path = stem_path / f"{file_name}.nii.gz"
+        elif self.task_config.file_format == SegmentationFileFormat.NRRD:
+            output_path = stem_path / f"{file_name}.nrrd"
+        else:
+            raise ValueError("Invalid output format detected for the Segmentation Task!")
 
-        # Set up for file saving
-        seg_path = Path(output_str)
+        return output_path
 
-        # See if there's sidecar data we can copy + update
-        sidecar_data = None
-        if source_path:
-            sidecar_path = find_json_sidecar_path(source_path)
-            if sidecar_path.exists():
-                with open(sidecar_path, 'r') as fp:
-                    sidecar_data = json.load(fp)
-        # If not, start from scratch
-        if sidecar_data is None:
-            sidecar_data = {
-                "SpatialReference": "orig",
-                "GeneratedBy": [],
-            }
-        # Add our new generated by entry
-        generated_by = sidecar_data["GeneratedBy"]
-        generated_by.append(
-            {
-                "Name": f"CART Segmentation Task [{self.job_config.name}]",
-                "Version": VERSION,
-                "Author": self.master_config.author,
-                "Position": self.master_config.position,
-                "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            }
-        )
-        json_path = seg_path.parent / (seg_path.name.split('.')[0] + ".json")
+    def save_unit(self, unit: SegmentationUnit):
+        # Save each segmentation that was marked as "to-edit" during Job config
+        saved_records = list()
+        failed_records = list()
+        exceptions = list()
+        for segmentation_id, segmentation_node in unit.segmentation_nodes.items():
+            # If this segmentation is "view-only", skip it
+            if ReferenceSegmentationResource.is_type(segmentation_id):
+                continue
 
-        # Save everything and return
-        save_segmentation_to_nifti(seg_node, unit.primary_volume_node, seg_path)
-        save_json_sidecar(json_path, sidecar_data)
-        return seg_path.resolve()
+            # If we're not saving blanks, check if this segmentation is blank
+            if not self.task_config.save_blank_segmentations:
+                # Iterate through each segment in turn
+                segmentation = segmentation_node.GetSegmentation()
+                for segment_id in segmentation.GetSegmentIDs():
+                    try:
+                        # If any segment has a non-zero value, break to skip the "else" below.
+                        arr = slicer.util.arrayFromSegmentInternalBinaryLabelmap(segmentation_node, segment_id)
+                        if np.count_nonzero(arr) > 0:
+                            break
+                    except AttributeError:
+                        # When there is no label map in the segment, its either corrupt or lacks any segments.
+                        continue
+                else:
+                    # If no segments had a non-zero value, skip the segmentation
+                    logging.info(
+                        f"Skipped segmentation {segmentation_node.GetName()}, as it was blank."
+                    )
+                    continue
 
-    def _save_custom_segmentation(
+            # Try to save this segmentation
+            segmentation_name = EditableSegmentationResource.get_short_name(segmentation_id)
+            try:
+                self._save_segmentation(segmentation_node, unit, segmentation_name)
+                saved_records.append(segmentation_name)
+            except Exception as e:
+                failed_records.append(segmentation_name)
+                exceptions.append(e)
+        # Create a new log entry detailing these changes
+        log_entry = {
+            self.UID_KEY: unit.uid,
+            self.AUTHOR_KEY: self.master_config.author,
+            self.TIMESTAMP_KEY: datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            self.SAVED_KEY: ", ".join(saved_records),
+            self.FAILED_KEY: ", ".join(failed_records),
+            self.VERSION_KEY: VERSION,
+        }
+        self.log_data[unit.uid] = log_entry
+        # Save the updated log data to file
+        with open(self.log_path, mode='w') as fp:
+            writer = csv.DictWriter(fp, fieldnames=self.HEADERS, delimiter='\t')
+            writer.writeheader()
+            writer.writerows(self.log_data.values())
+
+        # If we had any errors, log a message and raise the first
+        no_exceptions = len(exceptions)
+        if no_exceptions > 0:
+            logging.error(
+                f"While saving a the segmentations for data unit '{unit.uid}', "
+                f"{no_exceptions} error(s) occurred! "
+                f"See the critical stack trace for details "
+                f"on the first of these.")
+            raise exceptions[0]
+
+    def _save_segmentation(
         self,
         seg_node: "slicer.vtkMRMLSegmentationNode",
         unit: SegmentationUnit,
-        seg_id: str,
+        seg_name: str,
     ) -> Path:
         """
-        Save the specified (custom) segmentation node, referencing the given data
+        Save the specified segmentation node, referencing the given data
         unit and segmentation ID to fill in the resulting files w/ additional
         details.
 
         :param seg_node: The segmentation node that should be saved
         :param unit: The data unit the segmentation node is part of
-        :param seg_id: The identifier used by the segmentation within the data unit
+        :param seg_name: The identifier used by the segmentation within the data unit
         :return: The output path of the MAIN (.nii.gz) saved file
         :raises ValueError: If the values provided would result in a corrupted save file.
         """
-        # Find the relevant config entry for this seg
-        output_str = None
-        color_hex = None
-        seg_name = None
-        for k, v in self.task_config.custom_segmentations.items():
-            if k in seg_id:
-                output_str = v.get("path_string", None)
-                color_hex = v.get("color", None)
-                seg_name = k
-                break
+        # Resolve the input volume path so _generate_output_paths_for can
+        # include all BIDS entities (acq-*, modality suffix, etc.) in the
+        # output filename.
+        input_volume_path: Optional[Path] = None
+        if unit.reference_volume_node is not None:
+            storage_node = unit.reference_volume_node.GetStorageNode()
+            if storage_node is not None:
+                file_name = storage_node.GetFileName()
+                if file_name:
+                    input_volume_path = Path(file_name)
 
-        # If that search failed, log and end
-        if seg_name is None:
-            msg = f"Could not save '{seg_name}', no valid configuration entry exists for it."
-            logging.error(msg)
-            raise ValueError(msg)
+        # Determine the output file destinations
+        output_path = self._generate_output_paths_for(unit.uid, seg_name, input_volume_path)
 
-        # Skip blank segmentations
-        for sid in seg_node.GetSegmentation().GetSegmentIDs():
-            if (
-                not self.task_config.save_blank_segmentations
-                and not slicer.util.arrayFromSegmentBinaryLabelmap(seg_node, sid).max()
-                > 0
-            ):
-                msg = f"Skipped '{seg_name}'; segmentation was blank!"
-                logging.info(msg)
-                raise ValueError(msg)
+        # Save everything
+        if self.task_config.file_format == SegmentationFileFormat.NIFTI:
+            # Only generate + update the sidecar if the output is NIfTI
+            sidecar_data = dict()
 
-        # Generate the output path string
-        output_str = self.format_output_str(
-            output_str,
-            self.build_placeholder_map(unit.uid, seg_name, self.job_config.name),
-            self.job_config.output_path,
-        )
+            # Load the previous sidecar's contents as a "basis"
+            storage_node = seg_node.GetStorageNode()
+            if storage_node is not None:
+                prior_path = Path(storage_node.GetFileName())
+                sidecar_data = load_json_sidecar(prior_path)
 
-        # If the output string is none (invalid), log an error and end this loop
-        if output_str is None:
-            msg = f"Could not save '{seg_name}', output path string was invalid"
-            logging.error(msg)
-            raise ValueError(msg)
-
-        # Set up for file saving
-        stem_path = Path(output_str)
-
-        # TODO: Allow user-customizable file format
-        output_path = stem_path.parent / (stem_path.name + ".nii.gz")
-
-        # Build the corresponding sidecar
-        # TODO: Only create this if outputting to BIDS-like format
-        sidecar_data = {
-            "SpatialReference": "orig",
-            "GeneratedBy": [
+            # Update its relevant contents
+            generated_by = sidecar_data.get("GeneratedBy", [])
+            generated_by.append(
                 {
                     "Name": f"CART Segmentation Task [{self.job_config.name}]",
-                    "Version": VERSION,
+                    "CART Version": get_cart_version(),
+                    "Task Version": VERSION,
                     "Author": self.master_config.author,
                     "Position": self.master_config.position,
                     "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 }
-            ],
-        }
-        json_path = stem_path.parent / (stem_path.name + ".json")
+            )
+            sidecar_data["GeneratedBy"] = generated_by
 
-        # Save everything and report
-        save_segmentation_to_nifti(seg_node, unit.primary_volume_node, output_path)
-        save_json_sidecar(json_path, sidecar_data)
+            # Save everything
+            save_segmentation_to_nifti(
+                seg_node, unit.reference_volume_node, output_path
+            )
+            save_json_sidecar(output_path, sidecar_data)
+        else:
+            # Delegate to Slicer for our other formats
+            slicer.util.saveNode(seg_node, str(output_path))
+
+        # Report the output path for upstream use
         return output_path.resolve()

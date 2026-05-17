@@ -549,7 +549,7 @@ class OrientationButtonArrayWidget(ctk.ctkCollapsibleGroupBox):
         else:
             new_handler.match_layout_settings_with(self._bound_handler)
 
-        # Track the new data handler
+        # Track the new layout handler
         self._bound_handler = new_handler
 
     def setOrientationShown(self, orientation: Orientation, val: bool):

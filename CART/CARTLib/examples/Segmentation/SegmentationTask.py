@@ -1,13 +1,13 @@
-import traceback
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 import qt
 
-from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
+from CARTLib.core.TaskBaseClass import CARTTask
+from CARTLib.core.DataUnitBase import DataUnitFactory
 from CARTLib.utils.config import MasterProfileConfig, JobProfileConfig
+from CARTLib.utils.data import VolumeResource, ReferenceVolumeResource
 from CARTLib.utils.task import cart_task
-from CARTLib.utils.widgets import showErrorPrompt
 
 from SegmentationConfig import SegmentationConfig
 from SegmentationGUI import SegmentationGUI
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 @cart_task("Segmentation")
 class SegmentationTask(
-    TaskBaseClass[SegmentationUnit]
+    CARTTask[SegmentationUnit]
 ):
 
     README_PATH = Path(__file__).parent / "README.md"
@@ -34,25 +34,6 @@ class SegmentationTask(
             return fp.read()
 
         # TODO: Remove un-usable images
-
-    @classmethod
-    def feature_types(cls, data_factory_label: str) -> dict[str, str]:
-        # Delegate to the data unit's defaults
-        return SegmentationUnit.feature_types()
-
-    @classmethod
-    def format_feature_label_for_type(
-        cls, initial_label: str, data_unit_factory_type: str, feature_type: str
-    ):
-        # Apply default comma processing
-        initial_label = super().format_feature_label_for_type(
-            initial_label, data_unit_factory_type, feature_type
-        )
-        # Defer to the data unit itself for further processing
-        duf = cls.getDataUnitFactories().get(data_unit_factory_type, None)
-        if duf is SegmentationUnit:
-            return SegmentationUnit.feature_label_for(initial_label, feature_type)
-        return initial_label
 
     def __init__(
         self,
@@ -71,8 +52,8 @@ class SegmentationTask(
             f for f in self.cohort_features if "segmentation" in f.lower()
         ]
 
-        # Config init
-        self.local_config = SegmentationConfig(job_profile)
+        # Self-managed configuration instance
+        self.local_config = self.init_config(job_profile)
 
         # I/O Manager
         self.io = SegmentationIO(master_profile, job_profile, self.local_config)
@@ -82,54 +63,15 @@ class SegmentationTask(
         # Get-only; use "receive" instead
         return self._data_unit
 
-    def setup(self, container: qt.QWidget):
-        """
-        Build the GUI's contents, returning the resulting layout for use.
-        """
-        self.logger.info("Setting up Segmentation Task!")
-
-        # Initialize the layout we'll insert everything into
-        self.gui = SegmentationGUI(self)
-        container.setLayout(self.gui.setup())
-        self.gui.enter()
-
-        self.logger.info("Segmentation Task set up successfully!")
-
-    def receive(self, data_unit: SegmentationUnit):
-        self._data_unit = data_unit
-
-        # Change the interpolation settings to match current setting
-        self.apply_interp()
-
-        # Ensure all segments are visible
-        self.show_all_segments()
-
-        # Hide "to-be-edited" segments, if requested
-        if self.hide_editable_on_start:
-            self.hide_editable_segments()
-
-        # Add any custom segmentations configured by the user to the unit
-        self._init_custom_segmentations()
-
-        # If we have a GUI, refresh it
-        if self.gui:
-            self.gui.refresh()
-
-    def save(self) -> Optional[str]:
-        if not self.data_unit:
-            self.logger.error("Could not save, no data unit has been loaded!")
-        result_packet = self.io.save_unit(self.data_unit)
-        # If we have an active GUI, prompt the user with the details
-        if self.gui:
-            self.gui.onSavePrompt(*result_packet)
-
     @classmethod
-    def getDataUnitFactories(cls) -> dict[str, DataUnitFactory]:
-        return {
-            "Default": SegmentationUnit
-        }
+    def getDataUnitFactory(cls) -> DataUnitFactory:
+        return SegmentationUnit
 
     ## Configurable Settings ##
+    @classmethod
+    def init_config(cls, job_config: JobProfileConfig) -> SegmentationConfig:
+        return SegmentationConfig(job_config)
+
     @property
     def should_interpolate(self):
         return self.local_config.should_interpolate
@@ -163,17 +105,6 @@ class SegmentationTask(
             display_node = segment_node.GetDisplayNode()
             display_node.SetAllSegmentsVisibility(True)
 
-    def hide_editable_segments(self):
-        if not self.data_unit:
-            return
-        for k in self.segmentations_to_save:
-            segment_node = self.data_unit.segmentation_nodes.get(k)
-            if not segment_node:
-                print(f"No segment node for {k}")
-                continue
-            display_node = segment_node.GetDisplayNode()
-            display_node.SetAllSegmentsVisibility(False)
-
     @property
     def save_blank_segments(self) -> bool:
         return self.local_config.save_blank_segmentations
@@ -183,96 +114,100 @@ class SegmentationTask(
         self.local_config.save_blank_segmentations = new_val
         self.local_config.save()
 
-    @property
-    def custom_segmentations(self) -> dict[str, dict]:
-        return self.local_config.custom_segmentations
+    ## State Management ##
+    def _find_reference_volume_path(self, case_data: dict):
+        # Identify the reference volume path for this case
+        reference_path = None
+        for k, v in case_data.items():
+            # Skip blanks; they're not valid
+            if v is None or v == "":
+                continue
+            # Skip over non-volume entries as well
+            if not VolumeResource.is_type(k):
+                continue
+            # Skip over paths which don't exist
+            p = Path(v)
+            if not p.is_absolute():
+                p = self.job_profile.data_path / p
+            if not p.exists():
+                continue
+            # Track the first valid volume we found as a fallback
+            if reference_path is None:
+                reference_path = p
+            # If this is a valid reference volume, end here
+            if ReferenceVolumeResource.is_type(k):
+                reference_path = p
+                break
 
-    def new_custom_segmentation(self, new_name: str, output_str: str, color_hex: str):
-        """
-        Register a new custom segmentation. Adds a (blank) segmentation
-        with the corresponding name to the current data unit as well.
+        return reference_path
 
-        :param new_name: The name the segmentation should have
-        :param output_str: The output path, pre-contextual formatting
-        :param color_hex: The color the segmentation should be, in hex format
-        """
+    def isTaskComplete(self, case_data: dict[str, str]) -> bool:
+        # Ensure there's a valid UI
+        uid = case_data.get("uid", None)
+        if uid is None:
+            return False
 
-        # Add it to our configuration
-        self.local_config.add_custom_segmentation(new_name, output_str, color_hex)
-        self.local_config.save()
+        # Identify the reference volume path for this case
+        reference_path = self._find_reference_volume_path(case_data)
 
-        # If this is a new custom segmentation for the data unit, add it as well
-        if self.data_unit and new_name not in self.data_unit.custom_segmentations.keys():
-            try:
-                # Generate the new node
-                new_node = self.data_unit.add_custom_segmentation(new_name, color_hex)
+        # If there isn't one, assume the case is not complete
+        if reference_path is None:
+            return False
 
-                # If we have a GUI, update it
-                if self.gui:
-                    self.gui.refresh()
-                    self.gui.selectSegmentationNode(new_node)
-            except Exception as e:
-                self.logger.error(traceback.format_exc())
-                if self.gui:
-                    showErrorPrompt(str(e), None)
+        # Delegate to our IO manager
+        return self.io.is_case_done(uid, reference_path)
 
-    @property
-    def segmentations_to_save(self) -> list[str]:
-        return self.local_config.segmentations_to_save
-
-    @segmentations_to_save.setter
-    def segmentations_to_save(self, new_segs: list[str]):
-        self.local_config.segmentations_to_save = new_segs
-        self.local_config.save()
-
-    @property
-    def edit_output_path(self) -> str:
-        return self.local_config.edit_output_path
-
-    @edit_output_path.setter
-    def edit_output_path(self, new_val: str):
-        self.local_config.edit_output_path = new_val
-        self.local_config.save()
-
-    @property
-    def default_custom_output_path(self) -> str:
-        return self.local_config.default_custom_output_path
-
-    @default_custom_output_path.setter
-    def default_custom_output_path(self, new_val: str):
-        self.local_config.default_custom_output_path = new_val
-        self.local_config.save()
-
-    ## Segmentation Management ##
-    def _init_custom_segmentations(self):
-        """
-        Add a custom segmentation to the data unit
-        """
-        # If we don't have a data unit, end here w/ an error
+    def save(self) -> Optional[str]:
+        # Try to save the data unit
         if not self.data_unit:
-            msg = "Cannot add custom segmentation; no data unit has been loaded!"
-            self.logger.error(msg)
-            if self.gui:
-                showErrorPrompt(msg, None)
+            self.logger.error("Could not save, no data unit has been loaded!")
+        self.io.save_unit(self.data_unit)
 
-        # Add each custom segmentation in turn
-        for name, sub_vals in self.custom_segmentations.items():
-            try:
-                color_hex = sub_vals.get(self.local_config.CUSTOM_SEG_COLOR_KEY)
-                self.data_unit.add_custom_segmentation(name, color_hex)
-                if self.gui:
-                    self.gui.refresh()
-            # Skip duplicate key errors in this case
-            except ValueError as e:
-                if "already exists" in str(e):
-                    continue
-                raise e
-            # All other errors should end the loop and notify the user
-            except Exception as e:
-                self.logger.error(traceback.format_exc())
-                if self.gui:
-                    showErrorPrompt(str(e), None)
-                return
+    def generate_prior_data_for(self, case_data: dict) -> Optional[dict]:
+        # Ensure there's a valid UI
+        uid = case_data.get("uid", None)
+        if uid is None:
+            return None
+
+        # Find the reference volume for this case
+        reference_path = self._find_reference_volume_path(case_data)
+        if reference_path is None:
+            return None
+
+        # Delegate to our IO instance
+        return self.io.get_saved_segmentation_paths(uid, reference_path)
+
+    def setup(self, container: qt.QWidget):
+        """
+        Build the GUI's contents, returning the resulting layout for use.
+        """
+        self.logger.info("Setting up Segmentation Task!")
+
+        # Initialize the layout we'll insert everything into
+        self.gui = SegmentationGUI(self)
+        container.setLayout(self.gui.setup())
+        self.gui.enter()
+
+        self.logger.info("Segmentation Task set up successfully!")
+
+    def receive(self, data_unit: SegmentationUnit):
+        self._data_unit = data_unit
+
+        # Apply our configuration options to the data unit
+        data_unit.apply_segmentation_configs(self.local_config)
+
+        # Change the interpolation settings to match current setting
+        self.apply_interp()
+
+        # Ensure all segments are visible
+        self.show_all_segments()
+
+        # Hide segments the user requested be hidden on load
+        # TODO
+
+        # If we have a GUI, refresh it
+        if self.gui:
+            self.gui.refresh()
 
     def enter(self):
         if self.gui:

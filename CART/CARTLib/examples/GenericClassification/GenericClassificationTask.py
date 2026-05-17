@@ -3,9 +3,9 @@ from pathlib import Path
 from typing import Optional
 
 import qt
-import ctk
 
-from CARTLib.core.TaskBaseClass import TaskBaseClass, DataUnitFactory
+from CARTLib.core.TaskBaseClass import TaskBaseClass
+from CARTLib.core.DataUnitBase import DataUnitFactory
 from CARTLib.examples.GenericClassification.GenericClassificationOutputManager import GenericClassificationOutputManager
 from CARTLib.utils.config import JobProfileConfig, MasterProfileConfig
 from CARTLib.utils.task import cart_task
@@ -92,29 +92,5 @@ class GenericClassificationTask(TaskBaseClass[GenericClassificationUnit]):
             showSuccessPrompt(result_msg)
 
     @classmethod
-    def getDataUnitFactories(cls) -> dict[str, DataUnitFactory]:
-        return {
-            "Default": GenericClassificationUnit
-        }
-
-    @classmethod
-    def feature_types(cls, data_factory_label: str) -> dict[str, str]:
-        # Defer to the data unit itself
-        duf = cls.getDataUnitFactories().get(data_factory_label, None)
-        if duf == GenericClassificationUnit:
-            return GenericClassificationUnit.feature_types()
-        return {}
-
-    @classmethod
-    def format_feature_label_for_type(
-        cls, initial_label: str, data_unit_factory_type: str, feature_type: str
-    ):
-        # Apply default comma processing
-        initial_label = super().format_feature_label_for_type(
-            initial_label, data_unit_factory_type, feature_type
-        )
-        # Defer to the data unit itself for further processing
-        duf = cls.getDataUnitFactories().get(data_unit_factory_type, None)
-        if duf is GenericClassificationUnit:
-            return GenericClassificationUnit.feature_label_for(initial_label, feature_type)
-        return initial_label
+    def getDataUnitFactory(cls) -> DataUnitFactory:
+        return GenericClassificationUnit

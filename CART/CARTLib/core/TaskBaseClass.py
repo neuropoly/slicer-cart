@@ -1,29 +1,20 @@
 import logging
 from abc import ABC, abstractmethod
-from pathlib import Path
-from typing import Generic, Optional, TypeVar, Protocol
+from typing import Generic, Optional, TypeVar
 
 import qt
-import slicer
 from slicer.i18n import tr as _
 
-from CARTLib.core.DataUnitBase import DataUnitBase
-from CARTLib.utils.config import JobProfileConfig, MasterProfileConfig
+from CARTLib.core.DataUnitBase import DataUnitBase, DataUnitFactory
+from CARTLib.utils.config import (
+    JobProfileConfig,
+    MasterProfileConfig,
+    DictBackedConfig,
+    ResourceSpecificConfig,
+)
 
 # Generic type hint class for anything which is a subclass of DataUnitBase
 D = TypeVar("D", bound=DataUnitBase)
-
-
-# Protocol signature which matches the DataUnitBase constructor; allows users to
-#  return non-init functions if they have a different method they want to use
-#  instead
-class DataUnitFactory(Protocol):
-    def __call__(
-        self,
-        case_data: dict[str, str],
-        data_path: Path,
-        scene: Optional[slicer.vtkMRMLScene] = None,
-    ) -> D: ...
 
 
 class TaskBaseClass(ABC, Generic[D]):
@@ -60,15 +51,7 @@ class TaskBaseClass(ABC, Generic[D]):
         # Create a logger to track the goings-on of this task.
         self.logger = logging.getLogger(f"{__class__.__name__}")
 
-    # Aliases for commonly accessed attributes
-    @property
-    def profile_label(self) -> str:
-        return self.job_profile.label
-
-    @property
-    def profile_role(self) -> str:
-        return self.job_profile.role
-
+    ## Abstract Methods ##
     @abstractmethod
     def setup(self, container: qt.QWidget):
         """
@@ -121,6 +104,18 @@ class TaskBaseClass(ABC, Generic[D]):
         raise NotImplementedError("save must be implemented in subclasses")
 
     @classmethod
+    @abstractmethod
+    def getDataUnitFactory(cls) -> DataUnitFactory:
+        """
+        Get the data unit factory for this task.
+
+        If in doubt, just return the class object, as it (should) matches the Protocol.
+        """
+
+        raise NotImplementedError("setup must be implemented in subclasses")
+
+    ## Class Methods ##
+    @classmethod
     def description(cls):
         """
         A description for this task, detailing what it should be used for, as well as
@@ -132,6 +127,39 @@ class TaskBaseClass(ABC, Generic[D]):
             f"'{cls.__name__}' has no description; you should remind the developer to provide one!"
         )
 
+    TaskConfig = TypeVar("TaskConfig", bound=DictBackedConfig)
+
+    @classmethod
+    def init_config(cls, job_config: JobProfileConfig) -> TaskConfig:
+        """
+        Initialize a config instance to manage configurable settings for a Task.
+
+        If this returns None, or the resulting config does not re-implement the
+        'generateGUILayout' function, the user will not be presented with
+        any task-specific configuration options during job creation and/or
+        cohort editing.
+        """
+        return None
+
+    @classmethod
+    def drop_resource_config(cls, resource_id: str, task_config: TaskConfig):
+        """
+        Remove any configuration options for the provided resource ID
+        with the provided configuration.
+
+        The configuration object will be of the same type as that created in
+        `init_config` prior; use it as you see fit.
+        """
+        pass
+
+    @classmethod
+    def rename_resource_config(cls, old_id: str, new_id: str, task_config: TaskConfig):
+        """
+        Move the configuration options stored for one resource to another.
+        """
+        pass
+
+    ## Instance Methods ##
     def save_on_iter(self) -> Optional[str]:
         """
         Called when the task is asked to save due to the case being changed.
@@ -149,17 +177,33 @@ class TaskBaseClass(ABC, Generic[D]):
         else:
             raise ValueError(f"An error occurred during saving: {save_result}")
 
-    def isTaskComplete(self, case_data: dict[str:str]) -> bool:
+    def generate_prior_data_for(self, case_data: dict) -> Optional[dict]:
+        """
+        Return a dictionary containing data required to re-load previous
+        outputs for a case.
+
+        This is ONLY run when all the following conditions are met:
+          * CART is configured by the user to load previous outputs.
+          * The case in question was marked as being previously run by the active task.
+          * The case is not already loaded (being actively used or in cache).
+
+        The resulting dictionary is then passed to the active data unit
+        factory, and can be used to change how the resulting data unit
+        is constructed. See DataUnitBase:__init__ for further details.
+        """
+        return None
+
+    def isTaskComplete(self, case_data: dict[str, str]) -> Optional[bool]:
         """
         Checks whether a case has been completed or not. How you choose to
         determine this is up to you (probably based on whether appropriate
-        output exists).
+        output exists). Should return None if unsure (the default).
 
         This is used for a number of functions, namely:
           * Starting at the first case the user has yet to complete
           * Skipping over already completed cases
         """
-        return False
+        return None
 
     def cleanup(self):
         """
@@ -209,100 +253,25 @@ class TaskBaseClass(ABC, Generic[D]):
         """
         pass
 
-    def getRequiredFields(self) -> Optional[list[str]]:
-        """
-        Provide a list of fields which need to be within each DataUnit for
-        this task. For example, this could include field called "T2w MRI" field
-        for a segmentation-like task; if the DataUnit does not have this in
-        its contents, the task will not load it, skipping over it with a prompt
-        instead.
-        """
-        return None
+
+class CARTTask(TaskBaseClass, ABC, Generic[D]):
+    """
+    Unique subclass which provided default implementations for resource-specific config
+    options, to match those used by CART's default resource types.
+    """
 
     @classmethod
-    @abstractmethod
-    def getDataUnitFactories(cls) -> dict[str, DataUnitFactory]:
-        """
-        Returns a factory map (in label -> factory form) which, when called,
-        generates a new DataUnit instance of a type appropriate for use by this
-        task.
-
-        The "default" factory is just the class of your DataUnit subclass; for
-         example:
-
-        ```
-        return {
-            "Main": TaskDataUnit
-        }
-        ```
-
-        If you have a factory method instead, you can return that:
-
-        ```
-        return {
-            "Factory": TaskDataUnit.build_unit
-        }
-        ```
-
-        Note the lack of a trailing '()' in both; we need the *functions* here,
-         not their results!
-        """
-
-        raise NotImplementedError("setup must be implemented in subclasses")
-
-    @classmethod
-    def feature_types(cls, data_factory_label: str) -> dict[str, str]:
-        """
-        Provides a map containing a feature type label and its description
-        for a "class" of feature this task can handle for the given data factory.
-        `data_factory_label` will always be a value defined in `getDataUnitFactories`
-        above.
-
-        For example, if the given data unit factory can handle anatomical
-        volume files and segmentation labels, you might return the following:
-
-        ```
-        {
-            "Volume": "An anatomical volume you want to view. Must have 'volume' in its name.",
-            "Segmentation: "A segmentation label to overlay on viewed volumes. Must have 'segmentation' in its name"
-        }
-        ```
-
-        These are shown to the user during cohort creation, and used in conjunction
-        with `feature_label_for` below to ensure each cohort feature will abide by
-        the format required for this task when using the selected Data Unit Factory.
-
-        By default, this returns an empty dictionary; if CART sees this, it will not
-        provide ANY support to the user during cohort generation, likely result in
-        cohort files which are malformed and/or misleading.
-        """
-        return {}
-
-    @classmethod
-    def format_feature_label_for_type(
-        cls, initial_label: str, data_unit_factory_type: str, feature_type: str
+    def drop_resource_config(
+        cls, resource_id: str, task_config: TaskBaseClass.TaskConfig
     ):
-        """
-        Should reformat the "initial" label provided to be recognized as the
-        specified feature type when provided to the specified data unit factory.
+        # Use our resource-specific config manager to ensure standardization
+        resource_config = ResourceSpecificConfig(task_config)
+        resource_config.drop_resource_config(resource_id)
 
-        The data unit type will always be one specified by `getDataUnitFactories`,
-        and the feature type will always be one specified by `feature_types` for
-        said data unit factory.
-
-        For example, if we use the following feature types for `feature_types` prior:
-
-        ```
-        {
-            "Volume": "An anatomical volume you want to view. Must have 'volume' in its name.",
-            "Segmentation: "A segmentation label to overlay on viewed volumes. Must have 'segmentataion' in its name"
-        }
-        ```
-
-        An initial label of "T2w" for a "Volume" type could be returned as "volume_T2w";
-        if it were a "Segmentation" type instead, it could be "segmentation_T2w" instead.
-
-        If this is not overridden in a subclass, only the bare-minimum processing
-        (replacing commas with underscores) is applied.
-        """
-        return initial_label.replace(",", "_")
+    @classmethod
+    def rename_resource_config(
+        cls, old_id: str, new_id: str, task_config: TaskBaseClass.TaskConfig
+    ):
+        # Use our resource-specific config manager to ensure standardization
+        resource_config = ResourceSpecificConfig(task_config)
+        resource_config.rename_resource(old_id, new_id)

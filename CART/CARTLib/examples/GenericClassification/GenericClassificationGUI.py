@@ -1,14 +1,12 @@
 from contextlib import contextmanager
+from typing import TYPE_CHECKING
 
 import qt
 
 from GenericClassificationUnit import GenericClassificationUnit
 
-
 # Type hint guard; only risk the cyclic import if type hints are running
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    # noinspection PyUnusedImports
     from GenericClassificationTask import GenericClassificationTask
 
 

@@ -2,11 +2,17 @@ import json
 from abc import ABC, abstractmethod, ABCMeta
 from pathlib import Path
 import re
-from typing import Generic, Optional, TypeVar, Callable
+from typing import Generic, Optional, TypeVar, Callable, TYPE_CHECKING
 
 import qt
 
-from . import CART_PATH, CART_VERSION
+from . import CART_PATH, get_cart_version
+
+if TYPE_CHECKING:
+    # NOTE: this isn't perfect (this only exposes Widgets, and Slicer's QT impl
+    # isn't the same as PyQT5 itself), but it's a LOT better than constant
+    # cross-referencing
+    import PyQt5.Qt as qt
 
 # The location of the default config used by a fresh installation of CART.
 #  DO NOT TOUCH IT UNLESS YOU KNOW WHAT YOU'RE DOING.
@@ -23,12 +29,12 @@ class DictBackedConfig(ABC):
     CONFIG_KEY = None
 
     def __init__(
-            self,
-            parent_config: Optional["DictBackedConfig"] = None,
-            config_key_override: Optional[str] = None
+        self,
+        parent_config: "Optional[DictBackedConfig]" = None,
+        config_key_override: Optional[str] = None
     ):
         # Track the parent config
-        self.parent_config: "DictBackedConfig" = parent_config
+        self.parent_config: "Optional[DictBackedConfig]" = parent_config
 
         # If a config label was provided, use it instead of our classmethod
         if config_key_override:
@@ -36,13 +42,8 @@ class DictBackedConfig(ABC):
         else:
             self.config_label = self.default_config_label()
 
-        # Get (or generate) a backing dict
-        if self.parent_config:
-            # If the parent exists, ensure the backing dict is embedded within it
-            self._backing_dict = parent_config.get_or_default(self.config_label, {})
-        else:
-            # Otherwise, use a standalone dict
-            self._backing_dict = {}
+        # The backing dictionary containing our managed config options
+        self._backing_dict = None
 
         # Whether the contents of this config has been changed since creation
         self._has_changed = False
@@ -62,6 +63,17 @@ class DictBackedConfig(ABC):
 
     @property
     def backing_dict(self) -> dict:
+        # If we already have a backing dict, return it
+        if self._backing_dict is not None:
+            return self._backing_dict
+
+        # Otherwise, fetch or generate one
+        if self.parent_config:
+            # If the parent exists, ensure the backing dict is embedded within it
+            self._backing_dict = self.parent_config.get_or_default(self.config_label, {})
+        else:
+            # Otherwise, create a standalone dict
+            self._backing_dict = {}
         return self._backing_dict
 
     @backing_dict.setter
@@ -77,9 +89,10 @@ class DictBackedConfig(ABC):
         # KO: To prevent de-sync with the parent config, replace the contents of
         #  our backing dict with the new dicts contents (instead of replacing
         #  the dictionary itself)
-        self._backing_dict.clear()
+        to_update = self.backing_dict  # Fetched to ensure its initialized if need be
+        to_update.clear()
         for k, v in new_dict.items():
-            self._backing_dict[k] = v
+            to_update[k] = v
 
     @classmethod
     @abstractmethod
@@ -99,24 +112,28 @@ class DictBackedConfig(ABC):
         and returns it instead.
         """
         # Try to get the specified value
-        val = self._backing_dict.get(key, None)
+        val = self.backing_dict.get(key, None)
 
         # If it didn't exist, set it to our default and make a logged note
         if val is None:
             print(f"No '{key}' entry existed, setting it to {default}.")
             val = default
-            self._backing_dict[key] = val
+            self.backing_dict[key] = val
             self.has_changed = True
 
         return val
 
-    @abstractmethod
-    def show_gui(self) -> None:
+    def generateGUILayout(self) -> Optional[tuple[str, qt.QLayout]]:
         """
-        Should show a dialogue prompt to the user, allowing them to change
-        the configuration values managed by this Config object.
+        Should generate a QT layout for a GUI to be shown to the
+        user, presenting configurable settings to the user.
+
+        Used during CART job setup and to change settings while
+        a job is running. If none is returned, the user will not
+        be able to configure the Job within CART, needing to
+        modify the job profile `.json` file directly instead.
         """
-        ...
+        return None
 
     def save_without_parent(self) -> None:
         """
@@ -302,7 +319,7 @@ class ConfigDialog(qt.QDialog, ABC, Generic[DICT_CONFIG_TYPE], metaclass=_ABCQDi
         event.accept()
 
 
-## Backing Config Managers ##
+## Primary Config Managers ##
 class MasterProfileConfig(DictBackedConfig):
     ## Attributes ##
     AUTHOR_KEY = "author"
@@ -327,11 +344,6 @@ class MasterProfileConfig(DictBackedConfig):
         self.backing_dict[self.POSITION_KEY] = new_position
         self.has_changed = True
 
-    @position.setter
-    def position(self, new_position):
-        self.backing_dict[self.POSITION_KEY] = new_position
-        self.has_changed = True
-
     REGISTERED_JOB_KEY = "registered_jobs"
 
     @property
@@ -343,16 +355,26 @@ class MasterProfileConfig(DictBackedConfig):
         return job_map
 
     def register_new_job(self, job_config: "JobProfileConfig"):
-        # Register the new job
+        """
+        Registers a new job for use by CART. The job's index will be
+        placed at the top of the job list automatically, making the
+        job list automatically sort itself in order of how recently
+        they were used.
+        """
+
+        # Initialize the keys
         k = job_config.name
         p = str(job_config.file.resolve())
-        job_map = self.get_or_default(self.REGISTERED_JOB_KEY, {})
-        job_map[k] = p
-        # Mark ourselves as being changed
+
+        # Insert our new job
+        self.registered_jobs[k] = p
+
+        # Move the new job to the front; this also marks ourselves as being changed
+        self.set_last_job(k)
         self.has_changed = True
 
     @property
-    def last_job(self) -> Optional[tuple[str, Path]]:
+    def last_job(self) -> Optional[tuple[str, str]]:
         """
         Returns the name and path to the job last used, as detailed within this config.
         """
@@ -383,13 +405,15 @@ class MasterProfileConfig(DictBackedConfig):
 
     @property
     def version(self):
-        return self.get_or_default(self.VERSION_KEY, CART_VERSION)
+        return self.get_or_default(self.VERSION_KEY, get_cart_version())
 
     @version.setter
     def version(self, new_version: str):
         """
-        WARNING: You really shouldn't change this yourself. The version
-        used
+        WARNING: You really shouldn't change this yourself. Setting the version
+        manually will override it, preventing the user from being warned that
+        there may be errors caused by using a different version of CART than the
+        one they originally set up this profile for.
         """
         self.backing_dict[self.VERSION_KEY] = new_version
 
@@ -420,6 +444,53 @@ class MasterProfileConfig(DictBackedConfig):
         self.backing_dict[self.REGISTERED_TASK_PATHS_KEY] = {}
         self.has_changed = True
 
+    AUTOSAVE_ON_SWITCH_KEY = "autosave_on_switch"
+
+    @property
+    def autosave_on_switch(self) -> bool:
+        """
+        Determines whether CART will automatically save the active case
+        when switching to another one.
+        """
+        return self.get_or_default(self.AUTOSAVE_ON_SWITCH_KEY, False)
+
+    @autosave_on_switch.setter
+    def autosave_on_switch(self, new_val: bool):
+        self.backing_dict[self.AUTOSAVE_ON_SWITCH_KEY] = new_val
+        self.has_changed = True
+
+    LOAD_PREVIOUS_OUTPUTS_KEY = "load_prior_outputs"
+
+    @property
+    def load_previous_outputs(self) -> bool:
+        """
+        Dictates whether CART should try to load previous outputs (when available
+        and supported by the task) for each case before referring to the cohort
+        file.
+        """
+        return self.get_or_default(self.LOAD_PREVIOUS_OUTPUTS_KEY, True)
+
+    @load_previous_outputs.setter
+    def load_previous_outputs(self, new_val: bool):
+        self.backing_dict[self.LOAD_PREVIOUS_OUTPUTS_KEY] = new_val
+        self.has_changed = True
+
+    SKIP_TO_INCOMPLETE_KEY = "skip_to_first_incomplete"
+
+    @property
+    def skip_to_first_incomplete(self) -> bool:
+        """
+        Dictates whether CART should skip to the first "incomplete"
+        case when starting a task. Relies on the task being able to
+        test if a case has been completed or not to work.
+        """
+        return self.get_or_default(self.SKIP_TO_INCOMPLETE_KEY, True)
+
+    @skip_to_first_incomplete.setter
+    def skip_to_first_incomplete(self, new_val: bool):
+        self.backing_dict[self.SKIP_TO_INCOMPLETE_KEY] = new_val
+        self.has_changed = True
+
     ## Utilities ##
     def save_without_parent(self) -> None:
         """
@@ -435,18 +506,12 @@ class MasterProfileConfig(DictBackedConfig):
         with open(GLOBAL_CONFIG_PATH, "r") as fp:
             self.backing_dict = json.load(fp)
 
-    def show_gui(self) -> qt.QDialog:
-        # TODO
-        pass
-
     @classmethod
     def default_config_label(cls) -> str:
         return "cart_master_profile"
 
 
 class JobProfileConfig(DictBackedConfig):
-    NAME_KEY = "name"
-
     def __init__(
             self,
             parent_config: Optional["DictBackedConfig"] = None,
@@ -456,6 +521,8 @@ class JobProfileConfig(DictBackedConfig):
         super().__init__(parent_config, config_key_override)
 
         self._file_path = file_path
+
+    NAME_KEY = "name"
 
     @property
     def name(self) -> Optional[str]:
@@ -529,8 +596,27 @@ class JobProfileConfig(DictBackedConfig):
     def default_config_label(cls) -> str:
         return "job_profile"
 
-    def show_gui(self) -> None:
-        pass
+    ## Utilities ##
+    def purge_child_configs(self):
+        """
+        Purges all additions made by child configs (usually task-specific settings)
+        from this config instance, making it a "clean slate" for new child
+        configs to be added
+        """
+        # Only carry over universally shared keys
+        new_backing_dict = dict()
+        for k in [
+            self.NAME_KEY,
+            self.DATA_PATH_KEY,
+            self.OUTPUT_PATH_KEY,
+            self.COHORT_FILE_KEY,
+            self.TASK_KEY
+        ]:
+            if not k in self.backing_dict.keys():
+                continue
+            new_backing_dict[k] = self.backing_dict[k]
+        # Replace the backing config with this new "clean" one
+        self.backing_dict = new_backing_dict
 
     ## File I/O ##
     @property
@@ -581,3 +667,38 @@ class JobProfileConfig(DictBackedConfig):
         self.file.parent.mkdir(parents=True, exist_ok=True)
         with open(self.file, 'w') as fp:
             json.dump(self.backing_dict, fp, indent=2)
+
+
+## Utility Config managers ##
+class ResourceSpecificConfig(DictBackedConfig):
+    """
+    Configuration instance for managing resource-specific configuration options;
+    using this will help "separate" them from your task's more global configuration
+    settings.
+
+    If you use any of CART's default resource types, their configuration options are
+    stored within the dictionary managed by this config as well. See `data.ResourceType`
+    and its CART-provided subclasses for further details.
+    """
+    @classmethod
+    def default_config_label(cls) -> str:
+        return "resource_specific"
+
+    def drop_resource_config(self, resource_id: str) -> Optional[dict]:
+        """
+        Delete configuration options associated with the specified resource ID.
+
+        :return: The data dropped from the backing dict for reference.
+        """
+        return self.backing_dict.pop(resource_id, None)
+
+    def rename_resource(self, old_id: str, new_id: str) -> Optional[dict]:
+        """
+        Move the configuration options associated with one resource ID to another.
+
+        :return: The data moved, if any.
+        """
+        old_data = self.drop_resource_config(old_id)
+        if old_data is not None:
+            self.backing_dict[new_id] = old_data
+        return old_data
