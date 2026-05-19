@@ -801,6 +801,8 @@ class _DataSelectionPage(qt.QWizardPage):
         # A "+" button, which aliases the "create new" button below
         cohortPlusButton = qt.QToolButton(None)
         cohortPlusButton.setText("+")
+        # Make it "fill out" the y-axis to match adjacent elements, so it doesn't look jank.
+        cohortPlusButton.setSizePolicy(qt.QSizePolicy.Minimum, qt.QSizePolicy.Preferred)
         cohortCreationToolTip = _(
             "Generate a new cohort file from scratch using the contents of your input path."
         )
