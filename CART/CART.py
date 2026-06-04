@@ -115,6 +115,55 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # When the logic changes our active job, update ourselves to match
         self.logic.jobChanged.connect(self._onJobChanged)
 
+    ## Keyboard Shortcuts ##
+    NEXT_CASE_HOTKEY = _("PgDown")
+    NEXT_INCOMPLETE_HOTKEY = _("ALT+PgDown")
+    PREVIOUS_CASE_HOTKEY = _("PgUp")
+    PREVIOUS_INCOMPLETE_CASE_HOTKEY = _("ALT+PgUp")
+    SAVE_HOTKEY = _("ALT+S")
+    SAVE_AND_NEXT_HOTKEY = _("ALT+D")
+
+    def _registerShortcut(self, key, action):
+        shortcut = qt.QShortcut(slicer.util.mainWindow())
+        shortcut.setKey(qt.QKeySequence(key))
+        shortcut.activated.connect(action)
+        self.keyboardShortcuts.append(shortcut)
+        return shortcut
+
+    def installKeyboardShortcuts(self):
+        mainWindow = slicer.util.mainWindow()
+
+        # Next Case
+        self._registerShortcut(self.NEXT_CASE_HOTKEY, self.logic.next_case)
+
+        # Next Incomplete Case
+        self._registerShortcut(
+            self.NEXT_INCOMPLETE_HOTKEY, self.logic.next_incomplete_case
+        )
+
+        # Previous Case
+        self._registerShortcut(
+            self.PREVIOUS_CASE_HOTKEY, self.logic.previous_case
+        )
+
+        # Previous Incomplete Case
+        self._registerShortcut(
+            self.PREVIOUS_INCOMPLETE_CASE_HOTKEY, self.logic.previous_incomplete_case
+        )
+
+        # Save case
+        self._registerShortcut(self.SAVE_HOTKEY, self.logic.save_case)
+
+        # Save case and move to next
+        self._registerShortcut(self.SAVE_AND_NEXT_HOTKEY, self.logic.save_case_and_iterate)
+
+    def uninstallKeyboardShortcuts(self):
+        for kbs in self.keyboardShortcuts:
+            kbs.activated.disconnect()
+            kbs.setParent(None)
+        self.keyboardShortcuts = []
+
+    ## GUI ##
     def setup(self) -> None:
         """
         Called when the user opens the CART module within Slicer for the first time.
@@ -317,25 +366,33 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         ## Previous Incomplete ##
         previousIncompleteButton = qt.QToolButton(None)
         previousIncompleteButton.setText("<<")
-        previousIncompleteButton.setToolTip(_("Jump to the Previous Incomplete Case"))
+        previousIncompleteButton.setToolTip(
+            _(
+                f"Jump to the Previous Incomplete Case [{self.PREVIOUS_INCOMPLETE_CASE_HOTKEY}]"
+            )
+        )
         previousIncompleteButton.clicked.connect(self.logic.previous_incomplete_case)
 
         ## Previous Button ##
         previousButton = qt.QToolButton(None)
         previousButton.setText("<")
-        previousButton.setToolTip(_("Switch to the Previous Case"))
+        previousButton.setToolTip(
+            _(f"Switch to the Previous Case [{self.PREVIOUS_CASE_HOTKEY}]")
+        )
         previousButton.clicked.connect(self.logic.previous_case)
 
         ## Next Button ##
         nextButton = qt.QToolButton(None)
         nextButton.setText(">")
-        nextButton.setToolTip(_("Switch to the Next Case"))
+        nextButton.setToolTip(_(f"Switch to the Next Case [{self.NEXT_CASE_HOTKEY}]"))
         nextButton.clicked.connect(self.logic.next_case)
 
         ## Next Incomplete ##
         nextIncompleteButton = qt.QToolButton(None)
         nextIncompleteButton.setText(">>")
-        nextIncompleteButton.setToolTip(_("Jump to the Next Incomplete Case"))
+        nextIncompleteButton.setToolTip(
+            _(f"Jump to the Next Incomplete Case [{self.NEXT_INCOMPLETE_HOTKEY}]")
+        )
         nextIncompleteButton.clicked.connect(self.logic.next_incomplete_case)
 
         ## Case Viewer/Selector ##
@@ -442,6 +499,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # The primary "save" button
         saveButton = qt.QPushButton(self.SAVE_BUTTON_DEFAULT_TEXT)
+        saveButtonToolTip = f"Save the current case to file [{self.SAVE_HOTKEY}]."
+        saveButton.setToolTip(saveButtonToolTip)
         saveButton.clicked.connect(self.logic.save_case)
         self.saveButton = saveButton
 
@@ -449,11 +508,11 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         saveAndNextButton = qt.QPushButton(_(
             "Save and Next Case"
         ))
-        @qt.Slot()
-        def save_and_next():
-            self.logic.save_case()
-            self.logic.next_case()
-        saveAndNextButton.clicked.connect(save_and_next)
+        saveAndNextButtonToolTip = (
+            f"Save the current case to file and continue [{self.SAVE_AND_NEXT_HOTKEY}]."
+        )
+        saveAndNextButton.setToolTip(saveAndNextButtonToolTip)
+        saveAndNextButton.clicked.connect(self.logic.save_case_and_iterate)
 
         # Timer which will automatically "reset" the button's text when it expires
         self.saveStateTimer = qt.QTimer(None)
@@ -645,24 +704,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Swap to this new job widget
         self.mainWidget.setCurrentIndex(self.jobWidgetIndex)
-
-    ## Keyboard Shortcuts ##
-    def installKeyboardShortcuts(self):
-        # Next/Previous Case
-        nextShortcut = qt.QShortcut(slicer.util.mainWindow())
-        nextShortcut.setKey(qt.QKeySequence(qt.QKeySequence.MoveToNextPage))
-        nextShortcut.activated.connect(self.logic.next_case)
-        self.keyboardShortcuts.append(nextShortcut)
-
-        previousShortcut = qt.QShortcut(slicer.util.mainWindow())
-        previousShortcut.setKey(qt.QKeySequence(qt.QKeySequence.MoveToPreviousPage))
-        previousShortcut.activated.connect(self.logic.previous_case)
-
-    def uninstallKeyboardShortcuts(self):
-        for kbs in self.keyboardShortcuts:
-            kbs.activated.disconnect()
-            kbs.setParent(None)
-        self.keyboardShortcuts = []
 
     ## View Management ##
     def cleanup(self) -> None:
@@ -1027,7 +1068,7 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
             return False
         return self._data_manager.has_next_case()
 
-    def next_case(self) -> bool:
+    def next_case(self, should_autosave=True) -> bool:
         # If we're in an invalid state, return False
         if not (
             self._data_manager
@@ -1035,8 +1076,9 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
             and self._task_instance
         ):
             return False
-        # Tell the task to save its current unit
-        self._autosave_case()
+        # Tell the task to save its current unit, if autosaving is enabled
+        if should_autosave:
+            self._autosave_case()
         # Iterate to the next data unit and proceed
         old_idx = self._data_manager.current_case_index
         try:
@@ -1166,6 +1208,11 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
         finally:
             # Always emit a signal so any GUIs can sync properly
             self.caseSaved(self.data_manager.current_case_index)
+
+    def save_case_and_iterate(self):
+        self.save_case()
+        # Don't try and save the case again
+        self.next_case(should_autosave=False)
 
     ## Config Management ##
     def save_master_config(self):
