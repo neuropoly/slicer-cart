@@ -291,25 +291,12 @@ class MarkupOutput:
                 else:
                     input_path = Path(input_path)
 
-            # Determine the appropriate extension for the file
-            if self._config_reference.output_format == MarkupOutputFormat.JSON:
-                # Markdown JSON is unique in that it gets two extensions
-                extension = "mrk.json"
-            elif self._config_reference.output_format == MarkupOutputFormat.NIFTI:
-                # Likewise, NIfTI is almost always saved compressed
-                extension = "nii.gz"
-            else:
-                # Remaining case is CSV, which has no double-convention
-                extension = "csv"
+            output_file = self.determine_output_file(
+                case_output, data_unit, input_path, key, unknown_idx
+            )
 
-            # If this is a node w/o a previous file name, save it as such
-            if input_path is None:
-                file_name = f"{data_unit.uid}_{key}_{unknown_idx}.{extension}"
-                unknown_idx += 1
-            else:
-                original_name = input_path.name.split(".")[0]
-                file_name = f"{original_name}.{extension}"
-            output_file = case_output / file_name
+            # Create hte corresponding parent directory, if needed
+            output_file.parent.mkdir(exist_ok=True)
 
             # Delete any previous sidecar file associated with our output to avoid unintentional carry-over
             prior_sidecar = find_json_sidecar_path(output_file)
@@ -334,7 +321,7 @@ class MarkupOutput:
                     save_markups_to_json(markups_node=node, path=output_file)
                     saved_files.append(output_file)
             except Exception as e:
-                logging.error(f"Failed to save markup file {file_name}.", exc_info=e)
+                logging.error(f"Failed to save markup file {output_file.name}.", exc_info=e)
                 failed_files.append(output_file)
 
             # Update (or create) the sidecar files.
@@ -386,6 +373,55 @@ class MarkupOutput:
             result_msg += "\n"
 
         return result_msg
+
+    def determine_output_file(
+        self,
+        case_output: Path,
+        data_unit: MarkupUnit,
+        input_path: Optional[Path],
+        key: str,
+        unknown_idx: int,
+    ) -> Path:
+        # Determine the appropriate extension for the file
+        if self._config_reference.output_format == MarkupOutputFormat.JSON:
+            # Markdown JSON is unique in that it gets two extensions
+            extension = "mrk.json"
+        elif self._config_reference.output_format == MarkupOutputFormat.NIFTI:
+            # Likewise, NIfTI is almost always saved compressed
+            extension = "nii.gz"
+        else:
+            # Remaining case is CSV, which has no double-convention
+            extension = "csv"
+
+        # If this is a node w/o a previous file name, save it as such
+        if input_path is None:
+            file_name = f"{data_unit.uid}_{key}_{unknown_idx}.{extension}"
+            unknown_idx += 1
+        else:
+            original_name = input_path.name.split(".")[0]
+            file_name = f"{original_name}.{extension}"
+
+        # Determine the output directory
+        if self._config_reference.output_structure == MarkupOutputStructure.BIDS:
+            uid = data_unit.uid
+            # Split the "subject" and "session" parts of the UID, if they're present
+            if "sub" in uid and "ses" in uid:
+                sub, ses = uid.split(
+                    "__"
+                )  # TODO: Define this "magic" string somewhere explicitly
+                stem_path = self.job_config.output_path / sub / ses
+            # Otherwise, use the case output dir we already have
+            else:
+                stem_path = case_output
+            # Add an "anat" dir to the end to meet BIDS requirements
+            stem_path /= "anat"
+        # Otherwise, just put it into the case output directory
+        else:
+            stem_path = case_output
+
+        # Combine the two to get our file name
+        output_file = stem_path / file_name
+        return output_file
 
     def is_unit_complete(self, author: str, uid: MarkupUnit):
         return (author, uid) in self.log.keys()
