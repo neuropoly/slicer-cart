@@ -170,12 +170,16 @@ class MarkupTask(TaskBaseClass[MarkupUnit]):
                 # Skip non-markup resources
                 if not MarkupResource.is_type(k):
                     continue
+                # Reference the original input, if available
+                init_input = Path(v) if v != '' else None
+                # Determine where the previous output file would be, if it still exists
                 output_file = self._output_manager.determine_output_file(
                     self.job_profile.output_path,
                     uid,
-                    v,
+                    init_input,
                     k,
                 )
+                # If it does, replace the original to-be-loaded file reference with it.
                 if output_file.exists():
                     case_overrides[k] = output_file
 
