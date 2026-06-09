@@ -101,6 +101,8 @@ def load_markups(path: Path) -> list[slicer.vtkMRMLMarkupsFiducialNode]:
     # If the path points to a NIfTI file, load it using our custom loader
     if ".nii" in path.suffixes:
         markup_nodes = [load_nifti_markups(path)]
+    elif ".csv" in path.suffixes:
+        markup_nodes = [load_csv_markups(path)]
     else:
         markup_nodes = load_slicer_markups(path)
     # Otherwise, assume it's a native Slicer format
@@ -126,9 +128,7 @@ def load_slicer_markups(path: Path) -> list[slicer.vtkMRMLMarkupsFiducialNode]:
 
     # THIS IS SUPPOSED TO RETURN A LIST IF THERE ARE MULTIPLE COMPONENTS IN THE FILE
     # IT DOES NOT https://slicer.readthedocs.io/en/latest/developer_guide/slicer.html#slicer.util.loadMarkups
-    markups_nodes = slicer.util.loadMarkups(
-        path
-    )
+    markups_nodes = slicer.util.loadMarkups(path)
     # If none were found, raise an error
     if markups_nodes is None:
         raise ValueError(f"Failed to load markups from {path}")
@@ -164,6 +164,14 @@ def load_slicer_markups(path: Path) -> list[slicer.vtkMRMLMarkupsFiducialNode]:
             displayNode.SetVisibility(False)
 
     return markups_nodes
+
+
+def load_csv_markups(path: Path) -> list[slicer.vtkMRMLMarkupsFiducialNode]:
+    markupsNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsFiducialNode")
+    slicer.modules.markups.logic().ImportControlPointsFromCSV(
+        markupsNode, str(path)
+    )
+    return markupsNode
 
 
 def load_nifti_markups(path: Path) -> slicer.vtkMRMLMarkupsFiducialNode:
@@ -342,11 +350,25 @@ def save_markups_to_json(markups_node, path: Path):
     slicer.util.saveNode(markups_node, str(path))
 
 
+def save_markups_to_csv(markups_node, path: Path):
+    """
+    Save a markups node to the specified path as a CSV file.
+    """
+    # Confirm this is a correct file type
+    if not path.name.endswith(".csv"):
+        raise ValueError(f"Refusing to save file '{path.name}' into Slicer CSV format.")
+    # Use Slicer's utility function to save the markups node
+    slicer.modules.markups.logic().ExportControlPointsToCSV(
+        markups_node, str(path)
+    )
+
+
 def save_markups_to_nifti(
-        markup_node: "vtk.vtkMRMLMarkupsFiducialNode",
-        reference_volume: "vtk.vtkMRMLScalarVolumeNode",
-        path: Path,
-        master_profile: Optional[MasterProfileConfig] = None):
+    markup_node: "vtk.vtkMRMLMarkupsFiducialNode",
+    reference_volume: "vtk.vtkMRMLScalarVolumeNode",
+    path: Path,
+    master_profile: Optional[MasterProfileConfig] = None,
+):
     """
     Saves a set of markup labels to a NIfTI file.
 
@@ -381,9 +403,7 @@ def save_markups_to_nifti(
         # Convert the RAS position to volume position
         ras_to_volume_transform = vtk.vtkGeneralTransform()
         slicer.vtkMRMLTransformNode.GetTransformBetweenNodes(
-            None,
-            reference_volume.GetParentTransformNode(),
-            ras_to_volume_transform
+            None, reference_volume.GetParentTransformNode(), ras_to_volume_transform
         )
         vol_pos = ras_to_volume_transform.TransformPoint(ras_pos)
 
@@ -399,9 +419,7 @@ def save_markups_to_nifti(
         kji_pos = np.array([int(round(v)) for v in kji_pos_4d[0:3]])
 
         # Flip the values from KJI into IJK
-        ijk_pos = np.array([
-            kji_pos[2], kji_pos[1], kji_pos[0]
-        ])
+        ijk_pos = np.array([kji_pos[2], kji_pos[1], kji_pos[0]])
         return ijk_pos
 
     # Group markup points of identical labels, and track their (voxel) positions
@@ -428,18 +446,17 @@ def save_markups_to_nifti(
         creation_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         # If we have a user profile, add its contents to the GeneratedBy entry
         if master_profile:
-            sidecar_data[GENERATED_BY_KEY] = [{
-                "Name": "CART",
-                "Author": master_profile.author,
-                "Position": master_profile.position,
-                "Date": creation_time
-            }]
+            sidecar_data[GENERATED_BY_KEY] = [
+                {
+                    "Name": "CART",
+                    "Author": master_profile.author,
+                    "Position": master_profile.position,
+                    "Date": creation_time,
+                }
+            ]
         # Otherwise, just note that this was created by CART
         else:
-            sidecar_data[GENERATED_BY_KEY] = [{
-                "Name": "CART",
-                "Date": creation_time
-            }]
+            sidecar_data[GENERATED_BY_KEY] = [{"Name": "CART", "Date": creation_time}]
 
         # Add a map (dict) to track the label value -> label names in the sidecar
         sidecar_labelmap = dict()
@@ -447,31 +464,27 @@ def save_markups_to_nifti(
 
         # Initiate a segmentation node to place the markup labels into
         markup_segment_node = create_empty_segmentation_node(
-            name="CART_OUTPUT_TMP",
-            reference_volume=reference_volume
+            name="CART_OUTPUT_TMP", reference_volume=reference_volume
         )
 
         # Place segments into it, one per label
         for idx, (label, pos_list) in enumerate(label_map.items()):
             # Build the blank segment
-            segment_id = markup_segment_node.GetSegmentation().AddEmptySegment("", label)
+            segment_id = markup_segment_node.GetSegmentation().AddEmptySegment(
+                "", label
+            )
             segment_array = slicer.util.arrayFromSegmentBinaryLabelmap(
-                markup_segment_node,
-                segment_id,
-                reference_volume
+                markup_segment_node, segment_id, reference_volume
             )
             # Mark the corresponding positions in the segment
-            for (i, j, k) in pos_list:
+            for i, j, k in pos_list:
                 segment_array[i, j, k] = 1
             # Update the segmentation using the updated segment array
             slicer.util.updateSegmentBinaryLabelmapFromArray(
-                segment_array,
-                markup_segment_node,
-                segment_id,
-                reference_volume
+                segment_array, markup_segment_node, segment_id, reference_volume
             )
             # Add the corresponding label to the sidecar's label map
-            sidecar_labelmap[int(idx+1)] = label
+            sidecar_labelmap[int(idx + 1)] = label
 
         # Save the segmentation to the designated path
         save_segmentation_to_nifti(markup_segment_node, reference_volume, path)
@@ -744,7 +757,7 @@ def create_empty_segmentation_node(
     """
     Create an empty segmentation node with proper display node setup.
 
-    # TODO CREATE SUPPORT FOR KWARGS TO PASS TO THE DISPLAY NODE
+    TODO CREATE SUPPORT FOR KWARGS TO PASS TO THE DISPLAY NODE
 
     Args:
         name: Name for the segmentation node
@@ -771,6 +784,39 @@ def create_empty_segmentation_node(
     seg_node.SetReferenceImageGeometryParameterFromVolumeNode(reference_volume)
 
     return seg_node
+
+
+def create_emtpy_markup_fiducial_node(
+    name: str,
+    scene: Optional[slicer.vtkMRMLScene] = None
+) -> slicer.vtkMRMLMarkupsNode:
+    """
+    Create an empty (fiducial) markup node with proper display node setup.
+
+    TODO CREATE SUPPORT FOR KWARGS TO PASS TO THE DISPLAY NODE
+
+    Args:
+        name: Name for the markup node
+        scene: MRML scene to add the node to (defaults to slicer.mrmlScene)
+
+    Returns:
+        Empty markup node with a corresponding display node
+    """
+    if scene is None:
+        scene = slicer.mrmlScene
+
+    # Create the markup node
+    markup_node = slicer.vtkMRMLMarkupsFiducialNode()
+    markup_node.SetName(name)
+    scene.AddNode(markup_node)
+
+    # Create and set up display node
+    display_node = slicer.vtkMRMLMarkupsDisplayNode()
+    scene.AddNode(display_node)
+    markup_node.SetAndObserveDisplayNodeID(display_node.GetID())
+
+    # Return the result
+    return markup_node
 
 
 ## "Standard" Resource Types + Configs ##
@@ -941,6 +987,9 @@ class CARTStandardUnit(DataUnitBase):
         scene: slicer.vtkMRMLScene = slicer.mrmlScene,
     ) -> None:
         super().__init__(case_data, data_path, scene)
+
+        # Initialize with a null subject ID for later
+        self.subject_id = None
 
         # Start by finding volumes, as CART cannot proceed w/o at least one
         reference_volume_key, volume_paths = self._find_volumes(case_data)
@@ -1223,6 +1272,10 @@ class CARTStandardUnit(DataUnitBase):
         """Hide all volumes and segmentation when focus is lost."""
         # Call the super function
         super().focus_lost()
+
+        # If we never created a subject, do not proceed
+        if self.subject_id is None:
+            return
 
         # Hide all data nodes again
         for node in itertools.chain(

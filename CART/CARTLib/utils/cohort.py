@@ -965,12 +965,14 @@ class NewCohortDialog(ChangeTrackingDialogue):
     def __init__(
         self,
         data_path: Path,
+        output_path: Optional[Path] = None,
         parent: qt.QObject = None,
     ):
         super().__init__(parent)
 
         # Track the data path for later
         self.data_path = data_path
+        self.output_path = output_path
 
         # Initial setup
         self.setWindowTitle(_("New Cohort"))
@@ -988,6 +990,8 @@ class NewCohortDialog(ChangeTrackingDialogue):
         )
         cohortNameLabel.setToolTip(cohortNameTooltip)
         cohortFileEdit.setToolTip(cohortNameTooltip)
+        # Placeholder and default text
+        cohortFileEdit.setCurrentPath("cohort.csv")
         cohortFileEdit.setPlaceholderText(_(
             "i.e. home/user/output.csv"
         ))
@@ -1037,7 +1041,7 @@ class NewCohortDialog(ChangeTrackingDialogue):
 
         # Connections
         @qt.Slot(str)
-        def onCohortChanged(new_txt: str):
+        def onCohortChanged(__: str):
             # Disable the button if the file changed
             self.validate()
             self.mark_changed()
@@ -1070,12 +1074,19 @@ class NewCohortDialog(ChangeTrackingDialogue):
         self.validate()
 
     @property
-    def cohort_file(self) -> Path:
+    def cohort_file(self) -> Optional[Path]:
         # Workaround to CTK not playing nicely w/ "registerField"
         path = self._cohortFileEdit.currentPath
-        if not path:
+        if path == '':
             return None
-        return Path(path)
+        # Conver the path into an absolute path, if need be
+        path = Path(path)
+        if path.is_absolute():
+            return path
+        elif self.output_path is None:
+            return None
+        else:
+            return self.output_path / path
 
     @property
     def current_generator(self) -> Optional[CaseGenerator]:
@@ -1473,10 +1484,20 @@ class ResourceEditorDialogue(ChangeTrackingDialogue):
         extensionLabel.setToolTip(extensionTooltip)
         extensionField.setToolTip(extensionTooltip)
         extensionField.setPlaceholderText(_("e.g. .nii.gz"))
-        extensionField.setText(".nii.gz")  # Default to NIfTI format
+        defaultExtension = ".nii.gz" # Default to NIfTI format
+        if resource_name:
+            resource = self._cohort.resource_map.get(resource_name)
+            prior_extension = resource.extension
+            if prior_extension is None:
+                extensionField.setText(defaultExtension)
+            else:
+                extensionField.setText(prior_extension)
+        else:
+            extensionField.setText(defaultExtension)
         self.extensionField = extensionField
         layout.addRow(extensionLabel, extensionField)
 
+        # Mark the cohort as being changed if any of the fields change
         includeField.textChanged.connect(self.mark_changed)
         excludeField.textChanged.connect(self.mark_changed)
         extensionField.textChanged.connect(self.mark_changed)
@@ -1735,6 +1756,9 @@ class ResourceEditorDialogue(ChangeTrackingDialogue):
             exclude=exclude_entries,
             extension=extension_string
         )
+
+        print("-" * 100)
+        print(filter_entry)
 
         # If this an updated resource, rename the resource to this new name
         if self._prior_resource is not None:

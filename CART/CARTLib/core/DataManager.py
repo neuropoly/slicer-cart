@@ -41,7 +41,6 @@ def dynamic_lru_cache_wrapper(func: Callable, maxsize: int, n_hashing_vars: int 
         else:
             return hash(tuple(arglist))
 
-
     _validate_maxsize(maxsize)
 
     # The cache itself, plus some statistics
@@ -229,6 +228,7 @@ class DataManager:
 
         # Data
         self.case_data = list()
+        self.failed_indices = set()
         self.feature_labels = list()
 
         # Current index being tracked; -1 indicates one hasn't been selected yet
@@ -350,7 +350,9 @@ class DataManager:
     def has_previous_case(self) -> bool:
         return self.current_case_index > 0
 
-    def select_unit_at(self, idx: int) -> DataUnitBase:
+    def select_unit_at(
+        self, idx: int, iter_on_failure: int = 0
+    ) -> Optional[DataUnitBase]:
         """
         Update the current selection index + loaded data unit. This involves:
 
@@ -359,39 +361,67 @@ class DataManager:
         * Updating our currently selected index
 
         In that order; how the first steps are managed depends on the DataUnit's
-         specific implementation.
+          specific implementation.
+
+        :param idx: The index to try and select
+        :param iter_on_failure: How much (and in which direction) to iterate when a unit
+          fails to load.
+
+        :return: The given data unit, or None if the index was invalid.
+          If a non-zero `iter_on_failure` was provided, will re-attempt on that offset until
+          either a valid unit is found, or the index becomes invalid.
         """
-        # Check that the new index is valid before proceeding
-        if idx < 0:
-            raise ValueError("Index cannot be less than 0.")
-        elif idx >= len(self.case_data):
-            raise ValueError("Index cannot be greater than the number of loaded cases.")
-
         # Attempt to grab the next data unit and focus it
-        new_unit = self._unit_at(idx)
+        while True:
+            try:
+                # Check that the new index is valid before proceeding
+                if idx < 0:
+                    logging.warning("Index cannot be less than 0.")
+                    return None
+                elif idx >= len(self.case_data):
+                    logging.warning(
+                        "Index cannot be greater than the number of loaded cases."
+                    )
+                    return None
 
-        # Try to transfer focus from the previous unit (if any) to our new one
-        if self.current_case_index != -1:
-            prior_unit = self.current_data_unit()
-            prior_unit.focus_lost()
-        new_unit.focus_gained()
+                # Select the unit at the specified index
+                new_unit = self._unit_at(idx)
 
-        # Set the current index to that of the new unit
-        self.current_case_index = idx
+                # Try to transfer focus from the previous unit (if any) to our new one
+                if self.current_case_index != -1:
+                    prior_unit = self.current_data_unit()
+                    prior_unit.focus_lost()
+                new_unit.focus_gained()
 
-        # Return the new unit
-        return new_unit
+                # Set the current index to that of the new unit
+                self.current_case_index = idx
 
-    def next(self) -> DataUnitBase:
+                # Return the new unit
+                return new_unit
+            except Exception as e:
+                # If no iteration offset was given, end here
+                if iter_on_failure == 0:
+                    raise e
+                # Otherwise, move onto the "next" case and try again
+                else:
+                    self.failed_indices.add(idx)
+                    new_idx = idx + iter_on_failure
+                    logging.error(
+                        f"Failed to load unit at index {idx}; trying {new_idx}.",
+                        exc_info=e,
+                    )
+                    idx = new_idx
+
+    def next(self) -> Optional[DataUnitBase]:
         """
         Advance to the next case, and get its corresponding DataUnit.
 
         :return: The next data unit; None if it doesn't exist/is invalid
         """
         new_index = self.current_case_index + 1
-        return self.select_unit_at(new_index)
+        return self.select_unit_at(new_index, 1)
 
-    def next_incomplete(self, task: TaskBaseClass, from_idx: int = None) -> DataUnitBase:
+    def next_incomplete(self, task: TaskBaseClass, from_idx: int = None) -> Optional[DataUnitBase]:
         """
         Advance to the next case which hasn't been completed for the provided task and get its corresponding DataUnit.
 
@@ -414,10 +444,10 @@ class DataManager:
         while idx < len(self.case_data):
             case = self.case_data[idx]
             if not task.isTaskComplete(case):
-                return self.select_unit_at(idx)
+                return self.select_unit_at(idx, 1)
             idx += 1
         # Fallback; if all subsequent cases are completed, print a warning and return the
-        # next case instead
+        #  next case instead
         logging.warning("All cases were completed! Loaded next unit instead.")
         return self.next()
 
@@ -428,7 +458,7 @@ class DataManager:
         :return: The previous data unit; None if it doesn't exist/is invalid
         """
         new_index = self.current_case_index - 1
-        return self.select_unit_at(new_index)
+        return self.select_unit_at(new_index, -1)
 
     def previous_incomplete(self, task: TaskBaseClass, from_idx: int = None) -> DataUnitBase:
         """
@@ -457,17 +487,17 @@ class DataManager:
         while idx > -1:
             case = self.case_data[idx]
             if not task.isTaskComplete(case):
-                return self.select_unit_at(idx)
+                return self.select_unit_at(idx, -1)
             idx -= 1
 
         # Fallback; if all prior cases are completed, print a warning and return the
-        # previous case instead
+        #  previous case instead
         logging.warning("All cases were completed! Loaded previous unit instead.")
         return self.previous()
 
     def first(self) -> DataUnitBase:
         # Wrapper to jump to the very first data unit
-        return self.select_unit_at(0)
+        return self.select_unit_at(0, 1)
 
     def first_incomplete(self, task: TaskBaseClass) -> DataUnitBase:
         # Wrapper function for the somewhat unintuitive "find the first" syntax
@@ -476,7 +506,7 @@ class DataManager:
     def last(self) -> DataUnitBase:
         # Wrapper to jump to the last first data unit
         last_idx = len(self.case_data) - 1
-        return self.select_unit_at(last_idx)
+        return self.select_unit_at(last_idx, -1)
 
     def last_incomplete(self, task: TaskBaseClass) -> DataUnitBase:
         # Wrapper function for the somewhat unintuitive "find the last" syntax

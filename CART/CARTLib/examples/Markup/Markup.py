@@ -1,4 +1,5 @@
 import csv
+import json
 from datetime import datetime
 from enum import Enum
 from functools import cached_property
@@ -6,6 +7,7 @@ from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 import qt
+import slicer
 from slicer.i18n import tr as _
 
 from CARTLib.core.TaskBaseClass import TaskBaseClass
@@ -19,6 +21,10 @@ from CARTLib.utils.data import (
     stack_sidecars,
     save_json_sidecar,
     add_generated_by_entry,
+    create_emtpy_markup_fiducial_node,
+    load_markups,
+    MarkupResource,
+    save_markups_to_csv,
 )
 from CARTLib.utils.task import cart_task
 from CARTLib.utils.widgets import CARTMarkupEditorWidget
@@ -33,8 +39,63 @@ if TYPE_CHECKING:
 VERSION = "0.0.2"
 
 
+class MarkupUnit(CARTStandardUnit):
+
+    def __init__(
+        self,
+        case_data: dict[str, str],
+        data_path: Path,
+        prior_data: dict = None,
+        scene: slicer.vtkMRMLScene = slicer.mrmlScene,
+    ) -> None:
+        # Replace entries in our case data w/ our custom overrides
+        if prior_data is not None:
+            for k, v in prior_data.items():
+                case_data[k] = v
+
+        super().__init__(case_data, data_path, scene)
+
+    def _load_markups_nodes(self, markup_paths: dict[str, Path]) -> None:
+        # Ensure each "editable" markup has a corresponding node
+        for key, path in markup_paths.items():
+            # Try to read from file
+            if path is not None:
+                if path.exists():
+                    # Try to load the markups naturally first
+                    nodes = load_markups(path)
+                # If there was a path specified, but it no longer exists, raise an error
+                else:
+                    raise ValueError(
+                        f"Tried to load markup from path {path} which doesn't exist!"
+                    )
+
+            # If no file exists, create a blank markup node instead
+            else:
+                nodes = [create_emtpy_markup_fiducial_node(
+                    f"{key} [{self.uid}]",
+                    scene=self.scene,
+                )]
+
+            # Label the markups iteratively if there are multiple
+            should_iter = len(nodes) > 1
+            for i, node in enumerate(nodes):
+                # Error out if the node is the wrong type (currently only fiducials are supported)
+                if not isinstance(node, slicer.vtkMRMLMarkupsFiducialNode):
+                    raise TypeError(
+                        f"Expected a MarkupsFiducialNode, got {type(node)} for key {key}."
+                    )
+                # Determine how the node should be named
+                if should_iter:
+                    name = f"{MarkupResource.format_for_gui(key)} [{self.uid} - {i}]"
+                else:
+                    name = f"{key} [{self.uid}]"
+                # Update the node's properties and track it
+                node.SetName(name)
+                self.markup_nodes[key] = node
+
+
 @cart_task("Markup")
-class MarkupTask(TaskBaseClass[CARTStandardUnit]):
+class MarkupTask(TaskBaseClass[MarkupUnit]):
 
     README_PATH = Path(__file__).parent / "README.md"
 
@@ -61,18 +122,19 @@ class MarkupTask(TaskBaseClass[CARTStandardUnit]):
 
         # GUI and data unit
         self.gui: Optional[MarkupGUI] = None
-        self.data_unit: Optional[CARTStandardUnit] = None
+        self.data_unit: Optional[MarkupUnit] = None
 
         # Markup tracking
         self.markups: list[tuple[str, Optional[str]]] = []
         self.untracked_markups: dict[str, list[str]] = {}
 
-        # Output logging
-        self._output_manager: MarkupOutput = MarkupOutput()
-        self._output_manager.output_dir = self.job_profile.output_path
-
         # Config management
         self.config: MarkupConfig = MarkupConfig(parent_config=self.job_profile)
+
+        # Output logging
+        self._output_manager: MarkupOutput = MarkupOutput(
+            config=self.config, output_dir=self.job_profile.output_path
+        )
 
     def setup(self, container: qt.QWidget):
         # Initialize the GUI
@@ -83,7 +145,7 @@ class MarkupTask(TaskBaseClass[CARTStandardUnit]):
         if self.data_unit:
             self.gui.sync()
 
-    def receive(self, data_unit: CARTStandardUnit):
+    def receive(self, data_unit: MarkupUnit):
         # Update the data unit
         self.data_unit = data_unit
 
@@ -92,18 +154,40 @@ class MarkupTask(TaskBaseClass[CARTStandardUnit]):
             self.gui.sync()
 
     def save(self) -> Optional[str]:
-        msg = self._output_manager.save_unit(self.data_unit, self.master_profile)
-        if self.gui and msg is not None:
-            self.gui.saveSuccessPrompt(msg)
+        # Delegate to the output manager
+        self._output_manager.save_unit(self.data_unit, self.master_profile)
 
     def isTaskComplete(self, case_data: dict[str, str]) -> bool:
         author = self.master_profile.author
         uid = case_data['uid']
         return self._output_manager.is_unit_complete(author, uid)
 
+    def generate_prior_data_for(self, case_data: dict) -> Optional[dict]:
+        uid = case_data.get("uid")
+        case_overrides = {}
+        if self._output_manager.is_unit_complete(self.master_profile.author, uid):
+            for k, v in case_data.items():
+                # Skip non-markup resources
+                if not MarkupResource.is_type(k):
+                    continue
+                # Reference the original input, if available
+                init_input = Path(v) if v != '' else None
+                # Determine where the previous output file would be, if it still exists
+                output_file = self._output_manager.determine_output_file(
+                    self.job_profile.output_path,
+                    uid,
+                    init_input,
+                    k,
+                )
+                # If it does, replace the original to-be-loaded file reference with it.
+                if output_file.exists():
+                    case_overrides[k] = output_file
+
+        return case_overrides
+
     @classmethod
     def getDataUnitFactory(cls) -> DataUnitFactory:
-        return CARTStandardUnit
+        return MarkupUnit
 
     @classmethod
     def init_config(cls, job_config: JobProfileConfig) -> DictBackedConfig:
@@ -131,7 +215,7 @@ class MarkupGUI:
         self.markupEditor.refresh()
 
     @property
-    def data_unit(self) -> CARTStandardUnit:
+    def data_unit(self) -> MarkupUnit:
         return self.bound_task.data_unit
 
     def saveSuccessPrompt(self, msg_text: str):
@@ -144,9 +228,12 @@ class MarkupGUI:
 
 
 class MarkupOutput:
-    def __init__(self):
+    def __init__(self, config: "MarkupConfig", output_dir: Path = None):
+        # Reference config
+        self._config_reference = config
+
         # The directory to save everything into
-        self._output_dir: Path = None
+        self._output_dir: Path = output_dir
 
     @property
     def output_dir(self) -> Path:
@@ -218,95 +305,151 @@ class MarkupOutput:
 
         return log_data
 
-    def save_unit(self, data_unit: CARTStandardUnit, profile: MasterProfileConfig) -> str:
-        # Define (and, if need be, create) an output folder for this unit's case ID
-        case_output = self.output_dir / data_unit.uid
-        case_output.mkdir(parents=True, exist_ok=True)
+    def save_unit(self, data_unit: MarkupUnit, profile: MasterProfileConfig):
+        try:
+            # Variable init, which should be filled in during the loop
+            output_file = None
 
-        # Save each markup node (with any modifications) into it
-        unknown_idx = 0
-        # TODO: Add user naming support for "custom" markups
-        saved_files = []
-        failed_files = []
-        for key, node in data_unit.markup_nodes.items():
-            # Determine how the file should be named
-            input_path = node.GetStorageNode().GetFileName()
-            if input_path is None or input_path == "":
-                input_path = None
-            else:
-                input_path = Path(input_path)
+            # Save each markup node (with any modifications) into it
+            for key, node in data_unit.markup_nodes.items():
+                # Determine how the file should be named
+                storage_node = node.GetStorageNode()
+                if storage_node is None:
+                    input_path = None
+                else:
+                    input_path = storage_node.GetFileName()
+                    if input_path is None or input_path == "":
+                        input_path = None
+                    else:
+                        input_path = Path(input_path)
 
-            # If this is a node w/o a previous file name, save it as such
-            if input_path is None:
-                file_name = f"{key}_unknown_{unknown_idx}.mrk.json"
-                unknown_idx += 1
-            else:
-                file_name = input_path.name
-            output_file = case_output / file_name
-
-            # Delete any previous sidecar file associated with our output to avoid unintentional carry-over
-            prior_sidecar = find_json_sidecar_path(output_file)
-            prior_sidecar.unlink(missing_ok=True)
-
-            # Save the node's contents to this file
-            if ".nii" in output_file.suffixes:
-                # Save the node to a NIfTI file, w/ a sidecar containing label data!
-                save_markups_to_nifti(
-                    markup_node=node,
-                    reference_volume=data_unit.reference_volume_node,
-                    path=output_file
+                uid = data_unit.uid
+                output_file = self.determine_output_file(
+                    self.output_dir, uid, input_path, key
                 )
-                saved_files.append(output_file)
-            elif ".mrk" in output_file.suffixes:
-                # Save the node to Slicer's native mrk.json format.
-                save_markups_to_json(
-                    markups_node=node,
-                    path=output_file
-                )
-                saved_files.append(output_file)
+
+                # Create the corresponding parent directory, if needed
+                output_file.parent.mkdir(parents=True, exist_ok=True)
+
+                # Save the node's contents to this file
+                if self._config_reference.output_format == MarkupOutputFormat.NIFTI:
+                    # Save the node to a NIfTI file, w/ a sidecar containing label data!
+                    save_markups_to_nifti(
+                        markup_node=node,
+                        reference_volume=data_unit.reference_volume_node,
+                        path=output_file
+                    )
+                elif self._config_reference.output_format == MarkupOutputFormat.CSV:
+                    # Save the node to Slicer's native .csv format
+                    save_markups_to_csv(markups_node=node, path=output_file)
+                else:
+                    # Save the node to Slicer's native .mrk.json format
+                    save_markups_to_json(markups_node=node, path=output_file)
+
+                # Update (or create) the sidecar files.
+                current_sidecar = find_json_sidecar_path(output_file)
+                if current_sidecar.exists():
+                    # If we already had an output file, update it
+                    with open(current_sidecar, 'r') as fp:
+                        sidecar_data = json.load(fp)
+                elif input_path is not None:
+                    # If the input file had a sidecar, copy and extend it
+                    prior_sidecar = find_json_sidecar_path(input_path)
+                    current_sidecar = find_json_sidecar_path(output_file)
+                    sidecar_data = stack_sidecars(prior_sidecar, current_sidecar)
+                else:
+                    # Otherwise, start from scratch
+                    sidecar_data = {}
+                # Add the "generated by" entry and proceed
+                add_generated_by_entry(sidecar_data, profile)
+                save_json_sidecar(current_sidecar, sidecar_data)
+
+            # Update our log file to match
+            log_entry_key = (profile.author, data_unit.uid)
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.log[log_entry_key] = {
+                self.AUTHOR_KEY: profile.author,
+                self.UID_KEY: data_unit.uid,
+                self.TIMESTAMP_KEY: timestamp,
+                self.OUTPUT_KEY: str(output_file.resolve()),
+                self.VERSION_KEY: VERSION,
+            }
+            # Save the new contents to file
+            with open(self.log_file, "w") as fp:
+                writer = csv.DictWriter(fp, fieldnames=self.LOG_HEADERS)
+                writer.writeheader()
+                writer.writerows(self.log.values())
+        except Exception as e:
+            log_entry_key = (profile.author, data_unit.uid)
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.log[log_entry_key] = {
+                self.AUTHOR_KEY: profile.author,
+                self.UID_KEY: data_unit.uid,
+                self.TIMESTAMP_KEY: timestamp,
+                self.OUTPUT_KEY: "ERROR",
+                self.VERSION_KEY: VERSION,
+            }
+            # Save the new contents to file
+            with open(self.log_file, "w") as fp:
+                writer = csv.DictWriter(fp, fieldnames=self.LOG_HEADERS)
+                writer.writeheader()
+                writer.writerows(self.log.values())
+            # Raise the error as normal
+            raise e
+
+    def determine_output_file(
+        self,
+        output_dir: Path,
+        uid: str,
+        input_path: Optional[Path],
+        label: str
+    ) -> Path:
+        # Determine the appropriate extension for the file
+        if self._config_reference.output_format == MarkupOutputFormat.JSON:
+            # Markdown JSON is unique in that it gets two extensions
+            extension = "mrk.json"
+        elif self._config_reference.output_format == MarkupOutputFormat.NIFTI:
+            # Likewise, NIfTI is almost always saved compressed
+            extension = "nii.gz"
+        else:
+            # Remaining case is CSV, which has no double-convention
+            extension = "csv"
+
+        # If this is a node w/o a previous file name, save it as such
+        if input_path is None:
+            file_name = f"{uid}_{label}.{extension}"
+        else:
+            original_name = input_path.name.split(".")[0]
+            file_name = f"{original_name}.{extension}"
+
+        # Determine the output directory
+        if self._config_reference.output_structure == MarkupOutputStructure.BIDS:
+            # Split the "subject" and "session" parts of the UID, if they're present
+            if "sub" in uid and "ses" in uid:
+                sub, ses = uid.split(
+                    "__"
+                )  # TODO: Define this "magic" string somewhere explicitly
+                stem_path = output_dir / sub / ses
+            # Otherwise, use the case output dir we already have
             else:
-                failed_files.append(output_file)
+                stem_path = output_dir / uid
+            # Add an "anat" dir to the end to meet BIDS requirements
+            stem_path /= "anat"
+        # Otherwise, just put it into the case output directory
+        else:
+            stem_path = output_dir / uid
 
-            # Save the corresponding sidecar, extended w/ a new "GeneratedBy" entry
-            current_sidecar = find_json_sidecar_path(output_file)
-            sidecar_data = stack_sidecars(prior_sidecar, current_sidecar)
-            add_generated_by_entry(sidecar_data, profile)
-            save_json_sidecar(current_sidecar, sidecar_data)
+        # Combine the two to get our file name
+        output_file = stem_path / file_name
+        return output_file
 
-        # Update our log file to match
-        log_entry_key = (profile.author, data_unit.uid)
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.log[log_entry_key] = {
-            self.AUTHOR_KEY: profile.author,
-            self.UID_KEY: data_unit.uid,
-            self.TIMESTAMP_KEY: timestamp,
-            self.OUTPUT_KEY: str(case_output.resolve()),
-            self.VERSION_KEY: VERSION,
-        }
-
-        # Save the new contents to file
-        with open(self.log_file, "w") as fp:
-            writer = csv.DictWriter(fp, fieldnames=self.LOG_HEADERS)
-            writer.writeheader()
-            writer.writerows(self.log.values())
-
-        # Build the result message
-        result_msg = ""
-        if len(saved_files) > 0:
-            result_msg += _("Saved the following files:\n")
-            for f in saved_files:
-                result_msg += f"  * {str(f)}\n"
-            result_msg += "\n"
-        if len(failed_files):
-            result_msg += _("Failed to save the following files:\n")
-            for f in failed_files:
-                result_msg += f"  * {str(f)}\n"
-            result_msg += "\n"
-
-        return result_msg
-
-    def is_unit_complete(self, author: str, uid: CARTStandardUnit):
-        return (author, uid) in self.log.keys()
+    def is_unit_complete(self, author: str, uid: str):
+        k = (author, uid)
+        entry = self.log.get(k)
+        if entry is None:
+            return None
+        else:
+            return entry[self.OUTPUT_KEY] != "ERROR"
 
 
 class MarkupOutputStructure(Enum):
@@ -316,7 +459,7 @@ class MarkupOutputStructure(Enum):
 
 class MarkupOutputFormat(Enum):
     NIFTI = "NIfTI"
-    NRRD = "NRRD"
+    CSV = "CSV"
     JSON = "JSON"
 
 
@@ -349,7 +492,7 @@ class MarkupConfig(DictBackedConfig):
     @property
     def output_format(self):
         str_val = self.get_or_default(
-            self.OUTPUT_FORMAT_KEY, MarkupOutputFormat.NRRD.value
+            self.OUTPUT_FORMAT_KEY, MarkupOutputFormat.CSV.value
         )
         return MarkupOutputFormat(str_val)
 
@@ -390,55 +533,71 @@ class MarkupConfigGUILayout(qt.QFormLayout):
 
         # Output folder structure selection
         fileStructureComboBox = qt.QComboBox(None)
+        fileStructureToolTip = _(
+            "How the folders within the output directory should be organized."
+        )
+        fileStructureComboBox.setToolTip(fileStructureToolTip)
         fileStructureComboBox.addItems([x.value for x in MarkupOutputStructure])
         fileStructureComboBox.setCurrentText(config.output_structure.value)
         fileStructureLabel = qt.QLabel(_("Output File Structure:"))
+        fileStructureLabel.setToolTip(fileStructureToolTip)
         self.addRow(fileStructureLabel, fileStructureComboBox)
 
         # Output file structure selection
         fileFormatComboBox = qt.QComboBox(None)
+        fileFormatToolTip = _(
+            "What file format (of Slicer's supported options) the markups should be saved in."
+        )
+        fileFormatComboBox.setToolTip(fileFormatToolTip)
         fileFormatComboBox.addItems([x.value for x in MarkupOutputFormat])
         fileFormatComboBox.setCurrentText(config.output_structure.value)
         fileFormatLabel = qt.QLabel(_("Output File Format:"))
+        fileFormatLabel.setToolTip(fileFormatToolTip)
         self.addRow(fileFormatLabel, fileFormatComboBox)
 
         # Toggle-able options
         toggleLayout = qt.QFormLayout(None)
         self.addRow(toggleLayout)
 
-        ## Duplicate Markups
-        duplicateMarkupsCheckBox = qt.QCheckBox()
-        duplicateMarkupsCheckBox.setChecked(config.allow_duplicates)
-        duplicateMarkupsLabel = qt.QLabel(_("Allow Duplicate Markups"))
-        toggleLayout.addRow(duplicateMarkupsCheckBox, duplicateMarkupsLabel)
-
-        ## Hide To-Edit Segments on Load
-        hideEditSegmentsCheckBox = qt.QCheckBox()
-        hideEditSegmentsCheckBox.setChecked(config.hide_to_edit)
-        hideEditSegmentsLabel = qt.QLabel(
-            _("Initially Hide To-Edit Markups")
-        )
-        toggleLayout.addRow(
-            hideEditSegmentsCheckBox, hideEditSegmentsLabel
-        )
+        ## TODO
+        # ## Duplicate Markups
+        # duplicateMarkupsCheckBox = qt.QCheckBox()
+        # duplicateMarkupsCheckBox.setChecked(config.allow_duplicates)
+        # duplicateMarkupsLabel = qt.QLabel(_("Allow Duplicate Markups"))
+        # toggleLayout.addRow(duplicateMarkupsCheckBox, duplicateMarkupsLabel)
+        #
+        # ## Hide To-Edit Segments on Load
+        # hideEditSegmentsCheckBox = qt.QCheckBox()
+        # hideEditSegmentsCheckBox.setChecked(config.hide_to_edit)
+        # hideEditSegmentsLabel = qt.QLabel(
+        #     _("Initially Hide To-Edit Markups")
+        # )
+        # toggleLayout.addRow(
+        #     hideEditSegmentsCheckBox, hideEditSegmentsLabel
+        # )
 
         # Connections
         @qt.Slot(str)
         def onStructureChanged(new_val: str):
             config.output_structure = MarkupOutputStructure(new_val)
-        fileFormatComboBox.currentTextChanged.connect(onStructureChanged)
+        fileStructureComboBox.currentTextChanged.connect(onStructureChanged)
+        fileStructureComboBox.setCurrentText(config.output_structure.value)
 
         @qt.Slot(str)
         def onFormatChanged(new_val: str):
             config.output_format = MarkupOutputFormat(new_val)
         fileFormatComboBox.currentTextChanged.connect(onFormatChanged)
+        fileFormatComboBox.setCurrentText(config.output_format.value)
 
-        @qt.Slot(None)
-        def onDuplicatesToggled():
-            config.allow_duplicates = duplicateMarkupsCheckBox.isChecked()
-        duplicateMarkupsCheckBox.toggled.connect(onDuplicatesToggled)
-
-        @qt.Slot(None)
-        def onHideEditsToggled():
-            config.hide_to_edit = hideEditSegmentsCheckBox.isChecked()
-        hideEditSegmentsCheckBox.toggled.connect(onHideEditsToggled)
+        ## TODO
+        # @qt.Slot(None)
+        # def onDuplicatesToggled():
+        #     config.allow_duplicates = duplicateMarkupsCheckBox.isChecked()
+        # duplicateMarkupsCheckBox.toggled.connect(onDuplicatesToggled)
+        # duplicateMarkupsCheckBox.setChecked(config.allow_duplicates)
+        #
+        # @qt.Slot(None)
+        # def onHideEditsToggled():
+        #     config.hide_to_edit = hideEditSegmentsCheckBox.isChecked()
+        # hideEditSegmentsCheckBox.toggled.connect(onHideEditsToggled)
+        # hideEditSegmentsCheckBox.setChecked(config.hide_to_edit)

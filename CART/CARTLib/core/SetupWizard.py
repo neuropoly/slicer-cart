@@ -429,8 +429,8 @@ class _ProfileWizardPage(qt.QWizardPage):
         skipToIncompleteLabel = qt.QLabel(_("Skip to First Incomplete Case"))
         skipToIncompleteToolTip = _(
             "When toggled, CART will skip to the first case which does not already have "
-            "and output from a previous run of the active selected job. How this is "
-            "determined depends on the active task, and may not be supported at all for some."
+            "an output from a previous run of the selected job. How this is determined "
+            "depends on the active task, and may not be supported at all for some."
         )
         skipToIncompleteCheckBox.setToolTip(skipToIncompleteToolTip)
         skipToIncompleteLabel.setToolTip(skipToIncompleteToolTip)
@@ -763,15 +763,6 @@ class _DataSelectionPage(qt.QWizardPage):
 
         ## Cohort File ##
         cohortFileLabel = qt.QLabel(_("Cohort File:"))
-
-        # Container widget
-        cohortFileWidget = qt.QWidget(None)
-        cohortFileLayout = qt.QHBoxLayout(cohortFileWidget)
-        # Make sure there's 0 padding around contents, making them flush with one another
-        cohortFileLayout.setContentsMargins(0, 0, 0, 0)
-        cohortFileLayout.setSpacing(0)
-
-        # The file selector itself
         cohortFileSelector: CARTPathLineEdit = CARTPathLineEdit()
         cohortFileToolTip = _(
             "This file dictates how CART will iterate through your dataset and load files. "
@@ -780,53 +771,42 @@ class _DataSelectionPage(qt.QWizardPage):
         )
         cohortFileLabel.setToolTip(cohortFileToolTip)
         cohortFileSelector.setToolTip(cohortFileToolTip)
-        cohortFileSelector.setPlaceholderText(
-            _(
-                "A CSV file, with one row per iteration (case) CART should run, "
-                "and one column per resource each iteration should try to load."
-            )
-        )
-        cohortFileSelector.filters = ctk.ctkPathLineEdit.Files
         # Make sure only CSV files are visible (and valid)
+        cohortFileSelector.filters = ctk.ctkPathLineEdit.Files
         cohortFileSelector.nameFilters = [
             "CSV files (*.csv)",
         ]
-        self._cohortFileSelector = cohortFileSelector
-
         # Update ourselves to match the config
         cohort_file = config.cohort_path
         if cohort_file is not None:
             cohortFileSelector.currentPath = str(cohort_file)
-
-        # A "+" button, which aliases the "create new" button below
-        cohortPlusButton = qt.QToolButton(None)
-        cohortPlusButton.setText("+")
-        # Make it "fill out" the y-axis to match adjacent elements, so it doesn't look jank.
-        cohortPlusButton.setSizePolicy(qt.QSizePolicy.Minimum, qt.QSizePolicy.Preferred)
-        cohortCreationToolTip = _(
-            "Generate a new cohort file from scratch using the contents of your input path."
-        )
-        cohortPlusButton.setToolTip(cohortCreationToolTip)
-        cohortPlusButton.clicked.connect(self.createNewCohort)
-
-        # Put everything together
-        cohortFileLayout.addWidget(cohortFileSelector)
-        cohortFileLayout.addWidget(cohortPlusButton)
-        layout.addRow(cohortFileLabel, cohortFileWidget)
+        # Add it to the layout and track for later
+        layout.addRow(cohortFileLabel, cohortFileSelector)
+        self._cohortFileSelector = cohortFileSelector
 
         ## Cohort Button Panel ##
         buttonLayout = qt.QHBoxLayout()
 
         # Button to create the selected cohort file
+        cohortCreationToolTip = _(
+            "Generate a new cohort file from scratch using the contents of your input path."
+        )
         createNewButton = qt.QPushButton(_("New Cohort File"))
         createNewButton.setToolTip(cohortCreationToolTip)
 
         def shouldEnableCreate():
             return config.data_path is not None and config.data_path.is_dir()
 
-        cohortPlusButton.setEnabled(shouldEnableCreate())
         createNewButton.setEnabled(shouldEnableCreate())
 
+        # Button to select an existing cohort file
+        cohortSelectionToolTip = _(
+            "Select and existing cohort file to reference and use."
+        )
+        selectButton = qt.QPushButton(_("Select Cohort File"))
+        selectButton.setToolTip(cohortSelectionToolTip)
+
+        # Button to edit the currently selected cohort file
         editCohortButton = qt.QPushButton(_("Edit Cohort File"))
         editCohortButton.setToolTip(
             _(
@@ -841,9 +821,11 @@ class _DataSelectionPage(qt.QWizardPage):
 
         # User prompt connections
         createNewButton.clicked.connect(self.createNewCohort)
+        selectButton.clicked.connect(self.selectFile)
         editCohortButton.clicked.connect(self.editCohort)
 
         buttonLayout.addWidget(createNewButton)
+        buttonLayout.addWidget(selectButton)
         buttonLayout.addWidget(editCohortButton)
         layout.addRow(buttonLayout)
 
@@ -876,7 +858,6 @@ class _DataSelectionPage(qt.QWizardPage):
             config.data_path = Path(new_txt)
             # Enable the "create" button if our conditions are met now
             can_create = shouldEnableCreate()
-            cohortPlusButton.setEnabled(can_create)
             createNewButton.setEnabled(can_create)
             # Denote that the completion state has likely changed
             self.completeChanged()
@@ -962,7 +943,7 @@ class _DataSelectionPage(qt.QWizardPage):
         Walk the user through the creation of a new cohort file from scratch
         """
         # Prompt the user for the new cohort file's specifications
-        dialog = NewCohortDialog(self.data_path)
+        dialog = NewCohortDialog(self.data_path, self.output_path)
 
         # If the user backs out or cancels, end here
         if not dialog.exec():
@@ -984,6 +965,20 @@ class _DataSelectionPage(qt.QWizardPage):
 
         # Begin editing the selected cohort
         self.editCohort()
+
+    @qt.Slot()
+    def selectFile(self):
+        # Prompt the user to select a file
+        fileDialog = qt.QFileDialog(None)
+        fileDialog.setDirectory(self.data_path)
+        fileDialog.setFileMode(qt.QFileDialog.ExistingFile)
+        fileDialog.setNameFilter(_("CSV files (*.csv)"))
+        # If they did, validate it and make it the currently selected path
+        if fileDialog.exec():
+            d = fileDialog.selectedFiles()[0]
+            if d == "":
+                return
+            self._cohortFileSelector.currentPath = str(d)
 
     @qt.Slot()
     def editCohort(self):
