@@ -386,7 +386,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 # Otherwise, iterate through all cases and see if they're now marked as errors
                 min_idx = min([original_idx, new_idx])
                 max_idx = max([original_idx, new_idx])
-                print([i for i in range(min_idx, max_idx)])
                 for idx in range(min_idx, max_idx):
                     if idx in self.logic.data_manager.failed_indices:
                         caseSelector.setItemIcon(idx, ERROR_ICON)
