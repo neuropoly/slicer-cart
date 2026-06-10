@@ -90,7 +90,7 @@ class MarkupOutputStructure(Enum):
 class MarkupOutputFormat(Enum):
     NIFTI = "NIfTI"
     CSV = "CSV"
-    JSON = "JSON"
+    JSON = "MRK.JSON"
 
 
 class MarkupOutput:
