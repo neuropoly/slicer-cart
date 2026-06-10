@@ -1049,7 +1049,7 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
         example_task_paths = [
             examples_path / "Segmentation/SegmentationTask.py",
             examples_path / "GenericClassification/GenericClassificationTask.py",
-            examples_path / "Markup/Markup.py",
+            examples_path / "Markup/MarkupTask.py",
         ]
 
         # Make sure the example tasks all exist before doing anything!

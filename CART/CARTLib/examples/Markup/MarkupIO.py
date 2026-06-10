@@ -6,37 +6,25 @@ from functools import cached_property
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
-import qt
 import slicer
-from slicer.i18n import tr as _
 
-from CARTLib.core.TaskBaseClass import TaskBaseClass
-from CARTLib.core.DataUnitBase import DataUnitFactory
-from CARTLib.utils.config import JobProfileConfig, DictBackedConfig, MasterProfileConfig
+from CARTLib.utils.config import MasterProfileConfig
 from CARTLib.utils.data import (
-    CARTStandardUnit,
     save_markups_to_nifti,
+    save_markups_to_csv,
     save_markups_to_json,
     find_json_sidecar_path,
     stack_sidecars,
-    save_json_sidecar,
     add_generated_by_entry,
-    create_emtpy_markup_fiducial_node,
-    load_markups,
-    MarkupResource,
-    save_markups_to_csv,
+    save_json_sidecar, CARTStandardUnit, load_markups, create_emtpy_markup_fiducial_node, MarkupResource,
 )
-from CARTLib.utils.task import cart_task
-from CARTLib.utils.widgets import CARTMarkupEditorWidget
-
 
 if TYPE_CHECKING:
-    # Provide some type references for QT, even if they're not
-    #  perfectly useful.
-    import PyQt5.Qt as qt
+    # Prevent cyclic imports
+    from MarkupConfig import MarkupConfig
 
-
-VERSION = "0.0.2"
+# Current Markup task version
+VERSION = "0.0.3"
 
 
 class MarkupUnit(CARTStandardUnit):
@@ -94,137 +82,15 @@ class MarkupUnit(CARTStandardUnit):
                 self.markup_nodes[key] = node
 
 
-@cart_task("Markup")
-class MarkupTask(TaskBaseClass[MarkupUnit]):
-
-    README_PATH = Path(__file__).parent / "README.md"
-
-    @classmethod
-    def description(cls):
-        with open(cls.README_PATH, "r") as fp:
-            txt = fp.read()
-
-        # Remove the image, which cannot render in QT
-        cleaned = []
-        for l in txt.split('\n'):
-            if "![" in l:
-                continue
-            cleaned.append(l)
-        return "\n".join(cleaned)
-
-    def __init__(
-        self,
-        master_profile: MasterProfileConfig,
-        job_profile: JobProfileConfig,
-        cohort_features: list[str]
-    ):
-        super().__init__(master_profile, job_profile, cohort_features)
-
-        # GUI and data unit
-        self.gui: Optional[MarkupGUI] = None
-        self.data_unit: Optional[MarkupUnit] = None
-
-        # Markup tracking
-        self.markups: list[tuple[str, Optional[str]]] = []
-        self.untracked_markups: dict[str, list[str]] = {}
-
-        # Config management
-        self.config: MarkupConfig = MarkupConfig(parent_config=self.job_profile)
-
-        # Output logging
-        self._output_manager: MarkupOutput = MarkupOutput(
-            config=self.config, output_dir=self.job_profile.output_path
-        )
-
-    def setup(self, container: qt.QWidget):
-        # Initialize the GUI
-        self.gui = MarkupGUI(self)
-        container.setLayout(self.gui.setup())
-
-        # If we have a data unit, notify the GUI to synchronize
-        if self.data_unit:
-            self.gui.sync()
-
-    def receive(self, data_unit: MarkupUnit):
-        # Update the data unit
-        self.data_unit = data_unit
-
-        # If we have a GUI, sync it
-        if self.gui:
-            self.gui.sync()
-
-    def save(self) -> Optional[str]:
-        # Delegate to the output manager
-        self._output_manager.save_unit(self.data_unit, self.master_profile)
-
-    def isTaskComplete(self, case_data: dict[str, str]) -> bool:
-        author = self.master_profile.author
-        uid = case_data['uid']
-        return self._output_manager.is_unit_complete(author, uid)
-
-    def generate_prior_data_for(self, case_data: dict) -> Optional[dict]:
-        uid = case_data.get("uid")
-        case_overrides = {}
-        if self._output_manager.is_unit_complete(self.master_profile.author, uid):
-            for k, v in case_data.items():
-                # Skip non-markup resources
-                if not MarkupResource.is_type(k):
-                    continue
-                # Reference the original input, if available
-                init_input = Path(v) if v != '' else None
-                # Determine where the previous output file would be, if it still exists
-                output_file = self._output_manager.determine_output_file(
-                    self.job_profile.output_path,
-                    uid,
-                    init_input,
-                    k,
-                )
-                # If it does, replace the original to-be-loaded file reference with it.
-                if output_file.exists():
-                    case_overrides[k] = output_file
-
-        return case_overrides
-
-    @classmethod
-    def getDataUnitFactory(cls) -> DataUnitFactory:
-        return MarkupUnit
-
-    @classmethod
-    def init_config(cls, job_config: JobProfileConfig) -> DictBackedConfig:
-        return MarkupConfig(job_config)
+class MarkupOutputStructure(Enum):
+    BIDS = "BIDS"
+    FolderPerCase = "Folder-per-Case"
 
 
-class MarkupGUI:
-    def __init__(self, bound_task: MarkupTask):
-        self.bound_task = bound_task
-
-        # Widget displaying the data unit
-        self.markupEditor: CARTMarkupEditorWidget = CARTMarkupEditorWidget()
-
-    def setup(self) -> qt.QFormLayout:
-        # Initialize the layout
-        layout = qt.QFormLayout()
-
-        # Insert the markup editor widget
-        layout.addWidget(self.markupEditor)
-
-        # Return the result
-        return layout
-
-    def sync(self):
-        self.markupEditor.refresh()
-
-    @property
-    def data_unit(self) -> MarkupUnit:
-        return self.bound_task.data_unit
-
-    def saveSuccessPrompt(self, msg_text: str):
-        msg = qt.QMessageBox()
-        msg.setWindowTitle("Saved Markups!")
-        msg.setText(msg_text)
-        msg.setTextFormat(3)  # 3 -> Markdown enum value
-        msg.setStandardButtons(qt.QMessageBox.Ok)
-        return msg.exec()
+class MarkupOutputFormat(Enum):
+    NIFTI = "NIfTI"
+    CSV = "CSV"
+    JSON = "JSON"
 
 
 class MarkupOutput:
@@ -305,7 +171,7 @@ class MarkupOutput:
 
         return log_data
 
-    def save_unit(self, data_unit: MarkupUnit, profile: MasterProfileConfig):
+    def save_unit(self, data_unit: "MarkupUnit", profile: MasterProfileConfig):
         try:
             # Variable init, which should be filled in during the loop
             output_file = None
@@ -324,9 +190,7 @@ class MarkupOutput:
                         input_path = Path(input_path)
 
                 uid = data_unit.uid
-                output_file = self.determine_output_file(
-                    self.output_dir, uid, input_path, key
-                )
+                output_file = self.determine_output_file(uid, input_path, key)
 
                 # Create the corresponding parent directory, if needed
                 output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -399,7 +263,6 @@ class MarkupOutput:
 
     def determine_output_file(
         self,
-        output_dir: Path,
         uid: str,
         input_path: Optional[Path],
         label: str
@@ -429,15 +292,15 @@ class MarkupOutput:
                 sub, ses = uid.split(
                     "__"
                 )  # TODO: Define this "magic" string somewhere explicitly
-                stem_path = output_dir / sub / ses
+                stem_path = self.output_dir / sub / ses
             # Otherwise, use the case output dir we already have
             else:
-                stem_path = output_dir / uid
+                stem_path = self.output_dir / uid
             # Add an "anat" dir to the end to meet BIDS requirements
             stem_path /= "anat"
         # Otherwise, just put it into the case output directory
         else:
-            stem_path = output_dir / uid
+            stem_path = self.output_dir / uid
 
         # Combine the two to get our file name
         output_file = stem_path / file_name
@@ -450,154 +313,3 @@ class MarkupOutput:
             return None
         else:
             return entry[self.OUTPUT_KEY] != "ERROR"
-
-
-class MarkupOutputStructure(Enum):
-    BIDS = "BIDS"
-    FolderPerCase = "Folder-per-Case"
-
-
-class MarkupOutputFormat(Enum):
-    NIFTI = "NIfTI"
-    CSV = "CSV"
-    JSON = "JSON"
-
-
-class MarkupConfig(DictBackedConfig):
-    CONFIG_KEY = "markup"
-
-    def __init__(self, parent_config: JobProfileConfig = None):
-        super().__init__(parent_config)
-
-    @classmethod
-    def default_config_label(cls) -> str:
-        return cls.CONFIG_KEY
-
-    OUTPUT_STRUCTURE_KEY = "output_structure"
-
-    @property
-    def output_structure(self) -> MarkupOutputStructure:
-        str_val = self.get_or_default(
-            self.OUTPUT_STRUCTURE_KEY, MarkupOutputStructure.BIDS.value
-        )
-        return MarkupOutputStructure(str_val)
-
-    @output_structure.setter
-    def output_structure(self, new_val: MarkupOutputStructure):
-        self.backing_dict[self.OUTPUT_STRUCTURE_KEY] = new_val.value
-        self.has_changed = True
-
-    OUTPUT_FORMAT_KEY = "output_format"
-
-    @property
-    def output_format(self):
-        str_val = self.get_or_default(
-            self.OUTPUT_FORMAT_KEY, MarkupOutputFormat.CSV.value
-        )
-        return MarkupOutputFormat(str_val)
-
-    @output_format.setter
-    def output_format(self, new_val: MarkupOutputFormat):
-        self.backing_dict[self.OUTPUT_FORMAT_KEY] = new_val.value
-        self.has_changed = True
-
-    ALLOW_DUPLICATES_KEY = "allow_duplicates"
-
-    @property
-    def allow_duplicates(self) -> bool:
-        return self.get_or_default(self.ALLOW_DUPLICATES_KEY, False)
-
-    @allow_duplicates.setter
-    def allow_duplicates(self, new_val: bool):
-        self.backing_dict[self.ALLOW_DUPLICATES_KEY] = new_val
-        self.has_changed = True
-
-    HIDE_TO_EDIT = "hide_to_edit"
-
-    @property
-    def hide_to_edit(self) -> bool:
-        return self.get_or_default(self.HIDE_TO_EDIT, False)
-
-    @hide_to_edit.setter
-    def hide_to_edit(self, new_val: bool):
-        self.backing_dict[self.HIDE_TO_EDIT] = new_val
-        self.has_changed = True
-
-    def generateGUILayout(self) -> Optional[tuple[str, qt.QLayout]]:
-        return _("Markup Configuration"), MarkupConfigGUILayout(self)
-
-
-class MarkupConfigGUILayout(qt.QFormLayout):
-    def __init__(self, config: MarkupConfig, parent = None):
-        super().__init__(parent)
-
-        # Output folder structure selection
-        fileStructureComboBox = qt.QComboBox(None)
-        fileStructureToolTip = _(
-            "How the folders within the output directory should be organized."
-        )
-        fileStructureComboBox.setToolTip(fileStructureToolTip)
-        fileStructureComboBox.addItems([x.value for x in MarkupOutputStructure])
-        fileStructureComboBox.setCurrentText(config.output_structure.value)
-        fileStructureLabel = qt.QLabel(_("Output File Structure:"))
-        fileStructureLabel.setToolTip(fileStructureToolTip)
-        self.addRow(fileStructureLabel, fileStructureComboBox)
-
-        # Output file structure selection
-        fileFormatComboBox = qt.QComboBox(None)
-        fileFormatToolTip = _(
-            "What file format (of Slicer's supported options) the markups should be saved in."
-        )
-        fileFormatComboBox.setToolTip(fileFormatToolTip)
-        fileFormatComboBox.addItems([x.value for x in MarkupOutputFormat])
-        fileFormatComboBox.setCurrentText(config.output_structure.value)
-        fileFormatLabel = qt.QLabel(_("Output File Format:"))
-        fileFormatLabel.setToolTip(fileFormatToolTip)
-        self.addRow(fileFormatLabel, fileFormatComboBox)
-
-        # Toggle-able options
-        toggleLayout = qt.QFormLayout(None)
-        self.addRow(toggleLayout)
-
-        ## TODO
-        # ## Duplicate Markups
-        # duplicateMarkupsCheckBox = qt.QCheckBox()
-        # duplicateMarkupsCheckBox.setChecked(config.allow_duplicates)
-        # duplicateMarkupsLabel = qt.QLabel(_("Allow Duplicate Markups"))
-        # toggleLayout.addRow(duplicateMarkupsCheckBox, duplicateMarkupsLabel)
-        #
-        # ## Hide To-Edit Segments on Load
-        # hideEditSegmentsCheckBox = qt.QCheckBox()
-        # hideEditSegmentsCheckBox.setChecked(config.hide_to_edit)
-        # hideEditSegmentsLabel = qt.QLabel(
-        #     _("Initially Hide To-Edit Markups")
-        # )
-        # toggleLayout.addRow(
-        #     hideEditSegmentsCheckBox, hideEditSegmentsLabel
-        # )
-
-        # Connections
-        @qt.Slot(str)
-        def onStructureChanged(new_val: str):
-            config.output_structure = MarkupOutputStructure(new_val)
-        fileStructureComboBox.currentTextChanged.connect(onStructureChanged)
-        fileStructureComboBox.setCurrentText(config.output_structure.value)
-
-        @qt.Slot(str)
-        def onFormatChanged(new_val: str):
-            config.output_format = MarkupOutputFormat(new_val)
-        fileFormatComboBox.currentTextChanged.connect(onFormatChanged)
-        fileFormatComboBox.setCurrentText(config.output_format.value)
-
-        ## TODO
-        # @qt.Slot(None)
-        # def onDuplicatesToggled():
-        #     config.allow_duplicates = duplicateMarkupsCheckBox.isChecked()
-        # duplicateMarkupsCheckBox.toggled.connect(onDuplicatesToggled)
-        # duplicateMarkupsCheckBox.setChecked(config.allow_duplicates)
-        #
-        # @qt.Slot(None)
-        # def onHideEditsToggled():
-        #     config.hide_to_edit = hideEditSegmentsCheckBox.isChecked()
-        # hideEditSegmentsCheckBox.toggled.connect(onHideEditsToggled)
-        # hideEditSegmentsCheckBox.setChecked(config.hide_to_edit)
