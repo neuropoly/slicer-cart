@@ -1757,9 +1757,6 @@ class ResourceEditorDialogue(ChangeTrackingDialogue):
             extension=extension_string
         )
 
-        print("-" * 100)
-        print(filter_entry)
-
         # If this an updated resource, rename the resource to this new name
         if self._prior_resource is not None:
             self._cohort.rename_resource(self._prior_resource_name, csv_str)
