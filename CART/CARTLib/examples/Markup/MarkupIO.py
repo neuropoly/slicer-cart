@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from MarkupConfig import MarkupConfig
 
 # Current Markup task version
-VERSION = "0.0.3"
+VERSION = "0.0.4"
 
 
 class MarkupUnit(CARTStandardUnit):
@@ -176,21 +176,20 @@ class MarkupOutput:
             # Variable init, which should be filled in during the loop
             output_file = None
 
+            # Fetch the reference volume's path name to use for file naming
+            ref_volume = data_unit.reference_volume_node
+            storage_node = ref_volume.GetStorageNode()
+            ref_path = None
+            if storage_node is not None:
+                ref_file = storage_node.GetFileName()
+                if ref_file is not None and ref_file != "":
+                    ref_path = Path(ref_file)
+                del ref_file
+
             # Save each markup node (with any modifications) into it
             for key, node in data_unit.markup_nodes.items():
-                # Determine how the file should be named
-                storage_node = node.GetStorageNode()
-                if storage_node is None:
-                    input_path = None
-                else:
-                    input_path = storage_node.GetFileName()
-                    if input_path is None or input_path == "":
-                        input_path = None
-                    else:
-                        input_path = Path(input_path)
-
                 uid = data_unit.uid
-                output_file = self.determine_output_file(uid, input_path, key)
+                output_file = self.determine_output_file(uid, key, ref_path)
 
                 # Create the corresponding parent directory, if needed
                 output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -216,9 +215,9 @@ class MarkupOutput:
                     # If we already had an output file, update it
                     with open(current_sidecar, 'r') as fp:
                         sidecar_data = json.load(fp)
-                elif input_path is not None:
+                elif ref_path is not None:
                     # If the input file had a sidecar, copy and extend it
-                    prior_sidecar = find_json_sidecar_path(input_path)
+                    prior_sidecar = find_json_sidecar_path(ref_path)
                     current_sidecar = find_json_sidecar_path(output_file)
                     sidecar_data = stack_sidecars(prior_sidecar, current_sidecar)
                 else:
@@ -264,9 +263,13 @@ class MarkupOutput:
     def determine_output_file(
         self,
         uid: str,
-        input_path: Optional[Path],
-        label: str
+        label: str,
+        volume_path: Optional[Path],
     ) -> Path:
+        """
+        Determine where the markup file would be saved, given its UID,
+        the reference volume's path (if any), and its label.
+        """
         # Determine the appropriate extension for the file
         if self._config_reference.output_format == MarkupOutputFormat.JSON:
             # Markdown JSON is unique in that it gets two extensions
@@ -278,12 +281,13 @@ class MarkupOutput:
             # Remaining case is CSV, which has no double-convention
             extension = "csv"
 
-        # If this is a node w/o a previous file name, save it as such
-        if input_path is None:
+        if volume_path is None:
+            # Default generator, for when there was no valid reference volume (should never happen)
             file_name = f"{uid}_{label}.{extension}"
         else:
-            original_name = input_path.name.split(".")[0]
-            file_name = f"{original_name}.{extension}"
+            # Use the reference volume's name verbatim if available, extended w/ the label
+            original_name = volume_path.name.split(".")[0]
+            file_name = f"{original_name}_{label}.{extension}"
 
         # Determine the output directory
         if self._config_reference.output_structure == MarkupOutputStructure.BIDS:
