@@ -8,6 +8,8 @@ from CARTLib.core.DataUnitBase import DataUnitFactory
 from CARTLib.utils.config import JobProfileConfig, DictBackedConfig, MasterProfileConfig
 from CARTLib.utils.data import (
     MarkupResource,
+    ReferenceVolumeResource,
+    VolumeResource,
 )
 from CARTLib.utils.task import cart_task
 from CARTLib.utils.widgets import CARTMarkupEditorWidget
@@ -92,23 +94,30 @@ class MarkupTask(TaskBaseClass[MarkupUnit]):
     def generate_prior_data_for(self, case_data: dict) -> Optional[dict]:
         uid = case_data.get("uid")
         case_overrides = {}
-        if self._output_manager.is_unit_complete(self.master_profile.author, uid):
-            for k, v in case_data.items():
-                # Skip non-markup resources
-                if not MarkupResource.is_type(k):
-                    continue
-                # Reference the original input, if available
-                init_input = Path(v) if v != '' else None
-                # Determine where the previous output file would be, if it still exists
-                output_file = self._output_manager.determine_output_file(
-                    self.job_profile.output_path,
-                    uid,
-                    init_input,
-                    k,
-                )
-                # If it does, replace the original to-be-loaded file reference with it.
-                if output_file.exists():
-                    case_overrides[k] = output_file
+
+        # If this case hasn't been completed already, end immediately
+        if not self._output_manager.is_unit_complete(self.master_profile.author, uid):
+            return case_overrides
+
+        # Find the reference volume (if any) for this case
+        ref_volume = None
+        for k, v in case_data.items():
+            if ReferenceVolumeResource.is_type(k):
+                ref_volume = v
+                break
+            elif VolumeResource.is_type(k) and ref_volume is None:
+                ref_volume = v
+
+        # Replace markup entries w/ their previous entries, if available
+        for k, v in case_data.items():
+            # Skip non-markup resources
+            if not MarkupResource.is_type(k):
+                continue
+            # Determine where the previous output file would be, if it still exists
+            output_file = self._output_manager.determine_output_file(uid, k, ref_volume)
+            # If it does, replace the original to-be-loaded file reference with it.
+            if output_file.exists():
+                case_overrides[k] = output_file
 
         return case_overrides
 
