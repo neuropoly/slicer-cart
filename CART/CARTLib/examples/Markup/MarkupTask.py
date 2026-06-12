@@ -103,10 +103,10 @@ class MarkupTask(TaskBaseClass[MarkupUnit]):
         ref_volume = None
         for k, v in case_data.items():
             if ReferenceVolumeResource.is_type(k):
-                ref_volume = v
+                ref_volume = Path(v)
                 break
             elif VolumeResource.is_type(k) and ref_volume is None:
-                ref_volume = v
+                ref_volume = Path(v)
 
         # Replace markup entries w/ their previous entries, if available
         for k, v in case_data.items():
