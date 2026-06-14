@@ -3,7 +3,7 @@ from typing import Optional, TYPE_CHECKING
 
 import qt
 
-from CARTLib.core.TaskBaseClass import TaskBaseClass
+from CARTLib.core.TaskBaseClass import CARTTask
 from CARTLib.core.DataUnitBase import DataUnitFactory
 from CARTLib.utils.config import JobProfileConfig, DictBackedConfig, MasterProfileConfig
 from CARTLib.utils.data import (
@@ -15,7 +15,8 @@ from CARTLib.utils.task import cart_task
 from CARTLib.utils.widgets import CARTMarkupEditorWidget
 
 from MarkupConfig import MarkupConfig
-from MarkupIO import MarkupOutput, MarkupUnit
+from MarkupIO import MarkupOutput
+from MarkupUnit import MarkupUnit
 
 if TYPE_CHECKING:
     # Provide some type references for QT, even if they're not
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
 
 
 @cart_task("Markup")
-class MarkupTask(TaskBaseClass[MarkupUnit]):
+class MarkupTask(CARTTask):
 
     README_PATH = Path(__file__).parent / "README.md"
 
