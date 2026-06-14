@@ -6,8 +6,6 @@ from functools import cached_property
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
-import slicer
-
 from CARTLib.utils.config import MasterProfileConfig
 from CARTLib.utils.data import (
     save_markups_to_nifti,
@@ -16,7 +14,7 @@ from CARTLib.utils.data import (
     find_json_sidecar_path,
     stack_sidecars,
     add_generated_by_entry,
-    save_json_sidecar, CARTStandardUnit, load_markups, create_emtpy_markup_fiducial_node, MarkupResource,
+    save_json_sidecar
 )
 
 if TYPE_CHECKING:
@@ -25,61 +23,6 @@ if TYPE_CHECKING:
 
 # Current Markup task version
 VERSION = "0.0.4"
-
-
-class MarkupUnit(CARTStandardUnit):
-
-    def __init__(
-        self,
-        case_data: dict[str, str],
-        data_path: Path,
-        prior_data: dict = None,
-        scene: slicer.vtkMRMLScene = slicer.mrmlScene,
-    ) -> None:
-        # Replace entries in our case data w/ our custom overrides
-        if prior_data is not None:
-            for k, v in prior_data.items():
-                case_data[k] = v
-
-        super().__init__(case_data, data_path, scene)
-
-    def _load_markups_nodes(self, markup_paths: dict[str, Path]) -> None:
-        # Ensure each "editable" markup has a corresponding node
-        for key, path in markup_paths.items():
-            # Try to read from file
-            if path is not None:
-                if path.exists():
-                    # Try to load the markups naturally first
-                    nodes = load_markups(path)
-                # If there was a path specified, but it no longer exists, raise an error
-                else:
-                    raise ValueError(
-                        f"Tried to load markup from path {path} which doesn't exist!"
-                    )
-
-            # If no file exists, create a blank markup node instead
-            else:
-                nodes = [create_emtpy_markup_fiducial_node(
-                    f"{key} [{self.uid}]",
-                    scene=self.scene,
-                )]
-
-            # Label the markups iteratively if there are multiple
-            should_iter = len(nodes) > 1
-            for i, node in enumerate(nodes):
-                # Error out if the node is the wrong type (currently only fiducials are supported)
-                if not isinstance(node, slicer.vtkMRMLMarkupsFiducialNode):
-                    raise TypeError(
-                        f"Expected a MarkupsFiducialNode, got {type(node)} for key {key}."
-                    )
-                # Determine how the node should be named
-                if should_iter:
-                    name = f"{MarkupResource.format_for_gui(key)} [{self.uid} - {i}]"
-                else:
-                    name = f"{key} [{self.uid}]"
-                # Update the node's properties and track it
-                node.SetName(name)
-                self.markup_nodes[key] = node
 
 
 class MarkupOutputStructure(Enum):
