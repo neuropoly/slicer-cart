@@ -1,6 +1,7 @@
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
+import ctk
 import qt
 import slicer
 from slicer.i18n import tr as _
@@ -17,6 +18,15 @@ from CARTLib.utils.data import (
 )
 
 from MarkupConfig import EditableMarkupResourceConfig
+
+
+if TYPE_CHECKING:
+    # VTK is only used in the context of type checking
+    import vtk
+
+    # Provide some type references for QT, even if they're not
+    #  perfectly useful.
+    import PyQt5.Qt as qt
 
 
 class EditableMarkupResource(MarkupResource):
@@ -50,6 +60,20 @@ class EditableMarkupResource(MarkupResource):
 
         # Initialize a layout to wrap its GUI
         layout = qt.QFormLayout(None)
+
+        # Add a color selection button to choose the markups
+        colorPickerButton = ctk.ctkColorPickerButton(None)
+        colorPickerButton.setColor(qt.QColor(resource_config.color))
+        colorPickerLabel = qt.QLabel(_("Markup Color"))
+        layout.addRow(colorPickerLabel, colorPickerButton)
+
+        @qt.Slot(qt.QColor)
+        def onColorChanged(newColor: qt.QColor):
+            resource_config.color = newColor.name()
+
+        colorPickerButton.colorChanged.connect(onColorChanged)
+
+        # Add the resource table
         resource_config.buildMarkupTableGUI(layout)
 
         # Return the result
@@ -81,6 +105,91 @@ class MarkupUnit(CARTStandardUnit):
 
         # Initialize as normal
         super().__init__(case_data, data_path, scene)
+
+    def apply_markup_configs(self, job_profile) -> dict[str, dict[str, set[int]]]:
+        """
+        Apply the user-specified configuration options to the markups managed by
+        this unit. This includes;
+
+        * Applying color settings to the markups
+        * Tracking the markup entries which should be saved
+        * Identifying pre-existing "expected" markups
+        """
+        # Initialize the resource-specific configuration instance
+        resource_config_manager = ResourceSpecificConfig(job_profile)
+
+        # Iterate through its contents to apply our markup data
+        preexisting_markups_dict: dict[str, dict[str, set[int]]] = dict()
+        for k, v in resource_config_manager.backing_dict.items():
+            # Skip if there is no configuration to apply for this resource
+            if v is None:
+                continue
+            # Skip over non-editable Markup resources as well
+            if not EditableMarkupResource.is_type(k):
+                continue
+
+            # Get the associated config options + markup node
+            markup_node = self.markup_nodes.get(k)
+
+            # If there was no valid node found (i.e. this case doesn't have the resource), end here
+            if markup_node is None:
+                continue
+
+            # Get the display node to set the color
+            display_node = markup_node.GetDisplayNode()
+
+            # Get the configuration options for this resource
+            markup_config = EditableMarkupResourceConfig(resource_config_manager, k)
+
+            # Set the color of all markups for this node
+            rgb_string = markup_config.color.lstrip("#")
+            rgb = (int(rgb_string[i : i + 2], 16) / 255 for i in (0, 2, 4))
+            display_node.SetSelectedColor(*rgb)
+
+            self._map_configured_markup_points(k, markup_config, markup_node, preexisting_markups_dict)
+
+        # Return the result for further management
+        return preexisting_markups_dict
+
+    @staticmethod
+    def _map_configured_markup_points(
+        k,
+        markup_config: EditableMarkupResourceConfig,
+        markup_node: "vtk.vtkMRMLMarkupsFiducialNode",
+        preexisting_markups_dict: dict[str, dict[str, set[int]]],
+    ):
+        # Map the existing markups within the node to the config
+        config_markups = markup_config.markups
+        markups_map: dict[str, set[int]] = dict()
+
+        # Check every markup config for matches w/ the markup node's initial values
+        for mrk in config_markups:
+            # Initialize the entry set
+            entry_set: set[int] = markups_map.get(mrk.label, set())
+
+            # Check each control point within the markup node
+            for i in range(markup_node.GetNumberOfControlPoints()):
+                node_label = markup_node.GetNthControlPointLabel()
+                # If it matches natively, track it for later
+                if mrk.label == node_label:
+                    entry_set.add(i)
+                # If this config has a search value as well, check that too
+                elif mrk.value is not None:
+                    # TODO: check against the original int value instead
+                    try:
+                        config_val = int(mrk.value)
+                        int_label = int(node_label)
+                        if config_val == int_label:
+                            entry_set.add(i)
+                    except ValueError:
+                        # Value errors just mean one of the values was null
+                        pass
+
+            # Insert the now-updated entry set into the map for later
+            markups_map[mrk.label] = entry_set
+
+        # Add the markup map to the nested dict
+        preexisting_markups_dict[k] = markups_map
 
     def _load_markups_nodes(self, markup_paths: dict[str, Path]) -> None:
         # Ensure each "editable" markup has a corresponding node

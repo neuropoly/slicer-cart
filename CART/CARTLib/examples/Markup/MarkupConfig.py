@@ -88,8 +88,7 @@ class EditableMarkupResourceConfig(DictBackedConfig):
     MARKUPS_KEY = "markups"
     MARKUP_VALUES = {
         "label": 0,
-        "value": 1,
-        "color": 2
+        "value": 1
     }
     MarkupPointEntry = namedtuple(
         "MarkupPoint",
@@ -117,13 +116,13 @@ class EditableMarkupResourceConfig(DictBackedConfig):
         self.has_changed = True
 
     def add_markup(
-        self, label: str, color: str, value: Optional[int] = None
+        self, label: str, value: Optional[int] = None
     ) -> MarkupPointEntry:
         """
         Add a new markup, from scratch, to the end of the configuration list
         """
         # Use the namedtuple to ensure organization
-        new_markup = self.MarkupPointEntry(label, value, color)
+        new_markup = self.MarkupPointEntry(label, value)
         # Add its contents to our configuration list
         self._raw_markup_data.append(
             new_markup._asdict()
@@ -140,13 +139,25 @@ class EditableMarkupResourceConfig(DictBackedConfig):
         self.mark_changed()
         self._raw_markup_data.pop(idx)
 
+    COLOR_KEY = "color"
+    DEFAULT_COLOR = "#fadd00"  # Gold-ish
+
+    @property
+    def color(self) -> str:
+        return self.get_or_default(self.COLOR_KEY, self.DEFAULT_COLOR)
+
+    @color.setter
+    def color(self, new_color: str):
+        self.backing_dict[self.COLOR_KEY] = new_color
+
     ## CONFIG GUI ##
     def buildMarkupTableGUI(self, layout: qt.QFormLayout):
         ## MAIN TABLE ##
         table: qt.QTableWidget = qt.QTableWidget(None)
 
-        # Give ourselves 3 columns, as QT is too dumb to figure it out otherwise
-        table.setColumnCount(3)
+        # Give ourselves 2 columns, as QT is too dumb to figure it out otherwise
+        n_cols = len(self.MARKUP_VALUES)
+        table.setColumnCount(n_cols)
 
         # Translate and display the header values
         header_labels = [_(f"Markup {k.capitalize()}") for k in self.MARKUP_VALUES.keys()]
@@ -163,23 +174,10 @@ class EditableMarkupResourceConfig(DictBackedConfig):
         table.verticalHeader().setVisible(False)
 
         # Make the columns stretch to fill available space
-        table.horizontalHeader().setSectionResizeMode(0, qt.QHeaderView.Stretch)
-        table.horizontalHeader().setSectionResizeMode(1, qt.QHeaderView.Stretch)
-        table.horizontalHeader().setSectionResizeMode(2, qt.QHeaderView.Stretch)
+        for i in range(n_cols):
+            table.horizontalHeader().setSectionResizeMode(i, qt.QHeaderView.Stretch)
 
         # Helper functions to avoid duplicate code
-        def _setItemColor(
-            item: qt.QTableWidgetItem, newColor: qt.QColor
-        ):
-            # Update our item to have the new value
-            item.setText(newColor.name())
-            item.setBackground(newColor)
-            # Update the text to "stand out" from this new background
-            if newColor.lightness() > 100:
-                item.setForeground(qt.QBrush(qt.QColor("#000000")))
-            else:
-                item.setForeground(qt.QBrush(qt.QColor("#FFFFFF")))
-
         def _setTableDataFor(
             idx: int, markup: "EditableMarkupResourceConfig.MarkupPointEntry"
         ):
@@ -190,21 +188,8 @@ class EditableMarkupResourceConfig(DictBackedConfig):
 
             # Convert the markup point into QT's format
             itemMap = {}
-            colorItem = None
             for k, v in self.MARKUP_VALUES.items():
                 itemMap[v] = qt.QTableWidgetItem(markup[v])
-                # Track the color item for later
-                if v == self.MARKUP_VALUES["color"]:
-                    colorItem = itemMap[v]
-
-            ## COLOR ##
-            # Disable the color from being edited directly, we handle it differently
-            colorItem.setFlags(
-                colorItem.flags() & ~qt.Qt.ItemIsEditable
-            )
-
-            # Update the cell to use the new color
-            _setItemColor(colorItem, qt.QColor(markup.color))
 
             ## FINALIZATION ##
             for k, v in itemMap.items():
@@ -287,7 +272,7 @@ class EditableMarkupResourceConfig(DictBackedConfig):
             # Update our config to match
             old_data = self._raw_markup_data[row]
             new_data = [
-                v if i != col else new_val for i, v in enumerate(old_data)
+                v if i != col else new_val for i, v in enumerate(old_data.values())
             ]
             new_markup = self.MarkupPointEntry(*new_data)
             self._raw_markup_data[row] = new_markup._asdict()
@@ -299,11 +284,10 @@ class EditableMarkupResourceConfig(DictBackedConfig):
         def addClicked():
             # Default values
             label = ""
-            color = "#fadd00"  # Gold-ish
             value = ""  # Null in text form
 
             # Add this "initial" markup to the markup values
-            new_markup = self.add_markup(label, color, value)
+            new_markup = self.add_markup(label, value)
 
             # Update the table w/ the new markup
             try:
@@ -327,37 +311,6 @@ class EditableMarkupResourceConfig(DictBackedConfig):
                 self.drop_markup(r)
 
         deleteButton.clicked.connect(deleteClicked)
-
-        # Double-clicking a color cell should bring up the color picker instead
-        @qt.Slot(int, int)
-        def onCellDoubleClicked(row: int, col: int):
-            # If this row does not correspond to the color column, do nothing
-            if col != self.MARKUP_VALUES["color"]:
-                return
-
-            # Get the item at this location
-            item: qt.QTableWidgetItem = table.item(row, col)
-
-            # Close the (now open) persistent editor
-            table.closePersistentEditor(item)
-
-            # Request the user provide a new color w/ CTK's color dialog
-            init_color = qt.QColor(item.text())
-            color_dialog = ctk.ctkColorDialog()
-            # If the user backed out, return without proceeding further
-            qColor: qt.QColor = color_dialog.getColor(init_color, None)
-            if qColor.value() == 0:
-                # KO: Note that this also represents pure-black, which a user could
-                #  theoretically select. Slicer doesn't provide an easy way to
-                #  distinguish between these, however, and given how unlikely it
-                #  is that a user would do so, this code should suffice for now,
-                #  even if it isn't perfect.
-                return
-
-            # Update our item to have this new value
-            _setItemColor(item, qColor)
-
-        table.cellDoubleClicked.connect(onCellDoubleClicked)
 
 
 class MarkupConfigGUILayout(qt.QFormLayout):
