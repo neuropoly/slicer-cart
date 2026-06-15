@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 import qt
+import slicer
 
 from CARTLib.core.TaskBaseClass import CARTTask
 from CARTLib.core.DataUnitBase import DataUnitFactory
@@ -12,7 +13,6 @@ from CARTLib.utils.data import (
     VolumeResource,
 )
 from CARTLib.utils.task import cart_task
-from CARTLib.utils.widgets import CARTMarkupEditorWidget
 
 from MarkupConfig import MarkupConfig
 from MarkupIO import MarkupOutput
@@ -73,20 +73,18 @@ class MarkupTask(CARTTask):
 
         # If we have a data unit, notify the GUI to synchronize
         if self.data_unit:
-            self.gui.sync()
+            self.gui.setModel(self.data_unit.markupModel)
 
     def receive(self, data_unit: MarkupUnit):
         # Update the data unit
         self.data_unit = data_unit
 
         # Apply the user's configuration options to the result
-        result = data_unit.apply_markup_configs(self.config)
-        # TODO: use this
-        print(result)
+        data_unit.apply_markup_configs(self.config)
 
         # If we have a GUI, sync it
         if self.gui:
-            self.gui.sync()
+            self.gui.setModel(self.data_unit.markupModel)
 
     def save(self) -> Optional[str]:
         # Delegate to the output manager
@@ -137,33 +135,100 @@ class MarkupTask(CARTTask):
 
 
 class MarkupGUI:
+    ## Setup ##
     def __init__(self, bound_task: MarkupTask):
         self.bound_task = bound_task
 
-        # Widget displaying the data unit
-        self.markupEditor: CARTMarkupEditorWidget = CARTMarkupEditorWidget()
+        # TreeView for interacting with the markup list
+        self.markupTreeView: qt.QTreeView = self._initMarkupView()
+
+        # Markup currently being moved/placed; if none, the user is not currently placing any markups
+        self.markupToPlace = tuple[str, str, Optional[int]]
 
     def setup(self) -> qt.QFormLayout:
         # Initialize the layout
-        layout = qt.QFormLayout()
+        layout = qt.QFormLayout(None)
 
         # Insert the markup editor widget
-        layout.addWidget(self.markupEditor)
+        layout.addWidget(self.markupTreeView)
 
         # Return the result
         return layout
 
-    def sync(self):
-        self.markupEditor.refresh()
+    def setModel(self, newModel: qt.QStandardItemModel):
+        # Track the model within our view
+        self.markupTreeView.setModel(newModel)
+        self.markupTreeView.expandAll()
+        self.markupTreeView.setItemsExpandable(False)
+
+    def _initMarkupView(self) -> qt.QTreeView:
+        """
+        Hooks up all the signals and slots to the model to run our behavior
+        """
+        view = qt.QTreeView(None)
+
+        # Add double-clicking action for each markup
+        @qt.Slot(qt.QModelIndex)
+        def onDoubleClicked(idx: qt.QModelIndex):
+            # If the index is invalid, end here
+            if not idx.isValid():
+                return
+            # "Unroll" the index to get the data for the selected entry
+            selected_data = list()
+            while idx.parent().isValid():
+                selected_data.insert(0, self.data_unit.markupModel.data(idx, qt.Qt.DisplayRole))
+                idx = idx.parent()
+            # Final index is always a markup node; track its index instead
+            selected_data.insert(0, self.data_unit.markupModel.data(idx, qt.Qt.DisplayRole))
+            # If the data had fewer than 2 entries (indicating a header or invalid entry), end here
+            n_elements = len(selected_data)
+            if n_elements < 2:
+                return
+            # If we had 2, this was a markup type; try and place a new node
+            elif n_elements == 2:
+                print(f"PLACING NODE {selected_data[1]}")
+            # If we had 3, this is an existing markup; move it
+            elif n_elements == 3:
+                print(f"MOVING NODE {selected_data[1]} {selected_data[2]}")
+
+        view.doubleClicked.connect(onDoubleClicked)
+
+        return view
 
     @property
     def data_unit(self) -> MarkupUnit:
         return self.bound_task.data_unit
 
-    def saveSuccessPrompt(self, msg_text: str):
-        msg = qt.QMessageBox()
-        msg.setWindowTitle("Saved Markups!")
-        msg.setText(msg_text)
-        msg.setTextFormat(3)  # 3 -> Markdown enum value
-        msg.setStandardButtons(qt.QMessageBox.Ok)
-        return msg.exec()
+    ## Markup Placement ##
+    def _initPlacementMode(self, node_id: str):
+        # Select the requested node
+        interactionNode = slicer.app.applicationLogic().GetInteractionNode()
+        selectionNode = slicer.app.applicationLogic().GetSelectionNode()
+        selectionNode.SetReferenceActivePlaceNodeClassName("vtkMRMLMarkupsFiducialNode")
+        targetNode = self.markup_nodes[node_id]
+        selectionNode.SetActivePlaceNodeID(targetNode.GetID())
+
+        # Put slicer into placement mode
+        interactionNode.SetCurrentInteractionMode(interactionNode.Place)
+
+    def _registerNewMarkupObservers(self):
+        """
+        Registers observers to continue after the user places a markup.
+
+        Specifically:
+          * Adds the new markup to the data unit
+          * Exit placement mode
+          * TODO: Continue to next unplaced markup when configured
+        """
+        # Pull the information for this
+
+    def placeNewMarkup(self, node_id: str, markup_label: str):
+        # Track the metadata for later
+        self.markupToPlace = (node_id, markup_label, None)
+
+        # Enter placement mode
+        self._initPlacementMode(node_id)
+
+        # Register observers for when the markup is placed
+        self._registerNewMarkupObservers()
+
