@@ -815,6 +815,9 @@ def create_emtpy_markup_fiducial_node(
     scene.AddNode(display_node)
     markup_node.SetAndObserveDisplayNodeID(display_node.GetID())
 
+    # Make this blank node display point labels like it does by default everywhere else
+    display_node.SetPointLabelsVisibility(True)
+
     # Return the result
     return markup_node
 
