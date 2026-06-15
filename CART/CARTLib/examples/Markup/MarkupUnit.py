@@ -91,6 +91,7 @@ class MarkupUnit(CARTStandardUnit):
         MarkupResource,
     ]}
 
+    ## Setup ##
     def __init__(
         self,
         case_data: dict[str, str],
@@ -106,7 +107,11 @@ class MarkupUnit(CARTStandardUnit):
         # Initialize as normal
         super().__init__(case_data, data_path, scene)
 
-    def apply_markup_configs(self, job_profile) -> dict[str, dict[str, set[int]]]:
+        # Initialize a model to track the to-be-placed markups for this unit
+        self.markupModel: qt.QStandardItemModel = qt.QStandardItemModel(0, 1, None)
+        self.markupModel.setHorizontalHeaderLabels([_("Markup Points")])
+
+    def apply_markup_configs(self, job_profile):
         """
         Apply the user-specified configuration options to the markups managed by
         this unit. This includes;
@@ -119,7 +124,7 @@ class MarkupUnit(CARTStandardUnit):
         resource_config_manager = ResourceSpecificConfig(job_profile)
 
         # Iterate through its contents to apply our markup data
-        preexisting_markups_dict: dict[str, dict[str, set[int]]] = dict()
+        markup_map: dict[str, dict[str, set[int]]] = dict()
         for k, v in resource_config_manager.backing_dict.items():
             # Skip if there is no configuration to apply for this resource
             if v is None:
@@ -146,17 +151,39 @@ class MarkupUnit(CARTStandardUnit):
             rgb = (int(rgb_string[i : i + 2], 16) / 255 for i in (0, 2, 4))
             display_node.SetSelectedColor(*rgb)
 
-            self._map_configured_markup_points(k, markup_config, markup_node, preexisting_markups_dict)
+            # Update the markup up w/ this config's contents
+            self._map_configured_markup_points(k, markup_config, markup_node, markup_map)
 
-        # Return the result for further management
-        return preexisting_markups_dict
+        # Use the map to (re-)generate our model
+        self._reset_model()
+        root: qt.QStandardItem = self.markupModel.invisibleRootItem()
+        for markup_node_label, markups in markup_map.items():
+            # Create the "root" markup label
+            nodeItem = qt.QStandardItem(markup_node_label)
+            nodeItem.setFlags(nodeItem.flags() & ~qt.Qt.ItemIsEditable)
+            root.appendRow(nodeItem)
+            # Add a sub-entry for each specific markup point beneath
+            for markup_label, markup_points in markups.items():
+                markupItem = qt.QStandardItem(markup_label)
+                markupItem.setFlags(markupItem.flags() & ~qt.Qt.ItemIsEditable)
+                nodeItem.appendRow(markupItem)
+                # Add a sub-sub-entry for each entry which already exists
+                for p in markup_points:
+                    pointItem = qt.QStandardItem(str(p))
+                    pointItem.setFlags(pointItem.flags() & ~qt.Qt.ItemIsEditable)
+                    markupItem.appendRow(pointItem)
+
+    def _reset_model(self):
+        # Reset the model's state back to "blank" for re-population
+        self.markupModel.clear()
+        self.markupModel.setHorizontalHeaderLabels([_("Markup Points")])
 
     @staticmethod
     def _map_configured_markup_points(
-        k,
+        label,
         markup_config: EditableMarkupResourceConfig,
         markup_node: "vtk.vtkMRMLMarkupsFiducialNode",
-        preexisting_markups_dict: dict[str, dict[str, set[int]]],
+        markup_map: dict[str, dict[str, set[int]]],
     ):
         # Map the existing markups within the node to the config
         config_markups = markup_config.markups
@@ -188,8 +215,8 @@ class MarkupUnit(CARTStandardUnit):
             # Insert the now-updated entry set into the map for later
             markups_map[mrk.label] = entry_set
 
-        # Add the markup map to the nested dict
-        preexisting_markups_dict[k] = markups_map
+        # Track the markup map for later
+        markup_map[label] = markups_map
 
     def _load_markups_nodes(self, markup_paths: dict[str, Path]) -> None:
         # Ensure each "editable" markup has a corresponding node
