@@ -79,6 +79,11 @@ class MarkupTask(CARTTask):
         # Update the data unit
         self.data_unit = data_unit
 
+        # Apply the user's configuration options to the result
+        result = data_unit.apply_markup_configs(self.config)
+        # TODO: use this
+        print(result)
+
         # If we have a GUI, sync it
         if self.gui:
             self.gui.sync()
