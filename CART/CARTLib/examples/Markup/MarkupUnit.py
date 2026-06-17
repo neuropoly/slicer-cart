@@ -198,57 +198,6 @@ class MarkupModelManager:
             _new_item(l)
 
 
-class MarkupNodeItemData:
-    def __init__(
-        self,
-        node: "vtk.vtkMRMLMarkupsNode",
-        color: str,
-        required_markups: list[str],
-    ):
-        # Additional data
-        self._node: "vtk.vtkMRMLMarkupsNode" = node
-        self._color: str = color
-        self._required_markups: list[str] = required_markups
-
-    @property
-    def color(self):
-        return self._color
-
-    def rebuild_children_for(self, item: qt.QStandardItem):
-        # Clear all existing children from this item; nature is so cruel...
-        item.removeRows(0, item.rowCount())
-
-        # Count the existing labels within our bound node
-        markup_iterator = range(self._node.GetNumberOfControlPoints())
-        label_count = Counter(
-            [self._node.GetNthControlPointLabel(i) for i in markup_iterator]
-        )
-
-        # "Macro" to avoid code duplication
-        def _new_item(l: str):
-            # Build the new child item
-            n = label_count.get(l, 0)
-            childItem = qt.QStandardItem(l)
-            childData = MarkupLabelItemData(n)
-            childItem.setData(childData)
-
-            item.appendRow(childItem)
-
-        # To ensure consistent ordering, create the children in the order of our expected labels first
-        for l in self._required_markups:
-            _new_item(l)
-
-        # Add remaining labels as additional columns
-        remaining_labels = set(label_count.keys()) - set(self.expected_labels)
-        for l in remaining_labels:
-            _new_item(l)
-
-
-class MarkupLabelItemData:
-    def __init__(self, count: int):
-        self.count = count
-
-
 ## Data Units ##
 class MarkupUnit(CARTStandardUnit):
 
