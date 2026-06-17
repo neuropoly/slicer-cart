@@ -1,3 +1,4 @@
+from collections import Counter
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
@@ -17,7 +18,7 @@ from CARTLib.utils.data import (
     SegmentationResource,
 )
 
-from MarkupConfig import EditableMarkupResourceConfig
+from MarkupConfig import MarkupConfig, EditableMarkupResourceConfig
 
 
 if TYPE_CHECKING:
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     import PyQt5.Qt as qt
 
 
+## Resources ##
 class EditableMarkupResource(MarkupResource):
 
     id = "markup_editable"
@@ -80,6 +82,173 @@ class EditableMarkupResource(MarkupResource):
         return layout
 
 
+## Markup Model ##
+class MarkupModelManager:
+
+    MODEL_HEADERS = ["Label", "Count"]
+
+    def __init__(self, unit: "MarkupUnit"):
+        # Bound unit
+        self._unit: "MarkupUnit" = unit
+
+        # Managed model + tracked labels
+        self._model = qt.QStandardItemModel()
+
+        # Tracked labels
+        self._tracked_labels: dict[str, list[str]] = dict()
+
+        # Run a reset to ensure we're in the same state post-reset as post-init
+        self.reset()
+
+    @property
+    def model(self):
+        return self._model
+
+    def reset(self):
+        # Reset the model
+        self._model.clear()
+        self._model.setHorizontalHeaderLabels(self.MODEL_HEADERS)
+
+        # Clear the tracked label map
+        self._tracked_labels.clear()
+
+    def apply_config_settings(self, config: "MarkupConfig"):
+        # Reset the model's state
+        self.reset()
+
+        # Isolate the resource-specific config instance from the job profile
+        resource_config = ResourceSpecificConfig(config)
+
+        # Iterate through its contents to generate the top-level branches
+        rootItem: qt.QStandardItem = self._model.invisibleRootItem()
+        for k, v in resource_config.backing_dict.items():
+            # Skip if there is no configuration to apply for this resource
+            if v is None:
+                continue
+            # Skip over non-editable Markup resources as well
+            if not EditableMarkupResource.is_type(k):
+                continue
+
+            # Get the node associated with this configuration, skipping if there is none
+            if (node := self._unit.markup_nodes.get(k)) is None:
+                continue
+
+            # Parse the resource's contents
+            markup_config = EditableMarkupResourceConfig(resource_config, k)
+            self._tracked_labels[k] = [mrk.label for mrk in markup_config.markups]
+
+            # Get the display node to set the color
+            display_node = node.GetDisplayNode()
+
+            # Get the configuration options for this resource
+            markup_config = EditableMarkupResourceConfig(resource_config, k)
+
+            # Set the color of for this markup node's labels
+            rgb_string = markup_config.color.lstrip("#")
+            rgb = (int(rgb_string[i : i + 2], 16) / 255 for i in (0, 2, 4))
+            display_node.SetSelectedColor(*rgb)
+
+            # Generate and register the label + count item
+            newLabelItem = qt.QStandardItem(k)
+            newLabelItem.setEditable(False)
+            newCountItem = qt.QStandardItem(str(node.GetNumberOfControlPoints()))
+            newCountItem.setEditable(False)
+            rootItem.appendRow([newLabelItem, newCountItem])
+
+            # Generate the child items for each label
+            self.rebuild_children_for(newLabelItem)
+
+    def rebuild_children_for(self, parentItem: qt.QStandardItem):
+        # Clear all existing children from this item; nature is so cruel...
+        parentItem.removeRows(0, parentItem.rowCount())
+
+        # Get the label for markup node we'll be processing
+        node_label = parentItem.text()
+        node = self._unit.markup_nodes.get(node_label)
+
+        # If there was no matching node, something broke, end here
+        if node is None:
+            return
+
+        # Count the existing labels within the node
+        markup_iterator = range(node.GetNumberOfControlPoints())
+        label_count = Counter(
+            [node.GetNthControlPointLabel(i) for i in markup_iterator]
+        )
+
+        # "Macro" to avoid code duplication
+        def _new_item(label: str):
+            # Build the new child item
+            count = label_count.get(label, 0)
+            labelItem = qt.QStandardItem(label)
+            labelItem.setEditable(False)
+            countItem = qt.QStandardItem(str(count))
+            countItem.setEditable(False)
+            parentItem.appendRow([labelItem, countItem])
+
+        # To ensure consistent ordering, create the children in the order of our expected labels first
+        required_labels = self._tracked_labels[node_label]
+        for l in required_labels:
+            _new_item(l)
+
+        # Add remaining labels as additional columns
+        remaining_labels = set(label_count.keys()) - set(required_labels)
+        for l in remaining_labels:
+            _new_item(l)
+
+
+class MarkupNodeItemData:
+    def __init__(
+        self,
+        node: "vtk.vtkMRMLMarkupsNode",
+        color: str,
+        required_markups: list[str],
+    ):
+        # Additional data
+        self._node: "vtk.vtkMRMLMarkupsNode" = node
+        self._color: str = color
+        self._required_markups: list[str] = required_markups
+
+    @property
+    def color(self):
+        return self._color
+
+    def rebuild_children_for(self, item: qt.QStandardItem):
+        # Clear all existing children from this item; nature is so cruel...
+        item.removeRows(0, item.rowCount())
+
+        # Count the existing labels within our bound node
+        markup_iterator = range(self._node.GetNumberOfControlPoints())
+        label_count = Counter(
+            [self._node.GetNthControlPointLabel(i) for i in markup_iterator]
+        )
+
+        # "Macro" to avoid code duplication
+        def _new_item(l: str):
+            # Build the new child item
+            n = label_count.get(l, 0)
+            childItem = qt.QStandardItem(l)
+            childData = MarkupLabelItemData(n)
+            childItem.setData(childData)
+
+            item.appendRow(childItem)
+
+        # To ensure consistent ordering, create the children in the order of our expected labels first
+        for l in self._required_markups:
+            _new_item(l)
+
+        # Add remaining labels as additional columns
+        remaining_labels = set(label_count.keys()) - set(self.expected_labels)
+        for l in remaining_labels:
+            _new_item(l)
+
+
+class MarkupLabelItemData:
+    def __init__(self, count: int):
+        self.count = count
+
+
+## Data Units ##
 class MarkupUnit(CARTStandardUnit):
 
     # Replace the default Markup resource w/ our custom ones
@@ -90,6 +259,8 @@ class MarkupUnit(CARTStandardUnit):
         EditableMarkupResource,
         MarkupResource,
     ]}
+
+    MODEL_HEADER = ["Label", "Count"]
 
     ## Setup ##
     def __init__(
@@ -107,11 +278,14 @@ class MarkupUnit(CARTStandardUnit):
         # Initialize as normal
         super().__init__(case_data, data_path, scene)
 
-        # Initialize a model to track the to-be-placed markups for this unit
-        self.markupModel: qt.QStandardItemModel = qt.QStandardItemModel(0, 1, None)
-        self.markupModel.setHorizontalHeaderLabels([_("Markup Points")])
+        # Create a model manager to regulate our data
+        self.markupModelManager = MarkupModelManager(self)
 
-    def apply_markup_configs(self, job_profile):
+    @property
+    def dataModel(self):
+        return self.markupModelManager.model
+
+    def apply_config(self, config: "MarkupConfig"):
         """
         Apply the user-specified configuration options to the markups managed by
         this unit. This includes;
@@ -120,103 +294,8 @@ class MarkupUnit(CARTStandardUnit):
         * Tracking the markup entries which should be saved
         * Identifying pre-existing "expected" markups
         """
-        # Initialize the resource-specific configuration instance
-        resource_config_manager = ResourceSpecificConfig(job_profile)
-
-        # Iterate through its contents to apply our markup data
-        markup_map: dict[str, dict[str, set[int]]] = dict()
-        for k, v in resource_config_manager.backing_dict.items():
-            # Skip if there is no configuration to apply for this resource
-            if v is None:
-                continue
-            # Skip over non-editable Markup resources as well
-            if not EditableMarkupResource.is_type(k):
-                continue
-
-            # Get the associated config options + markup node
-            markup_node = self.markup_nodes.get(k)
-
-            # If there was no valid node found (i.e. this case doesn't have the resource), end here
-            if markup_node is None:
-                continue
-
-            # Get the display node to set the color
-            display_node = markup_node.GetDisplayNode()
-
-            # Get the configuration options for this resource
-            markup_config = EditableMarkupResourceConfig(resource_config_manager, k)
-
-            # Set the color of all markups for this node
-            rgb_string = markup_config.color.lstrip("#")
-            rgb = (int(rgb_string[i : i + 2], 16) / 255 for i in (0, 2, 4))
-            display_node.SetSelectedColor(*rgb)
-
-            # Update the markup up w/ this config's contents
-            self._map_configured_markup_points(k, markup_config, markup_node, markup_map)
-
-        # Use the map to (re-)generate our model
-        self._reset_model()
-        root: qt.QStandardItem = self.markupModel.invisibleRootItem()
-        for markup_node_label, markups in markup_map.items():
-            # Create the "root" markup label
-            nodeItem = qt.QStandardItem(markup_node_label)
-            nodeItem.setFlags(nodeItem.flags() & ~qt.Qt.ItemIsEditable)
-            root.appendRow(nodeItem)
-            # Add a sub-entry for each specific markup point beneath
-            for markup_label, markup_points in markups.items():
-                markupItem = qt.QStandardItem(markup_label)
-                markupItem.setFlags(markupItem.flags() & ~qt.Qt.ItemIsEditable)
-                nodeItem.appendRow(markupItem)
-                # Add a sub-sub-entry for each entry which already exists
-                for p in markup_points:
-                    pointItem = qt.QStandardItem(str(p))
-                    pointItem.setFlags(pointItem.flags() & ~qt.Qt.ItemIsEditable)
-                    markupItem.appendRow(pointItem)
-
-    def _reset_model(self):
-        # Reset the model's state back to "blank" for re-population
-        self.markupModel.clear()
-        self.markupModel.setHorizontalHeaderLabels([_("Markup Points")])
-
-    @staticmethod
-    def _map_configured_markup_points(
-        label,
-        markup_config: EditableMarkupResourceConfig,
-        markup_node: "vtk.vtkMRMLMarkupsFiducialNode",
-        markup_map: dict[str, dict[str, set[int]]],
-    ):
-        # Map the existing markups within the node to the config
-        config_markups = markup_config.markups
-        markups_map: dict[str, set[int]] = dict()
-
-        # Check every markup config for matches w/ the markup node's initial values
-        for mrk in config_markups:
-            # Initialize the entry set
-            entry_set: set[int] = markups_map.get(mrk.label, set())
-
-            # Check each control point within the markup node
-            for i in range(markup_node.GetNumberOfControlPoints()):
-                node_label = markup_node.GetNthControlPointLabel()
-                # If it matches natively, track it for later
-                if mrk.label == node_label:
-                    entry_set.add(i)
-                # If this config has a search value as well, check that too
-                elif mrk.value is not None:
-                    # TODO: check against the original int value instead
-                    try:
-                        config_val = int(mrk.value)
-                        int_label = int(node_label)
-                        if config_val == int_label:
-                            entry_set.add(i)
-                    except ValueError:
-                        # Value errors just mean one of the values was null
-                        pass
-
-            # Insert the now-updated entry set into the map for later
-            markups_map[mrk.label] = entry_set
-
-        # Track the markup map for later
-        markup_map[label] = markups_map
+        # Delegate to the model manager
+        self.markupModelManager.apply_config_settings(config)
 
     def _load_markups_nodes(self, markup_paths: dict[str, Path]) -> None:
         # Ensure each "editable" markup has a corresponding node
