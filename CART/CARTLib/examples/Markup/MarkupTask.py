@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 import qt
+import slicer
 from slicer.i18n import tr as _
 
 from CARTLib.core.TaskBaseClass import CARTTask
@@ -133,6 +134,10 @@ class MarkupTask(CARTTask):
     def init_config(cls, job_config: JobProfileConfig) -> DictBackedConfig:
         return MarkupConfig(job_config)
 
+    def cleanup(self):
+        if self.gui:
+            self.gui.clean()
+
 
 class MarkupGUI:
     ## Setup ##
@@ -141,6 +146,9 @@ class MarkupGUI:
 
         # TreeView for interacting with the markup list
         self.markupTreeView: qt.QTreeView = self._initMarkupView()
+
+        # Observer ID which will need to be purged when the GUI is destroyed
+        self.stateChangedObserverID = None
 
     @property
     def data_unit(self) -> MarkupUnit:
@@ -151,7 +159,7 @@ class MarkupGUI:
         layout = qt.QFormLayout(None)
 
         # Insert the markup review/placement widget
-        layout.addWidget(self.markupTreeView)
+        layout.addRow(self.markupTreeView)
 
         # Button to place all "missing" markup labels
         placeMissingButton = qt.QPushButton(_("Place Missing"))
@@ -165,7 +173,33 @@ class MarkupGUI:
             # Lambda to avoid passing the boolean
             lambda __: self.data_unit.placeNextMissing()
         )
-        layout.addWidget(placeMissingButton)
+        layout.addRow(placeMissingButton)
+
+        # Checkbox to enable "Place Multiple" mode
+        placeMultipleCheckBox = qt.QCheckBox(None)
+        placeMultipleLabel = qt.QLabel(_("Place labels repeatedly"))
+        placeMultipleToolTip = _(
+            "When enabled, placing a markup label queues another with the same"
+            "name to be placed immediately. Repeats until you right-click to finish."
+        )
+        placeMultipleCheckBox.setToolTip(placeMultipleToolTip)
+        placeMultipleLabel.setToolTip(placeMultipleToolTip)
+        layout.addRow(placeMultipleCheckBox, placeMultipleLabel)
+
+        # Sync with Slicer's current state
+        interactionNode = slicer.app.applicationLogic().GetInteractionNode()
+        placeMultipleCheckBox.setChecked(interactionNode.GetPlaceModePersistence())
+
+        # When the checkbox changes, update Slicer to match
+        placeMultipleCheckBox.stateChanged.connect(
+            lambda new_state: interactionNode.SetPlaceModePersistence(new_state)
+        )
+
+        # Update the checkbox to match when Slicer's state changes
+        self.stateChangedObserverID = interactionNode.AddObserver(
+            interactionNode.InteractionModePersistenceChangedEvent,
+            lambda n, __: placeMultipleCheckBox.setChecked(n.GetPlaceModePersistence())
+        )
 
         # Return the result
         return layout
@@ -221,3 +255,8 @@ class MarkupGUI:
         view.doubleClicked.connect(onDoubleClicked)
 
         return view
+
+    def clean(self):
+        if self.stateChangedObserverID is not None:
+            interactionNode = slicer.app.applicationLogic().GetInteractionNode()
+            interactionNode.RemoveObserver(self.stateChangedObserverID)
