@@ -352,6 +352,21 @@ class MarkupUnit(CARTStandardUnit):
                 self.markupModelManager.rebuild_children_for(item)
                 return
 
+    ## USER INTERACTION ##
+    def beginLabelPlacement(self, node_id: str, label: str):
+        # Set up the selection node to focus on our specific markup
+        targetNode = self.markup_nodes[node_id]
+        selectionNode = slicer.app.applicationLogic().GetSelectionNode()
+        selectionNode.SetReferenceActivePlaceNodeClassName("vtkMRMLMarkupsFiducialNode")
+        selectionNode.SetActivePlaceNodeID(targetNode.GetID())
+
+        # Change the default markup placement name to match the label
+        targetNode.SetControlPointLabelFormat(label)
+
+        # Begin placement
+        interactionNode = slicer.app.applicationLogic().GetInteractionNode()
+        interactionNode.SetCurrentInteractionMode(interactionNode.Place)
+
     ## OVERRIDES ##
     def _load_markups_nodes(self, markup_paths: dict[str, Path]) -> None:
         # Reset the track node map
