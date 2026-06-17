@@ -2,7 +2,6 @@ from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 import qt
-import slicer
 
 from CARTLib.core.TaskBaseClass import CARTTask
 from CARTLib.core.DataUnitBase import DataUnitFactory
@@ -150,7 +149,7 @@ class MarkupGUI:
         # Initialize the layout
         layout = qt.QFormLayout(None)
 
-        # Insert the markup editor widget
+        # Insert the markup review/placement widget
         layout.addWidget(self.markupTreeView)
 
         # Return the result
