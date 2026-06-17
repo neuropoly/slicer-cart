@@ -165,6 +165,9 @@ class MarkupGUI:
         header.setSectionResizeMode(1, qt.QHeaderView.ResizeToContents)
         self.markupTreeView.resizeColumnToContents(1)
 
+        # Make the rows alternating
+        self.markupTreeView.setAlternatingRowColors(True)
+
         # Expand everything by default
         self.markupTreeView.expandAll()
 
