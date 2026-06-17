@@ -1,3 +1,4 @@
+import logging
 from collections import Counter
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
@@ -275,12 +276,20 @@ class MarkupUnit(CARTStandardUnit):
             for k, v in prior_data.items():
                 case_data[k] = v
 
+        # Tracked list of names -> nodes for later user
+        self._tracked_nodes: dict["vtk.vtkMRMLMarkupsNode", str] = dict()
+
         # Initialize as normal
         super().__init__(case_data, data_path, scene)
 
         # Create a model manager to regulate our data
         self.markupModelManager = MarkupModelManager(self)
 
+        # Generate the VTK observers for each markup node we're managing
+        self._observer_map = dict()
+        self._rebuild_observers()
+
+    ## DATA MANAGEMENT ##
     @property
     def dataModel(self):
         return self.markupModelManager.model
@@ -297,10 +306,61 @@ class MarkupUnit(CARTStandardUnit):
         # Delegate to the model manager
         self.markupModelManager.apply_config_settings(config)
 
+    ## DATA OBSERVERS ##
+    def _clear_observers(self):
+        # Remove all observers
+        for node, observer_list in self._observer_map.items():
+            for observer in observer_list:
+                node.RemoveObserver(observer)
+
+    def _rebuild_observers(self):
+        # Clear existing observers first
+        self._clear_observers()
+
+        # Re-initialize observers for all the editable markup nodes we're managing
+        for node in self._tracked_nodes.keys():
+            # Initialize a new blank list
+            observer_list = list()
+
+            # Label Changed (Added or Modified) or Deleted
+            labelChangedObserver = node.AddObserver(
+                node.PointModifiedEvent, self._onLabelCountChanged
+            )
+            labelRemovedObserver = node.AddObserver(
+                node.PointRemovedEvent, self._onLabelCountChanged
+            )
+
+            observer_list.append(labelChangedObserver)
+            observer_list.append(labelRemovedObserver)
+
+            # Track the list of newly created observers
+            self._observer_map[node] = observer_list
+
+    def _onLabelCountChanged(self, node, __):
+        """
+        Identifies which item in the model needs to have its counts updated,
+        and does so.
+        """
+        # Find the corresponding item for this node
+        model = self.markupModelManager.model
+        for i in range(model.rowCount()):
+            # Get the corresponding item
+            item: qt.QStandardItem = model.item(i, 0)
+            # Iterate through it tracked nodes to see if any match
+            key = self._tracked_nodes.get(node)
+            if item.text() == key:
+                self.markupModelManager.rebuild_children_for(item)
+                return
+
+    ## OVERRIDES ##
     def _load_markups_nodes(self, markup_paths: dict[str, Path]) -> None:
+        # Reset the track node map
+        self._tracked_nodes.clear()
+
         # Ensure each "editable" markup has a corresponding node
         for key, path in markup_paths.items():
             # Try to read from file
+            is_editable = EditableMarkupResource.is_type(key)
             if path is not None:
                 if path.exists():
                     # Try to load the markups naturally first
@@ -310,14 +370,20 @@ class MarkupUnit(CARTStandardUnit):
                     raise ValueError(
                         f"Tried to load markup from path {path} which doesn't exist!"
                     )
-
-            # If this an editable markup and there wasn't a file to load from,
-            # generate a blank node instead
-            elif EditableMarkupResource.is_type(key):
+            # If this is supposed to be an editable node, create a block node instead
+            elif is_editable:
                 nodes = [create_emtpy_markup_fiducial_node(
                     f"{key} [{self.uid}]",
                     scene=self.scene,
                 )]
+            # Otherwise, just skip over
+            else:
+                continue
+
+            # If the nodes were editable, track them
+            if is_editable:
+                for node in nodes:
+                    self._tracked_nodes[node] = key
 
             # Label the markups iteratively if there are multiple
             should_iter = len(nodes) > 1
@@ -343,3 +409,9 @@ class MarkupUnit(CARTStandardUnit):
         name = f"{MarkupResource.format_for_gui('custom')} [{self.uid}]"
         custom_node.SetName(name)
         self.markup_nodes["custom"] = custom_node
+
+    def clean(self) -> None:
+        super().clean()
+
+        # Clear any active observers
+        self._clear_observers()
