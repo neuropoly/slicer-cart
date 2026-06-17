@@ -71,7 +71,7 @@ class MarkupTask(CARTTask):
         self.gui = MarkupGUI(self)
         container.setLayout(self.gui.setup())
 
-        # If we have a data unit, notify the GUI to synchronize
+        # If we have a data unit, have the GUI sync up with it
         if self.data_unit:
             self.gui.setModel(self.data_unit.dataModel)
 
@@ -82,7 +82,7 @@ class MarkupTask(CARTTask):
         # Rebuild the tree model for the data unit based on our config
         data_unit.apply_config(self.config)
 
-        # If we have a GUI, sync it
+        # If we have a GUI, sync it with the new unit
         if self.gui:
             self.gui.setModel(self.data_unit.dataModel)
 
@@ -142,8 +142,9 @@ class MarkupGUI:
         # TreeView for interacting with the markup list
         self.markupTreeView: qt.QTreeView = self._initMarkupView()
 
-        # Markup currently being moved/placed; if none, the user is not currently placing any markups
-        self.markupToPlace = tuple[str, str, Optional[int]]
+    @property
+    def data_unit(self) -> MarkupUnit:
+        return self.bound_task.data_unit
 
     def setup(self) -> qt.QFormLayout:
         # Initialize the layout
@@ -200,34 +201,9 @@ class MarkupGUI:
             node_id = model.data(idx.parent(), qt.Qt.DisplayRole)
             label = model.data(idx, qt.Qt.DisplayRole)
 
-            self.placeNewMarkup(node_id, label)
+            # Tell the unit to begin placing a new node
+            self.data_unit.beginLabelPlacement(node_id, label)
 
         view.doubleClicked.connect(onDoubleClicked)
 
         return view
-
-    @property
-    def data_unit(self) -> MarkupUnit:
-        return self.bound_task.data_unit
-
-    ## Markup Placement ##
-    def _initPlacementMode(self, node_id: str, label: str):
-        # Set up the selection node to focus on our specific markup
-        targetNode = self.data_unit.markup_nodes[node_id]
-        selectionNode = slicer.app.applicationLogic().GetSelectionNode()
-        selectionNode.SetReferenceActivePlaceNodeClassName("vtkMRMLMarkupsFiducialNode")
-        selectionNode.SetActivePlaceNodeID(targetNode.GetID())
-
-        # Change the default markup placement name to match the label
-        targetNode.SetControlPointLabelFormat(label)
-
-        # Begin placement
-        interactionNode = slicer.app.applicationLogic().GetInteractionNode()
-        interactionNode.SetCurrentInteractionMode(interactionNode.Place)
-
-    def placeNewMarkup(self, node_id: str, label: str):
-        # Track the metadata for later
-        self.markupToPlace = (node_id, label, None)
-
-        # Enter placement mode
-        self._initPlacementMode(node_id, label)
