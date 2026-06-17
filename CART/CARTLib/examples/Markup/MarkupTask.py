@@ -144,6 +144,9 @@ class MarkupGUI:
     def __init__(self, bound_task: MarkupTask):
         self.bound_task = bound_task
 
+        # Warning panel for user messaging
+        self.warningPanel = None
+
         # TreeView for interacting with the markup list
         self.markupTreeView: qt.QTreeView = self._initMarkupView()
 
@@ -158,9 +161,24 @@ class MarkupGUI:
         # Initialize the layout
         layout = qt.QFormLayout(None)
 
+        ## Warning Panel ##
+        # Warning panel for displaying issues with the markup set
+        warningPanel = qt.QTextBrowser(None)
+        warningPanel.setAlignment(qt.Qt.AlignLeft | qt.Qt.AlignTop)
+        warningPanel.setReadOnly(True)
+
+        # Initialize it hidden w/ no text initially
+        warningPanel.setVisible(False)
+
+        # Add it to the layout and track it
+        layout.addRow(warningPanel)
+        self.warningPanel = warningPanel
+
+        ## Contents Viewer ##
         # Insert the markup review/placement widget
         layout.addRow(self.markupTreeView)
 
+        ## Buttons ##
         # Button to place all "missing" markup labels
         placeMissingButton = qt.QPushButton(_("Place Missing"))
         placeMissingToolTip = _(
@@ -175,6 +193,7 @@ class MarkupGUI:
         )
         layout.addRow(placeMissingButton)
 
+        ## Checkboxes ##
         # Checkbox to enable "Place Multiple" mode
         placeMultipleCheckBox = qt.QCheckBox(None)
         placeMultipleLabel = qt.QLabel(_("Place labels repeatedly"))
@@ -222,6 +241,26 @@ class MarkupGUI:
 
         # Expand everything by default
         self.markupTreeView.expandAll()
+
+        # Update ourselves when the missing markups change
+        self.data_unit.markupModelManager.when_missing_labels_change(self.onMissingLabelsChanged)
+        self.onMissingLabelsChanged()
+
+    # When the no. missing labels changes, update our warning message to match
+    def onMissingLabelsChanged(self):
+        # If there are no missing labels, hide the warning panel
+        missing_labels = self.data_unit.markupModelManager.missing_labels
+        if len(missing_labels) < 1:
+            self.warningPanel.setVisible(False)
+        # Otherwise, build a warning message and reveal it
+        else:
+            msg = _("Missing the following 'required' markups: ")
+            entries = sorted([
+                f"  * {label} [{node_id}]" for node_id, label in missing_labels
+            ])
+            msg = "\n".join([msg, *entries])
+            self.warningPanel.setMarkdown(msg)
+            self.warningPanel.setVisible(True)
 
     def _initMarkupView(self) -> qt.QTreeView:
         """

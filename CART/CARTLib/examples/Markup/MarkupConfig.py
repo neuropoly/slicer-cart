@@ -1,7 +1,6 @@
 from collections import namedtuple
 from typing import Optional, TYPE_CHECKING
 
-import ctk
 import qt
 from slicer.i18n import tr as _
 
@@ -53,28 +52,6 @@ class MarkupConfig(DictBackedConfig):
         self.backing_dict[self.OUTPUT_FORMAT_KEY] = new_val.value
         self.has_changed = True
 
-    # ALLOW_DUPLICATES_KEY = "allow_duplicates"
-    #
-    # @property
-    # def allow_duplicates(self) -> bool:
-    #     return self.get_or_default(self.ALLOW_DUPLICATES_KEY, False)
-    #
-    # @allow_duplicates.setter
-    # def allow_duplicates(self, new_val: bool):
-    #     self.backing_dict[self.ALLOW_DUPLICATES_KEY] = new_val
-    #     self.has_changed = True
-    #
-    # HIDE_TO_EDIT = "hide_to_edit"
-    #
-    # @property
-    # def hide_to_edit(self) -> bool:
-    #     return self.get_or_default(self.HIDE_TO_EDIT, False)
-    #
-    # @hide_to_edit.setter
-    # def hide_to_edit(self, new_val: bool):
-    #     self.backing_dict[self.HIDE_TO_EDIT] = new_val
-    #     self.has_changed = True
-
     def generateGUILayout(self) -> Optional[tuple[str, qt.QLayout]]:
         return _("Markup Configuration"), MarkupConfigGUILayout(self)
 
@@ -88,12 +65,19 @@ class EditableMarkupResourceConfig(DictBackedConfig):
     MARKUPS_KEY = "markups"
     MARKUP_VALUES = {
         "label": 0,
-        "value": 1
+        "value": 1,
+        "required": 2
     }
     MarkupPointEntry = namedtuple(
         "MarkupPoint",
-        MARKUP_VALUES.keys()
+        MARKUP_VALUES.keys(),
+        defaults=[None, True]
     )
+    PRETTY_HEADER = [
+        "Label",
+        "NIfTI Value",
+        "Required"
+    ]
 
     @property
     def markups(self) -> list[MarkupPointEntry]:
@@ -116,13 +100,13 @@ class EditableMarkupResourceConfig(DictBackedConfig):
         self.has_changed = True
 
     def add_markup(
-        self, label: str, value: Optional[int] = None
+        self, label: str, value: Optional[int] = None, unique: bool = False
     ) -> MarkupPointEntry:
         """
         Add a new markup, from scratch, to the end of the configuration list
         """
         # Use the namedtuple to ensure organization
-        new_markup = self.MarkupPointEntry(label, value)
+        new_markup = self.MarkupPointEntry(label, value, unique)
         # Add its contents to our configuration list
         self._raw_markup_data.append(
             new_markup._asdict()
@@ -160,8 +144,7 @@ class EditableMarkupResourceConfig(DictBackedConfig):
         table.setColumnCount(n_cols)
 
         # Translate and display the header values
-        header_labels = [_(f"Markup {k.capitalize()}") for k in self.MARKUP_VALUES.keys()]
-        table.setHorizontalHeaderLabels(header_labels)
+        table.setHorizontalHeaderLabels(self.PRETTY_HEADER)
 
         # Sensible default behaviour, as QT doesn't provide it
         table.setSizeAdjustPolicy(qt.QAbstractScrollArea.AdjustToContents)
@@ -174,8 +157,9 @@ class EditableMarkupResourceConfig(DictBackedConfig):
         table.verticalHeader().setVisible(False)
 
         # Make the columns stretch to fill available space
-        for i in range(n_cols):
-            table.horizontalHeader().setSectionResizeMode(i, qt.QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(0, qt.QHeaderView.Stretch)
+        for i in range(1, n_cols):
+            table.horizontalHeader().setSectionResizeMode(i, qt.QHeaderView.ResizeToContents)
 
         # Helper functions to avoid duplicate code
         def _setTableDataFor(
@@ -189,7 +173,18 @@ class EditableMarkupResourceConfig(DictBackedConfig):
             # Convert the markup point into QT's format
             itemMap = {}
             for k, v in self.MARKUP_VALUES.items():
-                itemMap[v] = qt.QTableWidgetItem(markup[v])
+                # Required nodes are checkboxes instead
+                if k == "required":
+                    item = qt.QTableWidgetItem()
+                    item.setFlags(
+                        qt.Qt.ItemIsEnabled | qt.Qt.ItemIsUserCheckable
+                    )
+                    checkState = markup[v] * 2
+                    item.setCheckState(checkState)
+                # Everything else is a string (for now)
+                else:
+                    item = qt.QTableWidgetItem(markup[v])
+                itemMap[v] = item
 
             ## FINALIZATION ##
             for k, v in itemMap.items():
@@ -268,6 +263,9 @@ class EditableMarkupResourceConfig(DictBackedConfig):
                         qt.QMessageBox.Ok,
                     )
                     return
+            # Boolean values ("required") need to be extracted differently
+            elif col == self.MARKUP_VALUES["required"]:
+                new_val = bool(item.checkState())
 
             # Update our config to match
             old_data = self._raw_markup_data[row]
@@ -276,6 +274,7 @@ class EditableMarkupResourceConfig(DictBackedConfig):
             ]
             new_markup = self.MarkupPointEntry(*new_data)
             self._raw_markup_data[row] = new_markup._asdict()
+            self.mark_changed
 
         table.cellChanged.connect(onCellChanged)
 
@@ -345,23 +344,6 @@ class MarkupConfigGUILayout(qt.QFormLayout):
         toggleLayout = qt.QFormLayout(None)
         self.addRow(toggleLayout)
 
-        ## TODO
-        # ## Duplicate Markups
-        # duplicateMarkupsCheckBox = qt.QCheckBox()
-        # duplicateMarkupsCheckBox.setChecked(config.allow_duplicates)
-        # duplicateMarkupsLabel = qt.QLabel(_("Allow Duplicate Markups"))
-        # toggleLayout.addRow(duplicateMarkupsCheckBox, duplicateMarkupsLabel)
-        #
-        # ## Hide To-Edit Segments on Load
-        # hideEditSegmentsCheckBox = qt.QCheckBox()
-        # hideEditSegmentsCheckBox.setChecked(config.hide_to_edit)
-        # hideEditSegmentsLabel = qt.QLabel(
-        #     _("Initially Hide To-Edit Markups")
-        # )
-        # toggleLayout.addRow(
-        #     hideEditSegmentsCheckBox, hideEditSegmentsLabel
-        # )
-
         # Connections
         @qt.Slot(str)
         def onStructureChanged(new_val: str):
@@ -374,16 +356,3 @@ class MarkupConfigGUILayout(qt.QFormLayout):
             config.output_format = MarkupOutputFormat(new_val)
         fileFormatComboBox.currentTextChanged.connect(onFormatChanged)
         fileFormatComboBox.setCurrentText(config.output_format.value)
-
-        ## TODO
-        # @qt.Slot(None)
-        # def onDuplicatesToggled():
-        #     config.allow_duplicates = duplicateMarkupsCheckBox.isChecked()
-        # duplicateMarkupsCheckBox.toggled.connect(onDuplicatesToggled)
-        # duplicateMarkupsCheckBox.setChecked(config.allow_duplicates)
-        #
-        # @qt.Slot(None)
-        # def onHideEditsToggled():
-        #     config.hide_to_edit = hideEditSegmentsCheckBox.isChecked()
-        # hideEditSegmentsCheckBox.toggled.connect(onHideEditsToggled)
-        # hideEditSegmentsCheckBox.setChecked(config.hide_to_edit)
