@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 import qt
+from slicer.i18n import tr as _
 
 from CARTLib.core.TaskBaseClass import CARTTask
 from CARTLib.core.DataUnitBase import DataUnitFactory
@@ -151,6 +152,20 @@ class MarkupGUI:
 
         # Insert the markup review/placement widget
         layout.addWidget(self.markupTreeView)
+
+        # Button to place all "missing" markup labels
+        placeMissingButton = qt.QPushButton(_("Place Missing"))
+        placeMissingToolTip = _(
+            "Place any labels which have not been placed in their "
+            "respective markups yet, one after the other. Left click to "
+            "place, right click to skip over."
+        )
+        placeMissingButton.setToolTip(placeMissingToolTip)
+        placeMissingButton.clicked.connect(
+            # Lambda to avoid passing the boolean
+            lambda __: self.data_unit.placeNextMissing()
+        )
+        layout.addWidget(placeMissingButton)
 
         # Return the result
         return layout

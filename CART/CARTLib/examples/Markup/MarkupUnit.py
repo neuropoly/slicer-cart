@@ -102,6 +102,8 @@ class EditableMarkupResource(MarkupResource):
 class MarkupModelManager:
 
     MODEL_HEADERS = ["Label", "Count"]
+    LABEL_IDX = 0
+    COUNT_IDX = 1
 
     def __init__(self, unit: "MarkupUnit"):
         # Bound unit
@@ -127,6 +129,71 @@ class MarkupModelManager:
 
         # Clear the tracked label map
         self._tracked_labels.clear()
+
+    def find_next_missing(self, startIdx: qt.QModelIndex = None) -> qt.QModelIndex:
+        """
+        Depth-first search of the tree, checking to find the next label from this starting
+        point which has yet to be placed within its owning markup. Returns None if there
+        were no labels with missing placements past the provided starting point.
+        """
+        # If no starting point was given, start at the beginning!
+        if startIdx is None:
+            idx: qt.QModelIndex = self.model.index(0, self.LABEL_IDX)
+            idx = idx.child(0, self.LABEL_IDX)
+        # If this is a parent index, step to the first child node instead
+        elif startIdx.parent() == self.model.invisibleRootItem():
+            idx = startIdx.child(0, self.LABEL_IDX)
+        # Otherwise, iterate to the index immediately after this
+        else:
+            idx = startIdx.sibling(startIdx.row()+1, self.LABEL_IDX)
+            # If this was invalid, jump to the next valid index instead
+            if not idx.isValid():
+                idx = self._find_first_valid_node_child_idx(startIdx)
+                # If it's STILL not valid, there's nothing left to search; end here
+                if idx is None:
+                    return qt.QModelIndex()
+
+        # From here, check each index until we find the next missing value.
+        while idx.isValid():
+            # If this row has less than 1 recorded entries, we found one!
+            countIdx = self.model.sibling(idx.row(), self.COUNT_IDX, idx)
+            countItem: qt.QStandardItem = self.model.itemFromIndex(countIdx)
+            if int(countItem.text()) < 1:
+                return idx
+
+            # Otherwise, proceed to the next index
+            newIdx = self.model.sibling(idx.row()+1, self.LABEL_IDX, idx)
+            if newIdx.isValid():
+                idx = newIdx
+            # If the new index was invalid, we stepped out of the current node
+            # and need to jump to the next one
+            else:
+                idx = self._find_first_valid_node_child_idx(idx)
+                # If that failed, we ran out of nodes; return empty-handed
+                if idx is None:
+                    return qt.QModelIndex()
+
+        # Otherwise, return empty-handed
+        return qt.QModelIndex()
+
+    # Helper alias
+    def _find_first_valid_node_child_idx(self, idx):
+        """
+        Finds the first valid node w/ a valid child index and returns the
+        CHILD index to further use.
+        """
+        potentialIdx = qt.QModelIndex()
+        # At this point we can safely assume the index is valid and depth 2
+        parentIdx = idx.parent().sibling(idx.parent().row() + 1, self.LABEL_IDX)
+        while not potentialIdx.isValid():
+            # If this parent index is now invalid, return empty-handed
+            if not parentIdx.isValid():
+                return None
+            # Otherwise, update the index to be the first child
+            potentialIdx = parentIdx.child(0, self.LABEL_IDX)
+            # Proceed to the next parent
+            parentIdx = parentIdx.sibling(parentIdx.row() + 1, self.LABEL_IDX)
+        return potentialIdx
 
     def apply_config_settings(self, config: "MarkupConfig"):
         # Reset the model's state
@@ -247,7 +314,12 @@ class MarkupUnit(CARTStandardUnit):
         super().__init__(case_data, data_path, scene)
 
         # Create a model manager to regulate our data
-        self.markupModelManager = MarkupModelManager(self)
+        self.markupModelManager: MarkupModelManager = MarkupModelManager(self)
+
+        # Callback for when the user finished marking up the page
+        self._interactionNode = slicer.app.applicationLogic().GetInteractionNode()
+        self._originalInteractionMode = None
+        self._interactionModeChangeCallbackID = None
 
         # Generate the VTK observers for each markup node we're managing
         self._node_observer_map = dict()
@@ -272,7 +344,14 @@ class MarkupUnit(CARTStandardUnit):
 
     ## DATA OBSERVERS ##
     def _clear_observers(self):
-        # Remove all observers
+        # If we have an active interaction callback, clear it
+        if self._interactionModeChangeCallbackID is not None:
+            self._interactionNode.RemoveObserver(
+                self._interactionModeChangeCallbackID
+            )
+            self._interactionModeChangeCallbackID = None
+
+        # Remove all node observers
         for node, observer_list in self._node_observer_map.items():
             for observer in observer_list:
                 node.RemoveObserver(observer)
@@ -326,8 +405,54 @@ class MarkupUnit(CARTStandardUnit):
         targetNode.SetControlPointLabelFormat(label)
 
         # Begin placement
-        interactionNode = slicer.app.applicationLogic().GetInteractionNode()
-        interactionNode.SetCurrentInteractionMode(interactionNode.Place)
+        self._interactionNode.SetCurrentInteractionMode(self._interactionNode.Place)
+
+    def placeNextMissing(self, prior: qt.QModelIndex = None):
+        """
+        Begin placing the markups, starting from the previously provided item (if given).
+        """
+        # Track the current interaction mode, if we're not already in our custom state
+        if self._interactionModeChangeCallbackID is None:
+            self._originalInteractionMode = (
+                self._interactionNode.GetCurrentInteractionMode()
+            )
+        # Otherwise, remove our old interaction state callback
+        else:
+            # If this was an attempt to restart, do nothing
+            if prior is None:
+                return
+            # Otherwise, pop our old observer and start again
+            self._interactionNode.RemoveObserver(self._interactionModeChangeCallbackID)
+
+        # Find the next missing node from this point
+        currentIdx = self.markupModelManager.find_next_missing(prior)
+
+        # If there was none, we're done! Restore the original interaction state
+        if not currentIdx.isValid():
+            # Return to the original placement mode
+            if self._originalInteractionMode is not None:
+                self._interactionNode.SetCurrentInteractionMode(
+                    self._originalInteractionMode
+                )
+            # Clear our metadata
+            self._interactionModeChangeCallbackID = None
+            self._originalInteractionMode = None
+            # End
+            return
+
+        # Initiate label placement
+        currentItem = self.markupModelManager.model.itemFromIndex(currentIdx)
+        node_id = currentItem.parent().text()
+        label = currentItem.text()
+        self.beginLabelPlacement(node_id, label)
+
+        # Prepare to start again from this point when the user places (or skips) the next label
+        @qt.Slot()
+        def _markupPlacedOrSkipped(__, ___):
+            self.placeNextMissing(currentIdx)
+        self._interactionModeChangeCallbackID = self._interactionNode.AddObserver(
+            self._interactionNode.InteractionModeChangedEvent, _markupPlacedOrSkipped
+        )
 
     @staticmethod
     def _selectNode(targetNode: "vtk.vtkMRMLMarkupsNode"):
@@ -406,12 +531,31 @@ class MarkupUnit(CARTStandardUnit):
     def focus_lost(self) -> None:
         super().focus_lost()
 
-        # Check that Slicer is still running, to avoid it crashing (oh joy)
-        if SLICER_IS_RUNNING:
-            # Exit placement mode to avoid the user placing "phantom" markups
-            logic = slicer.app.applicationLogic()
-            interactionNode = logic.GetInteractionNode()
-            interactionNode.SetCurrentInteractionMode(interactionNode.ViewTransform)
+        # If Slicer is exiting, end here to avoid a crash
+        if not SLICER_IS_RUNNING:
+            return
+
+        # If we were filling missing markups, restore ourselves to the previous state
+        if self._originalInteractionMode is not None:
+            self._interactionNode.SetCurrentInteractionMode(
+                self._originalInteractionMode
+            )
+            self._originalInteractionMode = None
+        # Always exit placement mode to avoid "phantom" placement
+        if (
+            self._interactionNode.GetCurrentInteractionMode()
+            == self._interactionNode.Place
+        ):
+            self._interactionNode.SetCurrentInteractionMode(
+                self._interactionNode.ViewTransform
+            )
+
+        # If we have an active interaction callback, clear it too
+        if self._interactionModeChangeCallbackID is not None:
+            self._interactionNode.RemoveObserver(
+                self._interactionModeChangeCallbackID
+            )
+            self._interactionModeChangeCallbackID = None
 
     def clean(self) -> None:
         super().clean()
