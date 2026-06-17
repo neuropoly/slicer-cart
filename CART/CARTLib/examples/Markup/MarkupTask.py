@@ -73,18 +73,18 @@ class MarkupTask(CARTTask):
 
         # If we have a data unit, notify the GUI to synchronize
         if self.data_unit:
-            self.gui.setModel(self.data_unit.markupModel)
+            self.gui.setModel(self.data_unit.dataModel)
 
     def receive(self, data_unit: MarkupUnit):
         # Update the data unit
         self.data_unit = data_unit
 
-        # Apply the user's configuration options to the result
-        data_unit.apply_markup_configs(self.config)
+        # Rebuild the tree model for the data unit based on our config
+        data_unit.apply_config(self.config)
 
         # If we have a GUI, sync it
         if self.gui:
-            self.gui.setModel(self.data_unit.markupModel)
+            self.gui.setModel(self.data_unit.dataModel)
 
     def save(self) -> Optional[str]:
         # Delegate to the output manager
@@ -158,8 +158,15 @@ class MarkupGUI:
     def setModel(self, newModel: qt.QStandardItemModel):
         # Track the model within our view
         self.markupTreeView.setModel(newModel)
+
+        # Update our header settings (now that there is contents to work with)
+        header: qt.QHeaderView = self.markupTreeView.header()
+        header.setSectionResizeMode(0, qt.QHeaderView.Stretch)
+        header.setSectionResizeMode(1, qt.QHeaderView.ResizeToContents)
+        self.markupTreeView.resizeColumnToContents(1)
+
+        # Expand everything by default
         self.markupTreeView.expandAll()
-        self.markupTreeView.setItemsExpandable(False)
 
     def _initMarkupView(self) -> qt.QTreeView:
         """
@@ -173,23 +180,21 @@ class MarkupGUI:
             # If the index is invalid, end here
             if not idx.isValid():
                 return
-            # "Unroll" the index to get the data for the selected entry
-            selected_data = list()
-            while idx.parent().isValid():
-                selected_data.insert(0, self.data_unit.markupModel.data(idx, qt.Qt.DisplayRole))
-                idx = idx.parent()
-            # Final index is always a markup node; track its index instead
-            selected_data.insert(0, self.data_unit.markupModel.data(idx, qt.Qt.DisplayRole))
-            # If the data had fewer than 2 entries (indicating a header or invalid entry), end here
-            n_elements = len(selected_data)
-            if n_elements < 2:
+
+            # If this was not on the label column, skip
+            if idx.column() != 0:
                 return
-            # If we had 2, this was a markup type; try and place a new node
-            elif n_elements == 2:
-                print(f"PLACING NODE {selected_data[1]}")
-            # If we had 3, this is an existing markup; move it
-            elif n_elements == 3:
-                print(f"MOVING NODE {selected_data[1]} {selected_data[2]}")
+
+            # If the index does not have a parent, do nothing
+            if not idx.parent().isValid():
+                return
+
+            # Initiate placement for this label within this node
+            model = self.data_unit.dataModel
+            node_id = model.data(idx.parent(), qt.Qt.DisplayRole)
+            label = model.data(idx, qt.Qt.DisplayRole)
+
+            self.placeNewMarkup(node_id, label)
 
         view.doubleClicked.connect(onDoubleClicked)
 
@@ -200,35 +205,26 @@ class MarkupGUI:
         return self.bound_task.data_unit
 
     ## Markup Placement ##
-    def _initPlacementMode(self, node_id: str):
-        # Select the requested node
-        interactionNode = slicer.app.applicationLogic().GetInteractionNode()
+    def _initPlacementMode(self, node_id: str, label: str):
+        # Set up the selection node to focus on our specific markup
+        targetNode = self.data_unit.markup_nodes[node_id]
         selectionNode = slicer.app.applicationLogic().GetSelectionNode()
         selectionNode.SetReferenceActivePlaceNodeClassName("vtkMRMLMarkupsFiducialNode")
-        targetNode = self.markup_nodes[node_id]
         selectionNode.SetActivePlaceNodeID(targetNode.GetID())
 
-        # Put slicer into placement mode
+        # Change the default markup placement name to match the label
+        targetNode.SetControlPointLabelFormat(label)
+
+        # Begin placement
+        interactionNode = slicer.app.applicationLogic().GetInteractionNode()
         interactionNode.SetCurrentInteractionMode(interactionNode.Place)
 
-    def _registerNewMarkupObservers(self):
-        """
-        Registers observers to continue after the user places a markup.
-
-        Specifically:
-          * Adds the new markup to the data unit
-          * Exit placement mode
-          * TODO: Continue to next unplaced markup when configured
-        """
-        # Pull the information for this
-
-    def placeNewMarkup(self, node_id: str, markup_label: str):
+    def placeNewMarkup(self, node_id: str, label: str):
         # Track the metadata for later
-        self.markupToPlace = (node_id, markup_label, None)
+        self.markupToPlace = (node_id, label, None)
 
         # Enter placement mode
-        self._initPlacementMode(node_id)
+        self._initPlacementMode(node_id, label)
 
         # Register observers for when the markup is placed
-        self._registerNewMarkupObservers()
-
+        # TODO
