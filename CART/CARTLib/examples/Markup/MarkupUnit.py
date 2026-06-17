@@ -1,4 +1,3 @@
-import logging
 from collections import Counter
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
@@ -29,6 +28,22 @@ if TYPE_CHECKING:
     # Provide some type references for QT, even if they're not
     #  perfectly useful.
     import PyQt5.Qt as qt
+
+
+# Track when slicer is about to quit so we don't crash it when
+#   closing as a result of trying to disable markup placement.
+# KO: Why the fuck is Slicer this incapable of working correctly?
+#   Far as I can tell, this error is because they don't bother to
+#   clean up their QT signals until *after* they close the program,
+#   which results in Python-side objects which call signal-emitting
+#   functions (in this case, slicer.app.ApplicationLogic) crashing
+#   QT when they try to access a no-longer-existing object. Brilliant!
+SLICER_IS_RUNNING = True
+@qt.Slot()
+def onSlicerQuit():
+    global SLICER_IS_RUNNING
+    SLICER_IS_RUNNING = False
+slicer.app.aboutToQuit.connect(onSlicerQuit)
 
 
 ## Resources ##
@@ -235,7 +250,7 @@ class MarkupUnit(CARTStandardUnit):
         self.markupModelManager = MarkupModelManager(self)
 
         # Generate the VTK observers for each markup node we're managing
-        self._observer_map = dict()
+        self._node_observer_map = dict()
         self._rebuild_observers()
 
     ## DATA MANAGEMENT ##
@@ -258,7 +273,7 @@ class MarkupUnit(CARTStandardUnit):
     ## DATA OBSERVERS ##
     def _clear_observers(self):
         # Remove all observers
-        for node, observer_list in self._observer_map.items():
+        for node, observer_list in self._node_observer_map.items():
             for observer in observer_list:
                 node.RemoveObserver(observer)
 
@@ -266,7 +281,7 @@ class MarkupUnit(CARTStandardUnit):
         # Clear existing observers first
         self._clear_observers()
 
-        # Re-initialize observers for all the editable markup nodes we're managing
+        # Re-initialize node-based observers for all the editable markup nodes we're managing
         for node in self._tracked_nodes.keys():
             # Initialize a new blank list
             observer_list = list()
@@ -283,7 +298,7 @@ class MarkupUnit(CARTStandardUnit):
             observer_list.append(labelRemovedObserver)
 
             # Track the list of newly created observers
-            self._observer_map[node] = observer_list
+            self._node_observer_map[node] = observer_list
 
     def _onLabelCountChanged(self, node, __):
         """
@@ -305,9 +320,7 @@ class MarkupUnit(CARTStandardUnit):
     def beginLabelPlacement(self, node_id: str, label: str):
         # Set up the selection node to focus on our specific markup
         targetNode = self.markup_nodes[node_id]
-        selectionNode = slicer.app.applicationLogic().GetSelectionNode()
-        selectionNode.SetReferenceActivePlaceNodeClassName("vtkMRMLMarkupsFiducialNode")
-        selectionNode.SetActivePlaceNodeID(targetNode.GetID())
+        self._selectNode(targetNode)
 
         # Change the default markup placement name to match the label
         targetNode.SetControlPointLabelFormat(label)
@@ -315,6 +328,15 @@ class MarkupUnit(CARTStandardUnit):
         # Begin placement
         interactionNode = slicer.app.applicationLogic().GetInteractionNode()
         interactionNode.SetCurrentInteractionMode(interactionNode.Place)
+
+    @staticmethod
+    def _selectNode(targetNode: "vtk.vtkMRMLMarkupsNode"):
+        """
+        Selects a node in Slicer, making it the target for any newly placed markup entries
+        """
+        selectionNode = slicer.app.applicationLogic().GetSelectionNode()
+        selectionNode.SetReferenceActivePlaceNodeClassName("vtkMRMLMarkupsFiducialNode")
+        selectionNode.SetActivePlaceNodeID(targetNode.GetID())
 
     ## OVERRIDES ##
     def _load_markups_nodes(self, markup_paths: dict[str, Path]) -> None:
@@ -373,6 +395,23 @@ class MarkupUnit(CARTStandardUnit):
         name = f"{MarkupResource.format_for_gui('custom')} [{self.uid}]"
         custom_node.SetName(name)
         self.markup_nodes["custom"] = custom_node
+
+    def focus_gained(self) -> None:
+        super().focus_gained()
+
+        # Select our first markup node to avoid potentially placing markups in previous nodes
+        firstNode: "vtk.vtkMRMLMarkupsNode" = iter(self.markup_nodes.values()).__next__()
+        self._selectNode(firstNode)
+
+    def focus_lost(self) -> None:
+        super().focus_lost()
+
+        # Check that Slicer is still running, to avoid it crashing (oh joy)
+        if SLICER_IS_RUNNING:
+            # Exit placement mode to avoid the user placing "phantom" markups
+            logic = slicer.app.applicationLogic()
+            interactionNode = logic.GetInteractionNode()
+            interactionNode.SetCurrentInteractionMode(interactionNode.ViewTransform)
 
     def clean(self) -> None:
         super().clean()
