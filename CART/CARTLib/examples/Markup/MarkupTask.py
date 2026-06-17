@@ -168,6 +168,9 @@ class MarkupGUI:
         # Make the rows alternating
         self.markupTreeView.setAlternatingRowColors(True)
 
+        # Disable user selection to avoid unintuitive behaviour
+        self.markupTreeView.setSelectionMode(qt.QTreeView.NoSelection)
+
         # Expand everything by default
         self.markupTreeView.expandAll()
 
@@ -228,6 +231,3 @@ class MarkupGUI:
 
         # Enter placement mode
         self._initPlacementMode(node_id, label)
-
-        # Register observers for when the markup is placed
-        # TODO
