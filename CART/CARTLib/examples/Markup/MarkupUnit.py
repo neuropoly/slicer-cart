@@ -1,6 +1,6 @@
 from collections import Counter
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Callable
 
 import ctk
 import qt
@@ -112,8 +112,12 @@ class MarkupModelManager:
         # Managed model + tracked labels
         self._model = qt.QStandardItemModel()
 
-        # Tracked labels
+        # Tracked + required labels
         self._tracked_labels: dict[str, list[str]] = dict()
+        self._required_labels: dict[str, set[str]] = dict()
+        self.missing_labels: set[tuple[str, str]] = set()
+        # Pseudo-signal, I can't be fucked to deal with QT right now
+        self._call_when_missing_changes = list()
 
         # Run a reset to ensure we're in the same state post-reset as post-init
         self.reset()
@@ -127,8 +131,12 @@ class MarkupModelManager:
         self._model.clear()
         self._model.setHorizontalHeaderLabels(self.MODEL_HEADERS)
 
-        # Clear the tracked label map
+        # Clear all our metadata
         self._tracked_labels.clear()
+        self.missing_labels.clear()
+
+        # Emit the "missing labels changed" signal
+        self.missing_labels_changed()
 
     def find_next_missing(self, startIdx: qt.QModelIndex = None) -> qt.QModelIndex:
         """
@@ -219,12 +227,10 @@ class MarkupModelManager:
             # Parse the resource's contents
             markup_config = EditableMarkupResourceConfig(resource_config, k)
             self._tracked_labels[k] = [mrk.label for mrk in markup_config.markups]
+            self._required_labels[k] = {mrk.label for mrk in markup_config.markups if mrk.required}
 
             # Get the display node to set the color
             display_node = node.GetDisplayNode()
-
-            # Get the configuration options for this resource
-            markup_config = EditableMarkupResourceConfig(resource_config, k)
 
             # Set the color of for this markup node's labels
             rgb_string = markup_config.color.lstrip("#")
@@ -268,16 +274,37 @@ class MarkupModelManager:
             countItem = qt.QStandardItem(str(count))
             countItem.setEditable(False)
             parentItem.appendRow([labelItem, countItem])
+            # If this was a required label that hasn't been placed, note it
+            missing_tuple = (node_label, label)
+            if count == 0 and label in self._required_labels[node_label]:
+                self.missing_labels.add(missing_tuple)
+            else:
+                if missing_tuple in self.missing_labels:
+                    self.missing_labels.remove(missing_tuple)
 
         # To ensure consistent ordering, create the children in the order of our expected labels first
-        required_labels = self._tracked_labels[node_label]
-        for l in required_labels:
+        initially_missing = len(self.missing_labels)
+        tracked_labels = self._tracked_labels[node_label]
+        for l in tracked_labels:
             _new_item(l)
 
         # Add remaining labels as additional columns
-        remaining_labels = set(label_count.keys()) - set(required_labels)
+        remaining_labels = set(label_count.keys()) - set(tracked_labels)
         for l in remaining_labels:
             _new_item(l)
+
+        # If this changed the number of missing labels, emit the signal for it
+        if len(self.missing_labels) != initially_missing:
+            self.missing_labels_changed()
+
+    # Pseudo-QT Signal
+    # TODO: Replace this when I have the mental capacity to do this properly
+    def when_missing_labels_change(self, f: "Callable"):
+        self._call_when_missing_changes.append(f)
+
+    def missing_labels_changed(self):
+        for f in self._call_when_missing_changes:
+            f()
 
 
 ## Data Units ##
