@@ -106,7 +106,7 @@ class EditableMarkupResourceConfig(DictBackedConfig):
         self.has_changed = True
 
     def add_markup(
-        self, label: str, value: Optional[int] = None, unique: bool = False
+        self, label: str = "", value: Optional[int] = None, unique: bool = False
     ) -> MarkupPointPacket:
         """
         Add a new markup, from scratch, to the end of the configuration list
@@ -286,19 +286,17 @@ class EditableMarkupResourceConfig(DictBackedConfig):
         # When the add button is clicked, add a new (empty) row
         @qt.Slot()
         def addClicked():
-            # Default values
-            label = ""
-            value = ""  # Null in text form
-
-            # Add this "initial" markup to the markup values
-            new_markup = self.add_markup(label, value)
+            # Add a markup with default values
+            new_markup = self.add_markup()
 
             # Update the table w/ the new markup
+            # noinspection PyTypeChecker
+            row_count: int = table.rowCount
             try:
-                _setTableDataFor(table.rowCount, new_markup)
+                _setTableDataFor(row_count, new_markup)
             except Exception as e:
                 # If that failed, clean up the (likely malformed) new markup entry
-                self.drop_markup(table.rowCount)
+                self.drop_markup(row_count)
                 raise e
 
         addButton.clicked.connect(addClicked)
