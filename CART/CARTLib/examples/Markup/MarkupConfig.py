@@ -43,7 +43,7 @@ class MarkupConfig(DictBackedConfig):
     @property
     def output_format(self):
         str_val = self.get_or_default(
-            self.OUTPUT_FORMAT_KEY, MarkupOutputFormat.CSV.value
+            self.OUTPUT_FORMAT_KEY, MarkupOutputFormat.NIFTI.value
         )
         return MarkupOutputFormat(str_val)
 
