@@ -297,6 +297,11 @@ class MarkupModelManager:
         if len(self.missing_labels) != initially_missing:
             self.missing_labels_changed()
 
+        # Finally, recount our own set of labels as well
+        idx: qt.QModelIndex = parentItem.index().sibling(parentItem.row(), self.COUNT_IDX)
+        countItem: qt.QStandardItem = self.model.itemFromIndex(idx)
+        countItem.setText(str(node.GetNumberOfControlPoints()))
+
     # Pseudo-QT Signal
     # TODO: Replace this when I have the mental capacity to do this properly
     def when_missing_labels_change(self, f: "Callable"):
