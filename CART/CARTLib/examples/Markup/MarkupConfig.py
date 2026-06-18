@@ -73,11 +73,11 @@ class EditableMarkupResourceConfig(DictBackedConfig):
         MARKUP_VALUES.keys(),
         defaults=[None, True]
     )
-    PRETTY_HEADER = [
-        "Label",
-        "NIfTI Value",
-        "Required"
-    ]
+    HEADER_DATA = {
+        "Label": "The name to associate with markups of this type.",
+        "Value": "The integer value to search for and save to when reading/writing NIfTI files.",
+        "Required": "If checked, CART will warn you when you have not placed a markup with this label"
+    }
 
     @property
     def markups(self) -> list[MarkupPointEntry]:
@@ -143,23 +143,31 @@ class EditableMarkupResourceConfig(DictBackedConfig):
         n_cols = len(self.MARKUP_VALUES)
         table.setColumnCount(n_cols)
 
-        # Translate and display the header values
-        table.setHorizontalHeaderLabels(self.PRETTY_HEADER)
+        # Add tooltips for each
+        horizontalHeader = table.horizontalHeader()
+        verticalHeader = table.verticalHeader()
 
         # Sensible default behaviour, as QT doesn't provide it
+        horizontalHeader.setSectionResizeMode(qt.QHeaderView.ResizeToContents)
+        verticalHeader.setSectionResizeMode(qt.QHeaderView.ResizeToContents)
         table.setSizeAdjustPolicy(qt.QAbstractScrollArea.AdjustToContents)
-        table.horizontalHeader().setSectionResizeMode(qt.QHeaderView.ResizeToContents)
-        table.verticalHeader().setSectionResizeMode(qt.QHeaderView.ResizeToContents)
         table.setHorizontalScrollMode(qt.QAbstractItemView.ScrollPerPixel)
         table.setSizePolicy(qt.QSizePolicy.Expanding, qt.QSizePolicy.Expanding)
 
         # Hide the vertical header, as its (probably) not relevant
-        table.verticalHeader().setVisible(False)
+        verticalHeader.setVisible(False)
 
-        # Make the columns stretch to fill available space
-        table.horizontalHeader().setSectionResizeMode(0, qt.QHeaderView.Stretch)
+        # Make the label column stretch to fill remaining content
+        horizontalHeader.setSectionResizeMode(0, qt.QHeaderView.Stretch)
+        # Every other column should shrink to its contents instead
         for i in range(1, n_cols):
-            table.horizontalHeader().setSectionResizeMode(i, qt.QHeaderView.ResizeToContents)
+            horizontalHeader.setSectionResizeMode(i, qt.QHeaderView.ResizeToContents)
+
+        # Update the header text to be translated and have useful tooltips
+        table.setHorizontalHeaderLabels([_(s) for s in self.HEADER_DATA.keys()])
+        for i, tt in enumerate(self.HEADER_DATA.values()):
+            headerItem: qt.QTableWidgetItem = table.horizontalHeaderItem(i)
+            headerItem.setToolTip(_(tt))
 
         # Helper functions to avoid duplicate code
         def _setTableDataFor(
