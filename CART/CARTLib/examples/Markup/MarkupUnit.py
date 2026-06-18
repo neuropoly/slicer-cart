@@ -350,7 +350,6 @@ class MarkupUnit(CARTStandardUnit):
 
         # Generate the VTK observers for each markup node we're managing
         self._node_observer_map = dict()
-        self._rebuild_observers()
 
     ## DATA MANAGEMENT ##
     @property
@@ -551,41 +550,23 @@ class MarkupUnit(CARTStandardUnit):
     def focus_gained(self) -> None:
         super().focus_gained()
 
+        # Restore the cyclic link, as Python is too dumb to manage it otherwise
+        self.markupModelManager._unit = self
+
         # Select our first markup node to avoid potentially placing markups in previous nodes
-        firstNode: "vtk.vtkMRMLMarkupsNode" = iter(self.markup_nodes.values()).__next__()
+        firstNode: "vtk.vtkMRMLMarkupsNode" = iter(
+            self.markup_nodes.values()
+        ).__next__()
         self._selectNode(firstNode)
+
+        # Restore observers
+        self._rebuild_observers()
 
     def focus_lost(self) -> None:
         super().focus_lost()
 
-        # If Slicer is exiting, end here to avoid a crash
-        if not SLICER_IS_RUNNING:
-            return
-
-        # If we were filling missing markups, restore ourselves to the previous state
-        if self._originalInteractionMode is not None:
-            self._interactionNode.SetCurrentInteractionMode(
-                self._originalInteractionMode
-            )
-            self._originalInteractionMode = None
-        # Always exit placement mode to avoid "phantom" placement
-        if (
-            self._interactionNode.GetCurrentInteractionMode()
-            == self._interactionNode.Place
-        ):
-            self._interactionNode.SetCurrentInteractionMode(
-                self._interactionNode.ViewTransform
-            )
-
-        # If we have an active interaction callback, clear it too
-        if self._interactionModeChangeCallbackID is not None:
-            self._interactionNode.RemoveObserver(
-                self._interactionModeChangeCallbackID
-            )
-            self._interactionModeChangeCallbackID = None
-
-    def clean(self) -> None:
-        super().clean()
-
-        # Clear any active observers
+        # Clear active observers for this unit
         self._clear_observers()
+
+        # Python should handle cycling links; it does not for some reason
+        self.markupModelManager._unit = None
