@@ -989,7 +989,7 @@ class CARTStandardUnit(DataUnitBase):
         prior_data: dict = None,  # TODO: Utilize this to "recall" prior markups
         scene: slicer.vtkMRMLScene = slicer.mrmlScene,
     ) -> None:
-        super().__init__(case_data, data_path, scene)
+        super().__init__(case_data, data_path, prior_data, scene)
 
         # Initialize with a null subject ID for later
         self.subject_id = None
