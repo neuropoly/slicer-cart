@@ -1,4 +1,4 @@
-from collections import namedtuple
+from dataclasses import asdict, dataclass, fields, Field
 from typing import Optional, TYPE_CHECKING
 
 import qt
@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     import PyQt5.Qt as qt
 
 
+## TASK-LEVEL CONFIG ##
 class MarkupConfig(DictBackedConfig):
     CONFIG_KEY = "markup"
 
@@ -56,6 +57,26 @@ class MarkupConfig(DictBackedConfig):
         return _("Markup Configuration"), MarkupConfigGUILayout(self)
 
 
+## PER-RESOURCE CONFIG ##
+@dataclass(frozen=True)
+class MarkupPointPacket:
+    """
+    Data class for managing per-resource entries within the Markup config.
+    Frozen to discourage post-init modification outside the configuration
+    menu they were designed to be used within.
+    """
+    label: str
+    value: int = None
+    required: bool = True
+
+    # Header information for GUIs which want to wrap these objects
+    HEADER_DATA = {
+        "Label": "The name to associate with markups of this type.",
+        "Value": "The integer value to search for and save to when reading/writing NIfTI files.",
+        "Required": "If checked, CART will warn you when there are none of this label",
+    }
+
+
 class EditableMarkupResourceConfig(DictBackedConfig):
     @classmethod
     def default_config_label(cls) -> str:
@@ -63,29 +84,14 @@ class EditableMarkupResourceConfig(DictBackedConfig):
 
     ## CONFIG OPTIONS ##
     MARKUPS_KEY = "markups"
-    MARKUP_VALUES = {
-        "label": 0,
-        "value": 1,
-        "required": 2
-    }
-    MarkupPointEntry = namedtuple(
-        "MarkupPoint",
-        MARKUP_VALUES.keys(),
-        defaults=[None, True]
-    )
-    HEADER_DATA = {
-        "Label": "The name to associate with markups of this type.",
-        "Value": "The integer value to search for and save to when reading/writing NIfTI files.",
-        "Required": "If checked, CART will warn you when you have not placed a markup with this label"
-    }
 
     @property
-    def markups(self) -> list[MarkupPointEntry]:
+    def markups(self) -> list[MarkupPointPacket]:
         """
         Map tracking fiducials the user expects to find within this a markup node.
         """
         return [
-            self.MarkupPointEntry(**x) for x in self._raw_markup_data
+            MarkupPointPacket(**x) for x in self._raw_markup_data
         ]
 
     @property
@@ -101,16 +107,14 @@ class EditableMarkupResourceConfig(DictBackedConfig):
 
     def add_markup(
         self, label: str, value: Optional[int] = None, unique: bool = False
-    ) -> MarkupPointEntry:
+    ) -> MarkupPointPacket:
         """
         Add a new markup, from scratch, to the end of the configuration list
         """
-        # Use the namedtuple to ensure organization
-        new_markup = self.MarkupPointEntry(label, value, unique)
+        # Use the data class to enforce organization
+        new_markup = MarkupPointPacket(label, value, unique)
         # Add its contents to our configuration list
-        self._raw_markup_data.append(
-            new_markup._asdict()
-        )
+        self._raw_markup_data.append(asdict(new_markup))
         # Mark ourselves as having been changed
         self.mark_changed()
         # Return the result
@@ -139,8 +143,8 @@ class EditableMarkupResourceConfig(DictBackedConfig):
         ## MAIN TABLE ##
         table: qt.QTableWidget = qt.QTableWidget(None)
 
-        # Give ourselves 2 columns, as QT is too dumb to figure it out otherwise
-        n_cols = len(self.MARKUP_VALUES)
+        # Give ourselves the requisite columns, as QT is too dumb to figure it out otherwise
+        n_cols = len(fields(MarkupPointPacket))
         table.setColumnCount(n_cols)
 
         # Add tooltips for each
@@ -164,39 +168,35 @@ class EditableMarkupResourceConfig(DictBackedConfig):
             horizontalHeader.setSectionResizeMode(i, qt.QHeaderView.ResizeToContents)
 
         # Update the header text to be translated and have useful tooltips
-        table.setHorizontalHeaderLabels([_(s) for s in self.HEADER_DATA.keys()])
-        for i, tt in enumerate(self.HEADER_DATA.values()):
+        table.setHorizontalHeaderLabels([_(s) for s in MarkupPointPacket.HEADER_DATA.keys()])
+        for i, tt in enumerate(MarkupPointPacket.HEADER_DATA.values()):
             headerItem: qt.QTableWidgetItem = table.horizontalHeaderItem(i)
             headerItem.setToolTip(_(tt))
 
         # Helper functions to avoid duplicate code
-        def _setTableDataFor(
-            idx: int, markup: "EditableMarkupResourceConfig.MarkupPointEntry"
-        ):
+        def _setTableDataFor(idx: int, markupPacket: "MarkupPointPacket"):
             ## INIT ##
             # If this index is out of range, extend the table to support it
             if idx >= table.rowCount:
                 table.setRowCount(idx + 1)
 
-            # Convert the markup point into QT's format
-            itemMap = {}
-            for k, v in self.MARKUP_VALUES.items():
-                # Required nodes are checkboxes instead
-                if k == "required":
+            # Convert the markup packet into QT's format
+            for c, (k, v) in enumerate(asdict(markupPacket).items()):
+                # Boolean values should be checkboxes
+                if type(v) == bool:
                     item = qt.QTableWidgetItem()
                     item.setFlags(
                         qt.Qt.ItemIsEnabled | qt.Qt.ItemIsUserCheckable
                     )
-                    checkState = markup[v] * 2
+                    # QT is a bit silly with how it handles check-states
+                    checkState = v * 2
                     item.setCheckState(checkState)
-                # Everything else is a string (for now)
+                # Everything else should be handles as a string (for now)
                 else:
-                    item = qt.QTableWidgetItem(markup[v])
-                itemMap[v] = item
+                    item = qt.QTableWidgetItem(v)
 
-            ## FINALIZATION ##
-            for k, v in itemMap.items():
-                table.setItem(idx, k, v)
+                # Add the corresponding item ot the map
+                table.setItem(idx, c, item)
 
         # Instantiate the table with our initial values
         for i, markup in enumerate(self.markups):
@@ -248,9 +248,10 @@ class EditableMarkupResourceConfig(DictBackedConfig):
             # Get the new value added
             item: qt.QTableWidgetItem = table.item(row, col)
             new_val = item.text()
+            field_info: Field = fields(MarkupPointPacket)[col]
 
-            # If this was the "value" column, parse it to int or null form
-            if col == self.MARKUP_VALUES["value"]:
+            # If this column expects an integer type, try to convert it.
+            if field_info.type == int:
                 try:
                     # Null is allowed in this context
                     if new_val == '':
@@ -260,7 +261,7 @@ class EditableMarkupResourceConfig(DictBackedConfig):
                         new_val = int(new_val)
                 except ValueError:
                     # If we couldn't, restore the original value and tell the user what happened
-                    old_val = self.markups[row][col]
+                    old_val = self.markups[row].value
                     item.setText(str(old_val))
                     qt.QMessageBox.critical(
                         table,
@@ -271,18 +272,14 @@ class EditableMarkupResourceConfig(DictBackedConfig):
                         qt.QMessageBox.Ok,
                     )
                     return
-            # Boolean values ("required") need to be extracted differently
-            elif col == self.MARKUP_VALUES["required"]:
+            # Boolean values need to be extracted differently as well
+            elif field_info.type == bool:
                 new_val = bool(item.checkState())
 
             # Update our config to match
             old_data = self._raw_markup_data[row]
-            new_data = [
-                v if i != col else new_val for i, v in enumerate(old_data.values())
-            ]
-            new_markup = self.MarkupPointEntry(*new_data)
-            self._raw_markup_data[row] = new_markup._asdict()
-            self.mark_changed
+            old_data[field_info.name] = new_val
+            self.mark_changed()
 
         table.cellChanged.connect(onCellChanged)
 
@@ -320,6 +317,7 @@ class EditableMarkupResourceConfig(DictBackedConfig):
         deleteButton.clicked.connect(deleteClicked)
 
 
+## GUI ##
 class MarkupConfigGUILayout(qt.QFormLayout):
     def __init__(self, config: MarkupConfig, parent = None):
         super().__init__(parent)
