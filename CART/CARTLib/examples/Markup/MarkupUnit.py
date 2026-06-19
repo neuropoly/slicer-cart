@@ -116,6 +116,7 @@ class MarkupModelManager:
         self._tracked_labels: dict[str, list[str]] = dict()
         self._required_labels: dict[str, set[str]] = dict()
         self._unique_labels: dict[str, set[str]] = dict()
+        self.labels_not_placed_yet: set[tuple[str, str]] = set()
         self.missing_required_labels: set[tuple[str, str]] = set()
         self.should_be_unique_labels: set[tuple[str, str]] = set()
         # Pseudo-signal, I can't be fucked to deal with QT right now
@@ -278,23 +279,30 @@ class MarkupModelManager:
             countItem.setEditable(False)
             parentItem.appendRow([labelItem, countItem])
             # Check the validity of the node
-            invalid_tuple = (node_label, label)
-            # If the label is required and not placed, track it
-            if count == 0 and label in self._required_labels[node_label]:
-                self.missing_required_labels.add(invalid_tuple)
-            # If the label is unique and has more than one, track it
-            elif count > 1 and label in self._unique_labels[node_label]:
-                self.should_be_unique_labels.add(invalid_tuple)
-            # Otherwise, just purge it from the respective sets
+            label_tuple = (node_label, label)
+            # If the label is not placed, track it
+            if count < 1:
+                self.labels_not_placed_yet.add(label_tuple)
+                # If it should be, track that as well
+                if label in self._required_labels[node_label]:
+                    self.missing_required_labels.add(label_tuple)
+            # Otherwise, just purge it from their respective sets
             else:
-                if invalid_tuple in self.missing_required_labels:
-                    self.missing_required_labels.remove(invalid_tuple)
-                if invalid_tuple in self.should_be_unique_labels:
-                    self.should_be_unique_labels.remove(invalid_tuple)
+                if label_tuple in self.labels_not_placed_yet:
+                    self.labels_not_placed_yet.remove(label_tuple)
+                if label_tuple in self.missing_required_labels:
+                    self.missing_required_labels.remove(label_tuple)
+
+            # If the label is unique and has more than one, track it
+            if count > 1 and label in self._unique_labels[node_label]:
+                self.should_be_unique_labels.add(label_tuple)
+            # Otherwise, purge it from the set instead
+            else:
+                if label_tuple in self.should_be_unique_labels:
+                    self.should_be_unique_labels.remove(label_tuple)
 
 
         # To ensure consistent ordering, create the children in the order of our expected labels first
-        initially_missing = len(self.missing_required_labels)
         tracked_labels = self._tracked_labels[node_label]
         for l in tracked_labels:
             _new_item(l)
