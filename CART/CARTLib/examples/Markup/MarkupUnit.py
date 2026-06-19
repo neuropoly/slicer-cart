@@ -112,10 +112,12 @@ class MarkupModelManager:
         # Managed model + tracked labels
         self._model = qt.QStandardItemModel()
 
-        # Tracked + required labels
+        # Tracked, required, and unique labels
         self._tracked_labels: dict[str, list[str]] = dict()
         self._required_labels: dict[str, set[str]] = dict()
-        self.missing_labels: set[tuple[str, str]] = set()
+        self._unique_labels: dict[str, set[str]] = dict()
+        self.missing_required_labels: set[tuple[str, str]] = set()
+        self.should_be_unique_labels: set[tuple[str, str]] = set()
         # Pseudo-signal, I can't be fucked to deal with QT right now
         self._call_when_missing_changes = list()
 
@@ -133,10 +135,10 @@ class MarkupModelManager:
 
         # Clear all our metadata
         self._tracked_labels.clear()
-        self.missing_labels.clear()
+        self.missing_required_labels.clear()
 
         # Emit the "missing labels changed" signal
-        self.missing_labels_changed()
+        self.label_counts_changed()
 
     def find_next_missing(self, startIdx: qt.QModelIndex = None) -> qt.QModelIndex:
         """
@@ -228,6 +230,7 @@ class MarkupModelManager:
             markup_config = EditableMarkupResourceConfig(resource_config, k)
             self._tracked_labels[k] = [mrk.label for mrk in markup_config.markups]
             self._required_labels[k] = {mrk.label for mrk in markup_config.markups if mrk.required}
+            self._unique_labels[k] = {mrk.label for mrk in markup_config.markups if mrk.unique}
 
             # Get the display node to set the color
             display_node = node.GetDisplayNode()
@@ -274,16 +277,24 @@ class MarkupModelManager:
             countItem = qt.QStandardItem(str(count))
             countItem.setEditable(False)
             parentItem.appendRow([labelItem, countItem])
-            # If this was a required label that hasn't been placed, note it
-            missing_tuple = (node_label, label)
+            # Check the validity of the node
+            invalid_tuple = (node_label, label)
+            # If the label is required and not placed, track it
             if count == 0 and label in self._required_labels[node_label]:
-                self.missing_labels.add(missing_tuple)
+                self.missing_required_labels.add(invalid_tuple)
+            # If the label is unique and has more than one, track it
+            elif count > 1 and label in self._unique_labels[node_label]:
+                self.should_be_unique_labels.add(invalid_tuple)
+            # Otherwise, just purge it from the respective sets
             else:
-                if missing_tuple in self.missing_labels:
-                    self.missing_labels.remove(missing_tuple)
+                if invalid_tuple in self.missing_required_labels:
+                    self.missing_required_labels.remove(invalid_tuple)
+                if invalid_tuple in self.should_be_unique_labels:
+                    self.should_be_unique_labels.remove(invalid_tuple)
+
 
         # To ensure consistent ordering, create the children in the order of our expected labels first
-        initially_missing = len(self.missing_labels)
+        initially_missing = len(self.missing_required_labels)
         tracked_labels = self._tracked_labels[node_label]
         for l in tracked_labels:
             _new_item(l)
@@ -293,21 +304,20 @@ class MarkupModelManager:
         for l in remaining_labels:
             _new_item(l)
 
-        # If this changed the number of missing labels, emit the signal for it
-        if len(self.missing_labels) != initially_missing:
-            self.missing_labels_changed()
+        # Emit the "labels count changed" signal to sync the warning panel
+        self.label_counts_changed()
 
         # Finally, recount our own set of labels as well
         idx: qt.QModelIndex = parentItem.index().sibling(parentItem.row(), self.COUNT_IDX)
-        countItem: qt.QStandardItem = self.model.itemFromIndex(idx)
-        countItem.setText(str(node.GetNumberOfControlPoints()))
+        nodeCountItem: qt.QStandardItem = self.model.itemFromIndex(idx)
+        nodeCountItem.setText(str(node.GetNumberOfControlPoints()))
 
     # Pseudo-QT Signal
     # TODO: Replace this when I have the mental capacity to do this properly
-    def when_missing_labels_change(self, f: "Callable"):
+    def when_label_counts_change(self, f: "Callable"):
         self._call_when_missing_changes.append(f)
 
-    def missing_labels_changed(self):
+    def label_counts_changed(self):
         for f in self._call_when_missing_changes:
             f()
 
