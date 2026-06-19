@@ -151,6 +151,9 @@ class MarkupGUI:
         # TreeView for interacting with the markup list
         self.markupTreeView: qt.QTreeView = self._initMarkupView()
 
+        # Button to initiate placing markups
+        self.placeMissingButton: qt.QPushButton = None
+
         # Observer ID which will need to be purged when the GUI is destroyed
         self.stateChangedObserverID = None
 
@@ -204,7 +207,10 @@ class MarkupGUI:
             # Lambda to avoid passing the boolean
             lambda __: self.data_unit.placeNextMissing()
         )
+
+        # Add it and track it for later
         layout.addRow(placeMissingButton)
+        self.placeMissingButton = placeMissingButton
 
         ## Checkboxes ##
         # Checkbox to enable "Place Multiple" mode
@@ -261,26 +267,36 @@ class MarkupGUI:
 
     # When the no. missing labels changes, update our warning message to match
     def onLabelCountsChanged(self):
-        # If there are no missing labels, hide the missing warning panel
+        # Enable/disable the "place missing" button to reflect if there are missing buttons left to place
+        self.placeMissingButton.setEnabled(
+            len(self.data_unit.markupModelManager.labels_not_placed_yet) > 0
+        )
+
+        # If there are no missing labels, update the warning panel and placement button
         missing_required_labels = self.data_unit.markupModelManager.missing_required_labels
         if len(missing_required_labels) < 1:
+            # Hide + disable the respective widgets
             self.missingWarningPanel.setVisible(False)
         # Otherwise, build a warning message and reveal it
         else:
+            # Update the panel's text
             msg = _("Missing the following 'required' markups: ")
             entries = sorted([
                 f"  * {label} [{node_id}]" for node_id, label in missing_required_labels
             ])
             msg = "\n".join([msg, *entries])
             self.missingWarningPanel.setMarkdown(msg)
+            # Reveal + enable the respective widgets
             self.missingWarningPanel.setVisible(True)
 
         # If there are no missing labels, hide the warning panel
         non_unique_labels = self.data_unit.markupModelManager.should_be_unique_labels
         if len(non_unique_labels) < 1:
+            # Hide + disable the respective widgets
             self.uniqueWarningPanel.setVisible(False)
         # Otherwise, build a warning message and reveal it
         else:
+            # Reveal + enable the respective widgets
             msg = _("The following labels should be unique, but are not: ")
             entries = sorted(
                 [f"  * {label} [{node_id}]" for node_id, label in non_unique_labels]
