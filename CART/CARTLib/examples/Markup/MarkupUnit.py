@@ -147,6 +147,10 @@ class MarkupModelManager:
         point which has yet to be placed within its owning markup. Returns None if there
         were no labels with missing placements past the provided starting point.
         """
+        # If we already know we have no missing markups left, end here
+        if len(self.labels_not_placed_yet) < 1:
+            return qt.QModelIndex()
+
         # If no starting point was given, start at the beginning!
         if startIdx is None:
             idx: qt.QModelIndex = self.model.index(0, self.LABEL_IDX)

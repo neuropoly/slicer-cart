@@ -53,6 +53,16 @@ class MarkupConfig(DictBackedConfig):
         self.backing_dict[self.OUTPUT_FORMAT_KEY] = new_val.value
         self.has_changed = True
 
+    AUTO_PLACE_MISSING_KEY = "auto_place_missing"
+
+    @property
+    def auto_place_missing(self) -> bool:
+        return self.get_or_default(self.AUTO_PLACE_MISSING_KEY, True)
+
+    @auto_place_missing.setter
+    def auto_place_missing(self, new_val: bool):
+        self.backing_dict[self.auto_place_missing] = new_val
+
     def generateGUILayout(self) -> Optional[tuple[str, qt.QLayout]]:
         return _("Markup Configuration"), MarkupConfigGUILayout(self)
 
@@ -359,17 +369,36 @@ class MarkupConfigGUILayout(qt.QFormLayout):
 
         # Toggle-able options
         toggleLayout = qt.QFormLayout(None)
+
+        autoPlaceMissingCheckBox = qt.QCheckBox()
+        autoPlaceMissingLabel = qt.QLabel(
+            _("Begin Placing Missing Markups Immediately")
+        )
+        autoPlaceMissingToolTip = _(
+            "When checked, automatically enter markup placement mode when "
+            "loading a case with the first yet-to-be-placed label queued."
+        )
+        autoPlaceMissingCheckBox.setToolTip(autoPlaceMissingToolTip)
+        autoPlaceMissingLabel.setToolTip(autoPlaceMissingToolTip)
+        toggleLayout.addRow(autoPlaceMissingCheckBox, autoPlaceMissingLabel)
+
         self.addRow(toggleLayout)
 
         # Connections
         @qt.Slot(str)
         def onStructureChanged(new_val: str):
             config.output_structure = MarkupOutputStructure(new_val)
-        fileStructureComboBox.currentTextChanged.connect(onStructureChanged)
         fileStructureComboBox.setCurrentText(config.output_structure.value)
+        fileStructureComboBox.currentTextChanged.connect(onStructureChanged)
 
         @qt.Slot(str)
         def onFormatChanged(new_val: str):
             config.output_format = MarkupOutputFormat(new_val)
-        fileFormatComboBox.currentTextChanged.connect(onFormatChanged)
         fileFormatComboBox.setCurrentText(config.output_format.value)
+        fileFormatComboBox.currentTextChanged.connect(onFormatChanged)
+
+        @qt.Slot(bool)
+        def onAutoPlaceMissingChanged(new_val: bool):
+            config.auto_place_missing = new_val
+        autoPlaceMissingCheckBox.setChecked(config.auto_place_missing)
+        autoPlaceMissingCheckBox.stateChanged.connect(onAutoPlaceMissingChanged)
