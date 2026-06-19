@@ -83,9 +83,12 @@ class MarkupTask(CARTTask):
         # Rebuild the tree model for the data unit based on our config
         data_unit.apply_config(self.config)
 
-        # If we have a GUI, sync it with the new unit
+        # If we have a GUI, sync it with the new unit and begin placing
         if self.gui:
             self.gui.setModel(self.data_unit.dataModel)
+            # If the user wants us to automatically enter placement, do so
+            if self.config.auto_place_missing:
+                data_unit.placeNextMissing()
 
     def save(self) -> Optional[str]:
         # Delegate to the output manager
