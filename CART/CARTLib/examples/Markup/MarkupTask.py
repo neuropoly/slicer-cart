@@ -144,8 +144,9 @@ class MarkupGUI:
     def __init__(self, bound_task: MarkupTask):
         self.bound_task = bound_task
 
-        # Warning panel for user messaging
-        self.warningPanel = None
+        # Warning panels for user messaging
+        self.missingWarningPanel = None
+        self.uniqueWarningPanel = None
 
         # TreeView for interacting with the markup list
         self.markupTreeView: qt.QTreeView = self._initMarkupView()
@@ -161,18 +162,30 @@ class MarkupGUI:
         # Initialize the layout
         layout = qt.QFormLayout(None)
 
-        ## Warning Panel ##
-        # Warning panel for displaying issues with the markup set
-        warningPanel = qt.QTextBrowser(None)
-        warningPanel.setAlignment(qt.Qt.AlignLeft | qt.Qt.AlignTop)
-        warningPanel.setReadOnly(True)
+        ## Warning Panels ##
+        # Warning panel for displaying warnings about missing "required" markups
+        missingRequiredWarningPanel = qt.QTextBrowser(None)
+        missingRequiredWarningPanel.setAlignment(qt.Qt.AlignLeft | qt.Qt.AlignTop)
+        missingRequiredWarningPanel.setReadOnly(True)
 
         # Initialize it hidden w/ no text initially
-        warningPanel.setVisible(False)
+        missingRequiredWarningPanel.setVisible(False)
 
         # Add it to the layout and track it
-        layout.addRow(warningPanel)
-        self.warningPanel = warningPanel
+        layout.addRow(missingRequiredWarningPanel)
+        self.missingWarningPanel = missingRequiredWarningPanel
+
+        # Warning panel for displaying warnings about multiple "unique" markups
+        nonUniqueWarningPanel = qt.QTextBrowser(None)
+        nonUniqueWarningPanel.setAlignment(qt.Qt.AlignLeft | qt.Qt.AlignTop)
+        nonUniqueWarningPanel.setReadOnly(True)
+
+        # Initialize it hidden w/ no text initially
+        nonUniqueWarningPanel.setVisible(False)
+
+        # Add it to the layout and track it
+        layout.addRow(nonUniqueWarningPanel)
+        self.uniqueWarningPanel = nonUniqueWarningPanel
 
         ## Contents Viewer ##
         # Insert the markup review/placement widget
@@ -243,24 +256,38 @@ class MarkupGUI:
         self.markupTreeView.expandAll()
 
         # Update ourselves when the missing markups change
-        self.data_unit.markupModelManager.when_missing_labels_change(self.onMissingLabelsChanged)
-        self.onMissingLabelsChanged()
+        self.data_unit.markupModelManager.when_label_counts_change(self.onLabelCountsChanged)
+        self.onLabelCountsChanged()
 
     # When the no. missing labels changes, update our warning message to match
-    def onMissingLabelsChanged(self):
-        # If there are no missing labels, hide the warning panel
-        missing_labels = self.data_unit.markupModelManager.missing_labels
-        if len(missing_labels) < 1:
-            self.warningPanel.setVisible(False)
+    def onLabelCountsChanged(self):
+        # If there are no missing labels, hide the missing warning panel
+        missing_required_labels = self.data_unit.markupModelManager.missing_required_labels
+        if len(missing_required_labels) < 1:
+            self.missingWarningPanel.setVisible(False)
         # Otherwise, build a warning message and reveal it
         else:
             msg = _("Missing the following 'required' markups: ")
             entries = sorted([
-                f"  * {label} [{node_id}]" for node_id, label in missing_labels
+                f"  * {label} [{node_id}]" for node_id, label in missing_required_labels
             ])
             msg = "\n".join([msg, *entries])
-            self.warningPanel.setMarkdown(msg)
-            self.warningPanel.setVisible(True)
+            self.missingWarningPanel.setMarkdown(msg)
+            self.missingWarningPanel.setVisible(True)
+
+        # If there are no missing labels, hide the warning panel
+        non_unique_labels = self.data_unit.markupModelManager.should_be_unique_labels
+        if len(non_unique_labels) < 1:
+            self.uniqueWarningPanel.setVisible(False)
+        # Otherwise, build a warning message and reveal it
+        else:
+            msg = _("The following labels should be unique, but are not: ")
+            entries = sorted(
+                [f"  * {label} [{node_id}]" for node_id, label in non_unique_labels]
+            )
+            msg = "\n".join([msg, *entries])
+            self.uniqueWarningPanel.setMarkdown(msg)
+            self.uniqueWarningPanel.setVisible(True)
 
     def _initMarkupView(self) -> qt.QTreeView:
         """

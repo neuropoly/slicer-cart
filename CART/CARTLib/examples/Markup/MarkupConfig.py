@@ -68,12 +68,14 @@ class MarkupPointPacket:
     label: str
     value: int = None
     required: bool = True
+    unique: bool = False
 
     # Header information for GUIs which want to wrap these objects
     HEADER_DATA = {
         "Label": "The name to associate with markups of this type.",
-        "Value": "The integer value to search for and save to when reading/writing NIfTI files.",
-        "Required": "If checked, CART will warn you when there are none of this label",
+        "Value": "The integer value to use in the context of NIfTI files.",
+        "Required": "If checked, CART will warn you when there are none of this label.",
+        "Unique": "If checked, CART will warn you when there are more than one of this label."
     }
 
 
@@ -106,13 +108,24 @@ class EditableMarkupResourceConfig(DictBackedConfig):
         self.has_changed = True
 
     def add_markup(
-        self, label: str = "", value: Optional[int] = None, unique: bool = False
+        self,
+        label: str = "",
+        value: Optional[int] = None,
+        required: bool = True,
+        unique: bool = False,
     ) -> MarkupPointPacket:
         """
-        Add a new markup, from scratch, to the end of the configuration list
+        Add a new markup, from scratch, to the end of the configuration list.
+
+        :param label: The name for this markup
+        :param value: The value to use in NIfTI files
+        :param required: Whether CART should expect this markup to be placed
+        :param unique: Whether CART should only allow one of this markup
+
+        :return: A data object containing the contents for further use.
         """
         # Use the data class to enforce organization
-        new_markup = MarkupPointPacket(label, value, unique)
+        new_markup = MarkupPointPacket(label, value, required, unique)
         # Add its contents to our configuration list
         self._raw_markup_data.append(asdict(new_markup))
         # Mark ourselves as having been changed
