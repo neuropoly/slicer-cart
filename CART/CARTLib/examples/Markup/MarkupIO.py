@@ -115,6 +115,9 @@ class MarkupOutput:
         return log_data
 
     def save_unit(self, data_unit: "MarkupUnit", profile: MasterProfileConfig):
+        # Delayed import to avoid cyclic import errors
+        from MarkupUnit import EditableMarkupResource
+
         try:
             # Variable init, which should be filled in during the loop
             output_file = None
@@ -132,7 +135,9 @@ class MarkupOutput:
             # Save each markup node (with any modifications) into it
             for key, node in data_unit.markup_nodes.items():
                 uid = data_unit.uid
-                output_file = self.determine_output_file(uid, key, ref_path)
+                # Conver to its short name
+                short_name = EditableMarkupResource.get_short_name(key)
+                output_file = self.determine_output_file(uid, short_name, ref_path)
 
                 # Create the corresponding parent directory, if needed
                 output_file.parent.mkdir(parents=True, exist_ok=True)
