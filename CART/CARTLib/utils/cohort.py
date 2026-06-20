@@ -139,6 +139,7 @@ class CohortModel(CSVBackedTableModel):
     ):
         # Generate the backing CSV immediately using the case map's contents
         row_data = [["uid"], *[[k] for k in case_map.keys()]]
+        csv_path.parent.mkdir(exist_ok=True, parents=True)
         with open(csv_path, "w") as fp:
             csv.writer(fp).writerows(row_data)
         # Generate a new cohort instance, backed by this new CSV file and w/ a blank side-car
