@@ -366,8 +366,7 @@ def save_markups_to_csv(markups_node, path: Path):
 def save_markups_to_nifti(
     markup_node: "vtk.vtkMRMLMarkupsFiducialNode",
     reference_volume: "vtk.vtkMRMLScalarVolumeNode",
-    path: Path,
-    master_profile: Optional[MasterProfileConfig] = None,
+    path: Path
 ):
     """
     Saves a set of markup labels to a NIfTI file.
@@ -443,20 +442,6 @@ def save_markups_to_nifti(
     try:
         # Initialize the JSON sidecar's contents
         sidecar_data = {}
-        creation_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # If we have a user profile, add its contents to the GeneratedBy entry
-        if master_profile:
-            sidecar_data[GENERATED_BY_KEY] = [
-                {
-                    "Name": "CART",
-                    "Author": master_profile.author,
-                    "Position": master_profile.position,
-                    "Date": creation_time,
-                }
-            ]
-        # Otherwise, just note that this was created by CART
-        else:
-            sidecar_data[GENERATED_BY_KEY] = [{"Name": "CART", "Date": creation_time}]
 
         # Add a map (dict) to track the label value -> label names in the sidecar
         sidecar_labelmap = dict()
