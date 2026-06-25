@@ -216,6 +216,10 @@ class EditableMarkupResourceConfig(DictBackedConfig):
                     item.setCheckState(checkState)
                 # Everything else should be handles as a string (for now)
                 else:
+                    # If the value is null (None), change it to be "" instead
+                    if v is None:
+                        v = ""
+                    # Create the new widget item
                     item = qt.QTableWidgetItem(v)
 
                 # Add the corresponding item ot the map
