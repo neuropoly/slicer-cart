@@ -1,3 +1,4 @@
+from collections import Counter
 from dataclasses import asdict, dataclass, fields, Field
 from typing import Optional, TYPE_CHECKING
 
@@ -134,6 +135,10 @@ class EditableMarkupResourceConfig(DictBackedConfig):
 
         :return: A data object containing the contents for further use.
         """
+        # If the value wasn't explicitly set, try to set it to the next highest integer
+        if value is None:
+            value = max(*[m.value for m in self.markups if m.value is not None], 0)
+            value += 1
         # Use the data class to enforce organization
         new_markup = MarkupPointPacket(label, value, required, unique)
         # Add its contents to our configuration list
@@ -220,7 +225,7 @@ class EditableMarkupResourceConfig(DictBackedConfig):
                     if v is None:
                         v = ""
                     # Create the new widget item
-                    item = qt.QTableWidgetItem(v)
+                    item = qt.QTableWidgetItem(str(v))
 
                 # Add the corresponding item ot the map
                 table.setItem(idx, c, item)
@@ -269,6 +274,11 @@ class EditableMarkupResourceConfig(DictBackedConfig):
         table.itemSelectionChanged.connect(selectionChanged)
         selectionChanged()
 
+        VALID_BRUSH = qt.QBrush()  # Falls back to defaults for the current theme
+        INVALID_BRUSH = qt.QBrush(
+            qt.QColor(255, 0, 0, 50)
+        )
+
         # When the table's contents are changed, update this config to match
         @qt.Slot(int, int)
         def onCellChanged(row: int, col: int):
@@ -307,6 +317,30 @@ class EditableMarkupResourceConfig(DictBackedConfig):
             old_data = self._raw_markup_data[row]
             old_data[field_info.name] = new_val
             self.mark_changed()
+
+            # Highlight value cells w/ duplicated values
+            val_col = list(MarkupPointPacket.HEADER_DATA.keys()).index("Value")
+            # End here if we're not targeting the value column currently
+            if col != val_col:
+                return
+            # Count the number of elements of each type
+            val_set: dict[int, list[int]] = dict()
+            current_vals = [m.value for m in self.markups]
+            for idx, v in enumerate(current_vals):
+                if v not in val_set.keys():
+                    val_set[v] = [idx]
+                else:
+                    val_set[v].append(idx)
+            # Iterate through our row items and highlight them
+            for v, idxs in val_set.items():
+                # If the value is "none", its implicitly valid
+                is_valid = v is None or len(idxs) == 1
+                for idx in idxs:
+                    item: qt.QTableWidgetItem = table.item(idx, val_col)
+                    if is_valid:
+                        item.setBackground(VALID_BRUSH)
+                    else:
+                        item.setBackground(INVALID_BRUSH)
 
         table.cellChanged.connect(onCellChanged)
 
