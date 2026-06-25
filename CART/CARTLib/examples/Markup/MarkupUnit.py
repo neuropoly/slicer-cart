@@ -566,13 +566,14 @@ class MarkupUnit(CARTStandardUnit):
                 node.SetName(name)
                 self.markup_nodes[key] = node
 
-        # Add a "custom" node for the user to place arbitrary markups within
-        custom_node = create_emtpy_markup_fiducial_node(
-            f"custom [{self.uid}]", scene=self.scene
-        )
-        name = f"{MarkupResource.format_for_gui('custom')} [{self.uid}]"
-        custom_node.SetName(name)
-        self.markup_nodes["custom"] = custom_node
+        # TODO: Revisit this when a better approach can be discussed.
+        # # Add a "custom" node for the user to place arbitrary markups within
+        # custom_node = create_emtpy_markup_fiducial_node(
+        #     f"custom [{self.uid}]", scene=self.scene
+        # )
+        # name = f"{MarkupResource.format_for_gui('custom')} [{self.uid}]"
+        # custom_node.SetName(name)
+        # self.markup_nodes["custom"] = custom_node
 
     def focus_gained(self) -> None:
         super().focus_gained()
