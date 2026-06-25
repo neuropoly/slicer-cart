@@ -77,7 +77,7 @@ class MarkupPointPacket:
     """
     label: str
     value: int = None
-    required: bool = True
+    required: bool = False
     unique: bool = False
 
     # Header information for GUIs which want to wrap these objects
@@ -121,7 +121,7 @@ class EditableMarkupResourceConfig(DictBackedConfig):
         self,
         label: str = "",
         value: Optional[int] = None,
-        required: bool = True,
+        required: bool = False,
         unique: bool = False,
     ) -> MarkupPointPacket:
         """
