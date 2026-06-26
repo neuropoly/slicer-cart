@@ -137,7 +137,9 @@ class EditableMarkupResourceConfig(DictBackedConfig):
         """
         # If the value wasn't explicitly set, try to set it to the next highest integer
         if value is None:
-            value = max(*[m.value for m in self.markups if m.value is not None], 0)
+            # Two trailing zeros is to prevent an "int is not iterable" error
+            # KO: Yes its lazy, but it works
+            value = max(*[m.value for m in self.markups if m.value is not None], 0, 0)
             value += 1
         # Use the data class to enforce organization
         new_markup = MarkupPointPacket(label, value, required, unique)
