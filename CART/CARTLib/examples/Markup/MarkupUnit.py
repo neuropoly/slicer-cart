@@ -1,4 +1,5 @@
 from collections import Counter
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING, Callable
 
@@ -99,6 +100,26 @@ class EditableMarkupResource(MarkupResource):
 
 
 ## Markup Model ##
+@dataclass
+class MarkupNodeMetaData:
+    """
+    Data class for organizing elements related to a single Markup Node
+    managed by a data unit. Tracks the node its bound too alongside
+    details relevant to how it should be managed and presented to the
+    user, including:
+
+    * What labels are currently tracked for it
+    * What labels are expected to be placed
+    * What labels are expected to be unique
+    # TODO
+    * The values each label should have when saved to NIfTI
+    """
+    bound_node: "slicer.vtkMRMLMarkupsFiducialNode"
+    tracked_labels: list[str]
+    required_labels: set[str]
+    unique_labels: set[str]
+
+
 class MarkupModelManager:
 
     MODEL_HEADERS = ["Label", "Count"]
@@ -113,8 +134,7 @@ class MarkupModelManager:
         self._model = qt.QStandardItemModel()
 
         # Tracked metadata
-        self._tracked_labels: dict[str, list[str]] = dict()
-        self._required_labels: dict[str, set[str]] = dict()
+        self.metadata_map: dict[str, MarkupNodeMetaData] = dict()
         self._unique_labels: dict[str, set[str]] = dict()
         self.labels_not_placed_yet: set[tuple[str, str]] = set()
         self.missing_required_labels: set[tuple[str, str]] = set()
@@ -135,10 +155,8 @@ class MarkupModelManager:
         self._model.clear()
         self._model.setHorizontalHeaderLabels(self.MODEL_HEADERS)
 
-        # Clear all our metadata
-        self._tracked_labels.clear()
-        self._required_labels.clear()
-        self._unique_labels.clear()
+        # Clear our
+        self.metadata_map.clear()
         self.labels_not_placed_yet.clear()
         self.missing_required_labels.clear()
         self.should_be_unique_labels.clear()
@@ -236,11 +254,15 @@ class MarkupModelManager:
             if (node := self._unit.markup_nodes.get(k)) is None:
                 continue
 
-            # Parse the resource's contents
+            # Create a new markup node details object to track the data within
             markup_config = EditableMarkupResourceConfig(resource_config, k)
-            self._tracked_labels[k] = [mrk.label for mrk in markup_config.markups]
-            self._required_labels[k] = {mrk.label for mrk in markup_config.markups if mrk.required}
-            self._unique_labels[k] = {mrk.label for mrk in markup_config.markups if mrk.unique}
+            metadata = MarkupNodeMetaData(
+                node,
+                [mrk.label for mrk in markup_config.markups],
+                {mrk.label for mrk in markup_config.markups if mrk.required},
+                {mrk.label for mrk in markup_config.markups if mrk.unique},
+            )
+            self.metadata_map[k] = metadata
 
             # Get the display node to set the color
             display_node = node.GetDisplayNode()
@@ -264,12 +286,13 @@ class MarkupModelManager:
         # Clear all existing children from this item; nature is so cruel...
         parentItem.removeRows(0, parentItem.rowCount())
 
-        # Get the label for markup node we'll be processing
+        # Get the label + metadata for markup node we'll be processing
         node_label = parentItem.text()
-        node = self._unit.markup_nodes.get(node_label)
+        metadata = self.metadata_map.get(node_label)
+        node = metadata.bound_node
 
         # If there was no matching node, something broke, end here
-        if node is None:
+        if metadata is None or node is None:
             return
 
         # Count the existing labels within the node
@@ -293,7 +316,7 @@ class MarkupModelManager:
             if count < 1:
                 self.labels_not_placed_yet.add(label_tuple)
                 # If it should be, track that as well
-                if label in self._required_labels[node_label]:
+                if label in metadata.required_labels:
                     self.missing_required_labels.add(label_tuple)
             # Otherwise, just purge it from their respective sets
             else:
@@ -303,21 +326,19 @@ class MarkupModelManager:
                     self.missing_required_labels.remove(label_tuple)
 
             # If the label is unique and has more than one, track it
-            if count > 1 and label in self._unique_labels[node_label]:
+            if count > 1 and label in metadata.unique_labels:
                 self.should_be_unique_labels.add(label_tuple)
             # Otherwise, purge it from the set instead
             else:
                 if label_tuple in self.should_be_unique_labels:
                     self.should_be_unique_labels.remove(label_tuple)
 
-
         # To ensure consistent ordering, create the children in the order of our expected labels first
-        tracked_labels = self._tracked_labels[node_label]
-        for l in tracked_labels:
+        for l in metadata.tracked_labels:
             _new_item(l)
 
         # Add remaining labels as additional columns
-        remaining_labels = set(label_count.keys()) - set(tracked_labels)
+        remaining_labels = set(label_count.keys()) - set(metadata.tracked_labels)
         for l in remaining_labels:
             _new_item(l)
 
