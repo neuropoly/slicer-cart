@@ -325,6 +325,13 @@ def save_segmentation_to_nifti(segment_node, volume_node, path: Path):
             "ensure the file is a '.nii' file!"
         )
 
+    # If the segmentation node has no segments, raise an error to avoid an empty folder
+    if segment_node.GetSegmentation().GetNumberOfSegments() < 1:
+        raise ValueError(
+            f"Passed segment node had no segments, "
+            f"cannot safely save the file."
+        )
+
     # Convert the Segmentation back to a Label (for Nifti export)
     label_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
     try:
