@@ -111,13 +111,45 @@ class MarkupNodeMetaData:
     * What labels are currently tracked for it
     * What labels are expected to be placed
     * What labels are expected to be unique
-    # TODO
     * The values each label should have when saved to NIfTI
     """
     bound_node: "slicer.vtkMRMLMarkupsFiducialNode"
     tracked_labels: list[str]
     required_labels: set[str]
     unique_labels: set[str]
+    nifti_values: dict[str, Optional[int]]
+
+    def apply_nifti_value_map(self):
+        """
+        Searches the bound node for markup labels matching our NIfTI
+        value map, re-naming them to the intended label when found.
+        """
+        # Iterate through each control point within our dataset
+        markup_iterator = range(self.bound_node.GetNumberOfControlPoints())
+        markup_labels = [self.bound_node.GetNthControlPointLabel(i) for i in markup_iterator]
+
+        # Check each markup label for values which can be mapped
+        for i, l in enumerate(markup_labels):
+            # If the value already exists in the map for some reason, skip it
+            if l in self.tracked_labels:
+                continue
+
+            # Try to parse the value to its integer form
+            try:
+                v1 = int(l)
+            except ValueError:
+                # If it couldn't parse to an int, skip it
+                continue
+
+            # See if the value maps to one we know about
+            for k, v2 in self.nifti_values.items():
+                # If it did, rename the label to match and end here
+                if v1 == v2:
+                    self.bound_node.SetNthControlPointLabel(i, k)
+                    continue
+                # Otherwise, keep looking
+                else:
+                    pass
 
 
 class MarkupModelManager:
@@ -261,8 +293,12 @@ class MarkupModelManager:
                 [mrk.label for mrk in markup_config.markups],
                 {mrk.label for mrk in markup_config.markups if mrk.required},
                 {mrk.label for mrk in markup_config.markups if mrk.unique},
+                {mrk.label: mrk.value for mrk in markup_config.markups},
             )
             self.metadata_map[k] = metadata
+
+            # Remap unknown values (pulled from NIfTI) to values specified by the config
+            metadata.apply_nifti_value_map()
 
             # Get the display node to set the color
             display_node = node.GetDisplayNode()
@@ -560,7 +596,7 @@ class MarkupUnit(CARTStandardUnit):
                     raise ValueError(
                         f"Tried to load markup from path {path} which doesn't exist!"
                     )
-            # If this is supposed to be an editable node, create a block node instead
+            # Alternatively, if this was supposed to be edit-able, create a blank node instead
             elif is_editable:
                 nodes = [create_emtpy_markup_fiducial_node(
                     f"{key} [{self.uid}]",
@@ -570,7 +606,7 @@ class MarkupUnit(CARTStandardUnit):
             else:
                 continue
 
-            # If the nodes were editable, track them
+            # If the node(s) were editable, track them
             if is_editable:
                 for node in nodes:
                     self._tracked_nodes[node] = key
