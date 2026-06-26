@@ -112,13 +112,14 @@ class MarkupModelManager:
         # Managed model + tracked labels
         self._model = qt.QStandardItemModel()
 
-        # Tracked, required, and unique labels
+        # Tracked metadata
         self._tracked_labels: dict[str, list[str]] = dict()
         self._required_labels: dict[str, set[str]] = dict()
         self._unique_labels: dict[str, set[str]] = dict()
         self.labels_not_placed_yet: set[tuple[str, str]] = set()
         self.missing_required_labels: set[tuple[str, str]] = set()
         self.should_be_unique_labels: set[tuple[str, str]] = set()
+
         # Pseudo-signal, I can't be fucked to deal with QT right now
         self._call_when_missing_changes = list()
 
@@ -136,7 +137,11 @@ class MarkupModelManager:
 
         # Clear all our metadata
         self._tracked_labels.clear()
+        self._required_labels.clear()
+        self._unique_labels.clear()
+        self.labels_not_placed_yet.clear()
         self.missing_required_labels.clear()
+        self.should_be_unique_labels.clear()
 
         # Emit the "missing labels changed" signal
         self.label_counts_changed()
