@@ -115,9 +115,7 @@ class MarkupOutput:
         return log_data
 
     def save_unit(self, data_unit: "MarkupUnit", profile: MasterProfileConfig):
-        # Delayed import to avoid cyclic import errors
-        from MarkupUnit import EditableMarkupResource
-
+        # Back out if an error occurs to avoid cascading issues later
         try:
             # Variable init, which should be filled in during the loop
             output_file = None
@@ -135,9 +133,7 @@ class MarkupOutput:
             # Save each markup node (with any modifications) into it
             for key, node in data_unit.markup_nodes.items():
                 uid = data_unit.uid
-                # Conver to its short name
-                short_name = EditableMarkupResource.get_short_name(key)
-                output_file = self.determine_output_file(uid, short_name, ref_path)
+                output_file = self.determine_output_file(uid, key, ref_path)
 
                 # Create the corresponding parent directory, if needed
                 output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -191,6 +187,7 @@ class MarkupOutput:
                 writer.writeheader()
                 writer.writerows(self.log.values())
         except Exception as e:
+            # If an error occurred, log it and proceed as-is
             log_entry_key = (profile.author, data_unit.uid)
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.log[log_entry_key] = {
@@ -229,13 +226,17 @@ class MarkupOutput:
             # Remaining case is CSV, which has no double-convention
             extension = "csv"
 
+        # Shorten the label's name, in case it still has the identifier mark
+        from MarkupUnit import EditableMarkupResource  # Delayed to avoid an error
+        short_label = EditableMarkupResource.get_short_name(label)
+
         if volume_path is None:
             # Default generator, for when there was no valid reference volume (should never happen)
-            file_name = f"{uid}_{label}.{extension}"
+            file_name = f"{uid}_{short_label}.{extension}"
         else:
             # Use the reference volume's name verbatim if available, extended w/ the label
             original_name = volume_path.name.split(".")[0]
-            file_name = f"{original_name}_{label}.{extension}"
+            file_name = f"{original_name}_{short_label}.{extension}"
 
         # Determine the output directory
         if self._config_reference.output_structure == MarkupOutputStructure.BIDS:
