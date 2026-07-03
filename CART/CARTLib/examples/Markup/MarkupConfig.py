@@ -1,4 +1,3 @@
-from collections import Counter
 from dataclasses import asdict, dataclass, fields, Field
 from typing import Optional, TYPE_CHECKING
 
