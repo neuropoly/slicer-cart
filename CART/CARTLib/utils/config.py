@@ -670,7 +670,7 @@ class JobProfileConfig(DictBackedConfig):
             json.dump(self.backing_dict, fp, indent=2)
 
 
-## Utility Config managers ##
+## Utility Config Managers ##
 class ResourceSpecificConfig(DictBackedConfig):
     """
     Configuration instance for managing resource-specific configuration options;
