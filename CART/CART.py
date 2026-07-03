@@ -15,7 +15,8 @@ from CARTLib.core.DataManager import DataManager
 from CARTLib.core.LayoutManagement import OrientationButtonArrayWidget
 from CARTLib.core.TaskBaseClass import TaskBaseClass
 from CARTLib.core.SetupWizard import CARTSetupWizard, JobSetupWizard
-from CARTLib.utils import CART_PATH, get_cart_version
+from CARTLib.examples import EXAMPLE_TASK_PATHS
+from CARTLib.utils import get_cart_version
 from CARTLib.utils.config import JobProfileConfig, MasterProfileConfig
 from CARTLib.utils.task import CART_TASK_REGISTRY
 
@@ -960,13 +961,38 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
             return
         # Otherwise, load each of our registered tasks
         else:
+            # Track the paths we've already loaded/failed to load from
+            already_loaded = set()
             # Load all task paths
-            for p in set(registered_tasks.values()):
-                # Skip the "None" case for now
-                if p is None:
+            for k, p in registered_tasks.items():
+                # Skip paths which have already been processed
+                if p in already_loaded:
+                    self.logger.warning(
+                        f"Task {k} shared a file with another task! "
+                        f"You should generally avoid this."
+                    )
                     continue
-                # Load the task
-                new_tasks = self.load_tasks_from_file(p)
+                # If this was None (failed) and an example task, try and restore the old path
+                if p is None:
+                    # If it's not an example task, we have no fallback; skip!
+                    if k not in EXAMPLE_TASK_PATHS.keys():
+                        continue
+                    # Otherwise, try to load from the "Standard" example path instead/
+                    self.logger.info(
+                        f"Example task '{k}' may be out of date, attempting to update..."
+                    )
+                    p = EXAMPLE_TASK_PATHS.get(k)
+                    new_tasks = self.load_tasks_from_file(p)
+                    # If it worked, re-register the task w/ the corrected path
+                    self.master_profile_config.add_task_path(k, p)
+                    registered_tasks[k] = p  # Needed as the registered dict is a clone.
+                    self.logger.info(f"Update successful!")
+                else:
+                    # Otherwise, just try to load the task as-is
+                    new_tasks = self.load_tasks_from_file(p)
+                # Regardless, track the path to avoid loading from it again
+                already_loaded.add(p)
+
                 # Filter out tasks which were loaded, but not registered
                 for k in [x for x in new_tasks if x not in registered_tasks.keys()]:
                     CART_TASK_REGISTRY.pop(k)
@@ -974,6 +1000,7 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
                         f"Task '{k}' was loaded alongside another task, "
                         f"but has not been registered and was filtered out."
                     )
+
             # Mark tasks which have an invalid associated file in the registry!
             for task_key in [k for k, p in registered_tasks.items() if p is None]:
                 self.logger.warning(
@@ -982,6 +1009,9 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
                     f"that the file on the drive is accessible to a Python program."
                 )
                 CART_TASK_REGISTRY[task_key] = None
+
+            # Save any changes resulting from out-of-date example task entries
+            self.master_profile_config.save()
 
     def load_tasks_from_file(self, task_path):
         # Confirm the path exists and can be read as a (python) file
@@ -1044,17 +1074,9 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
         return new_tasks
 
     def reset_task_registry(self):
-        # Try to load all the example tasks
-        examples_path = CART_PATH / "CARTLib/examples"
-        example_task_paths = [
-            examples_path / "Segmentation/SegmentationTask.py",
-            examples_path / "GenericClassification/GenericClassificationTask.py",
-            examples_path / "Markup/MarkupTask.py",
-        ]
-
         # Make sure the example tasks all exist before doing anything!
         missing_paths = []
-        for p in example_task_paths:
+        for p in EXAMPLE_TASK_PATHS:
             if not p.exists():
                 missing_paths.append(p)
 
@@ -1070,7 +1092,7 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
         CART_TASK_REGISTRY.clear()
 
         # Register each example task again, one-by-one
-        for p in example_task_paths:
+        for p in EXAMPLE_TASK_PATHS.values():
             self.register_new_task(p)
 
         # Save the config immediately to preserve the changes
