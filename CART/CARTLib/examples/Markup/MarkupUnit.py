@@ -157,7 +157,7 @@ class MarkupModelManager:
     MODEL_HEADERS = {
         "Label": "What markups of this type are called.",
         "v": "The value to use within NIfTI files. "
-             "'?' indicates not value was defined, leaving CART to select one.",
+             "'?' indicates no value was defined, leaving CART to select one.",
         "n": "The number of this label which have already been placed."
     }
     LABEL_IDX = 0
