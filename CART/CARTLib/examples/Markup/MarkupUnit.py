@@ -445,6 +445,9 @@ class MarkupUnit(CARTStandardUnit):
     def dataModel(self):
         return self.markupModelManager.model
 
+    def metadata_for(self, label: str) -> Optional[MarkupNodeMetaData]:
+        return self.markupModelManager.metadata_map.get(label, None)
+
     def apply_config(self, config: "MarkupConfig"):
         """
         Apply the user-specified configuration options to the markups managed by
