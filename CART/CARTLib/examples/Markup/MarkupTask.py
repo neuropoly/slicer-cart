@@ -249,20 +249,24 @@ class MarkupGUI:
         # Track the model within our view
         self.markupTreeView.setModel(newModel)
 
+        # Expand everything by default
+        self.markupTreeView.expandAll()
+
         # Update our header settings (now that there is contents to work with)
         header: qt.QHeaderView = self.markupTreeView.header()
+        # Disable "Stretch Last Section" default, as it overrides everything which follows
+        header.setStretchLastSection(False)
+        # Stretch the first section instead, and shrink every other column
         header.setSectionResizeMode(0, qt.QHeaderView.Stretch)
         header.setSectionResizeMode(1, qt.QHeaderView.ResizeToContents)
-        self.markupTreeView.resizeColumnToContents(1)
+        # Make sure the contents also adjust to size
+        self.markupTreeView.setSizePolicy(qt.QSizePolicy.Expanding, qt.QSizePolicy.Expanding)
 
         # Make the rows alternating
         self.markupTreeView.setAlternatingRowColors(True)
 
         # Disable user selection to avoid unintuitive behaviour
         self.markupTreeView.setSelectionMode(qt.QTreeView.NoSelection)
-
-        # Expand everything by default
-        self.markupTreeView.expandAll()
 
         # Update ourselves when the missing markups change
         self.data_unit.markupModelManager.when_label_counts_change(self.onLabelCountsChanged)

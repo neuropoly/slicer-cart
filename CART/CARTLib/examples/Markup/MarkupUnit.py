@@ -154,9 +154,15 @@ class MarkupNodeMetaData:
 
 class MarkupModelManager:
 
-    MODEL_HEADERS = ["Label", "Count"]
+    MODEL_HEADERS = {
+        "Label": "What markups of this type are called.",
+        "v": "The value to use within NIfTI files. "
+             "'?' indicates not value was defined, leaving CART to select one.",
+        "n": "The number of this label which have already been placed."
+    }
     LABEL_IDX = 0
-    COUNT_IDX = 1
+    VALUE_IDX = 1  # NIfTI Value
+    COUNT_IDX = 2
 
     def __init__(self, unit: "MarkupUnit"):
         # Bound unit
@@ -183,11 +189,14 @@ class MarkupModelManager:
         return self._model
 
     def reset(self):
-        # Reset the model
+        # Reset the model's state
         self._model.clear()
-        self._model.setHorizontalHeaderLabels(self.MODEL_HEADERS)
+        self._model.setHorizontalHeaderLabels(list(self.MODEL_HEADERS.keys()))
+        for i, tt in enumerate(self.MODEL_HEADERS.values()):
+            headerItem: qt.QTableWidgetItem = self._model.horizontalHeaderItem(i)
+            headerItem.setToolTip(_(tt))
 
-        # Clear our
+        # Clear our metadata as well
         self.metadata_map.clear()
         self.labels_not_placed_yet.clear()
         self.missing_required_labels.clear()
@@ -295,7 +304,9 @@ class MarkupModelManager:
                 {mrk.label for mrk in markup_config.markups if mrk.unique},
                 {mrk.label: mrk.value for mrk in markup_config.markups},
             )
-            self.metadata_map[k] = metadata
+            # Shorten the name for later
+            short_name = EditableMarkupResource.get_short_name(k)
+            self.metadata_map[short_name] = metadata
 
             # Remap unknown values (pulled from NIfTI) to values specified by the config
             metadata.apply_nifti_value_map()
@@ -308,12 +319,14 @@ class MarkupModelManager:
             rgb = (int(rgb_string[i : i + 2], 16) / 255 for i in (0, 2, 4))
             display_node.SetSelectedColor(*rgb)
 
-            # Generate and register the label + count item
-            newLabelItem = qt.QStandardItem(k)
+            # Generate and register the corresponding items
+            newLabelItem = qt.QStandardItem(short_name)
             newLabelItem.setEditable(False)
+            falseValueItem = qt.QStandardItem("")  # Nodes don't have a value
+            falseValueItem.setEditable(False)
             newCountItem = qt.QStandardItem(str(node.GetNumberOfControlPoints()))
             newCountItem.setEditable(False)
-            rootItem.appendRow([newLabelItem, newCountItem])
+            rootItem.appendRow([newLabelItem, falseValueItem, newCountItem])
 
             # Generate the child items for each label
             self.rebuild_children_for(newLabelItem)
@@ -325,10 +338,9 @@ class MarkupModelManager:
         # Get the label + metadata for markup node we'll be processing
         node_label = parentItem.text()
         metadata = self.metadata_map.get(node_label)
-        node = metadata.bound_node
 
         # If there was no matching node, something broke, end here
-        if metadata is None or node is None:
+        if metadata is None or (node := metadata.bound_node) is None:
             return
 
         # Count the existing labels within the node
@@ -339,13 +351,20 @@ class MarkupModelManager:
 
         # "Macro" to avoid code duplication
         def _new_item(label: str):
-            # Build the new child item
-            count = label_count.get(label, 0)
+            # Markup label item
             labelItem = qt.QStandardItem(label)
             labelItem.setEditable(False)
+            # NIfTI value item
+            niftiValue = metadata.nifti_values.get(label, "?")
+            valueItem = qt.QStandardItem(str(niftiValue))
+            valueItem.setEditable(False)
+            # Label count item
+            count = label_count.get(label, 0)
             countItem = qt.QStandardItem(str(count))
             countItem.setEditable(False)
-            parentItem.appendRow([labelItem, countItem])
+            # Registration
+            parentItem.appendRow([labelItem, valueItem, countItem])
+
             # Check the validity of the node
             label_tuple = (node_label, label)
             # If the label is not placed, track it
@@ -408,8 +427,6 @@ class MarkupUnit(CARTStandardUnit):
         MarkupResource,
     ]}
 
-    MODEL_HEADER = ["Label", "Count"]
-
     ## Setup ##
     def __init__(
         self,
@@ -445,8 +462,9 @@ class MarkupUnit(CARTStandardUnit):
     def dataModel(self):
         return self.markupModelManager.model
 
-    def metadata_for(self, label: str) -> Optional[MarkupNodeMetaData]:
-        return self.markupModelManager.metadata_map.get(label, None)
+    def metadata_for(self, node_id: str) -> Optional[MarkupNodeMetaData]:
+        key = EditableMarkupResource.get_short_name(node_id)
+        return self.markupModelManager.metadata_map.get(key, None)
 
     def apply_config(self, config: "MarkupConfig"):
         """
@@ -509,14 +527,15 @@ class MarkupUnit(CARTStandardUnit):
             item: qt.QStandardItem = model.item(i, 0)
             # Iterate through it tracked nodes to see if any match
             key = self._tracked_nodes.get(node)
-            if item.text() == key:
+            node_id = EditableMarkupResource.format_for_csv(item.text())
+            if node_id == key:
                 self.markupModelManager.rebuild_children_for(item)
                 return
 
     ## USER INTERACTION ##
     def beginLabelPlacement(self, node_id: str, label: str):
         # Set up the selection node to focus on our specific markup
-        targetNode = self.markup_nodes[node_id]
+        targetNode = self.markupModelManager.metadata_map.get(node_id).bound_node
         self._selectNode(targetNode)
 
         # Change the default markup placement name to match the label
