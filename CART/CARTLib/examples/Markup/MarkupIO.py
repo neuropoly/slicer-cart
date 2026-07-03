@@ -141,14 +141,18 @@ class MarkupOutput:
 
                 # Save the node's contents to this file
                 if self._config_reference.output_format == MarkupOutputFormat.NIFTI:
-                    # Get the NIfTI values for this markup node
-                    nifti_values = data_unit.metadata_for(key).nifti_values
-                    # Save the node to a NIfTI file; this generates a sidecar w/ the integer labels!
+                    # Use CART's automated mapping if no metadata was available
+                    metadata = data_unit.metadata_for(key)
+                    if metadata is None:
+                        value_map = None
+                    else:
+                        value_map = metadata.nifti_values
+                    # Save the markup data using the value map, if available.
                     save_markups_to_nifti(
                         markup_node=node,
                         reference_volume=data_unit.reference_volume_node,
                         path=output_file,
-                        value_map=nifti_values
+                        value_map=value_map,
                     )
                 elif self._config_reference.output_format == MarkupOutputFormat.CSV:
                     # Save the node to Slicer's native .csv format
