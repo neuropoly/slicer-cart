@@ -42,18 +42,26 @@ A number of features are currently in progress as well:
 
 ### Obtaining the Files
 
-Clone this repository somewhere you can easily access it. You can do this one of two ways:
+#### Option 1 (preferred): Download stable release
 
-1. Downloading the repository from GitHub:
-   1. Download the ZIP archive from [here](https://github.com/SomeoneInParticular/CART/archive/refs/heads/main.zip)
-   2. Unpack the resulting ZIP archive to where you would like CART to live (on most OS systems, double-clicking on the file should tell you how to do this)
+1. Download the ZIP archive from the [latest release](https://github.com/neuropoly/slicer-cart/releases).
+2. Unpack the resulting ZIP archive to where you would like CART to live (on most OS systems, double-clicking on the file should tell you how to do this)
 
-2. Cloning the repository via `git`:
-   1. Open a terminal and navigate to the directory you'd like CART to live in.
-   2. Run the following command to clone the current `CART` repository:
-    ~~~
-    git clone git@github.com:SomeoneInParticular/CART.git CART-main
-    ~~~
+#### Option 2: Download dev version
+
+1. Download the ZIP archive from [here](https://github.com/SomeoneInParticular/CART/archive/refs/heads/main.zip)
+2. Unpack the resulting ZIP archive to where you would like CART to live (on most OS systems, double-clicking on the file should tell you how to do this)
+
+#### Option 3: Clone from GitHub
+
+For this, you need to have `git` installed. 
+
+1. Open a terminal and navigate to the directory you'd like CART to live in.
+2. Run the following command to clone the current `CART` repository:
+   ~~~
+   git clone git@github.com:SomeoneInParticular/CART.git CART-main
+   ~~~
+
 
 ### Registering CART in Slicer
 
