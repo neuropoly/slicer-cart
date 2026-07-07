@@ -44,37 +44,36 @@ A number of features are currently in progress as well:
 
 #### Option 1 (preferred): Download stable release
 
-1. Download the ZIP archive from the [latest release](https://github.com/neuropoly/slicer-cart/releases).
-2. Unpack the resulting ZIP archive to where you would like CART to live (on most OS systems, double-clicking on the file should tell you how to do this)
+- Download the ZIP archive from the [latest release](https://github.com/neuropoly/slicer-cart/releases).
+- Unpack the resulting ZIP archive to where you would like CART to live (on most OS systems, double-clicking on the file should tell you how to do this)
 
 #### Option 2: Download dev version
 
-1. Download the ZIP archive from [here](https://github.com/SomeoneInParticular/CART/archive/refs/heads/main.zip)
-2. Unpack the resulting ZIP archive to where you would like CART to live (on most OS systems, double-clicking on the file should tell you how to do this)
+- Download the ZIP archive from [here](https://github.com/SomeoneInParticular/CART/archive/refs/heads/main.zip)
+- Unpack the resulting ZIP archive to where you would like CART to live (on most OS systems, double-clicking on the file should tell you how to do this)
 
 #### Option 3: Clone from GitHub
 
 For this, you need to have `git` installed. 
 
-1. Open a terminal and navigate to the directory you'd like CART to live in.
-2. Run the following command to clone the current `CART` repository:
-   ~~~
-   git clone git@github.com:SomeoneInParticular/CART.git CART-main
-   ~~~
-
+- Open a terminal and navigate to the directory you'd like CART to live in.
+- Run the following command to clone the current `CART` repository:
+  ~~~
+  git clone git@github.com:SomeoneInParticular/CART.git CART-main
+  ~~~
 
 ### Registering CART in Slicer
 
-0. Open a file browser window and navigate to the downloaded `CART-main` directory. Then, navigate to the `CART` subdirectory, which should contain a `CART.py` file.
-1. Start up Slicer.
-2. Select `Edit` (top left) > `Application Settings`
+- Open a file browser window and navigate to the downloaded `slicer-cart/` directory. Then, navigate to the `CART` subdirectory, which should contain a `CART.py` file.
+- Start up Slicer.
+- Go to `Edit` > `Application Settings`
 <img width="1066" height="154" alt="image" src="https://github.com/user-attachments/assets/1f2c4d4f-ce10-46fd-8165-09c0df87a7e6" />
 
-3. In the "settings" popup, select `Modules` from the left sidebar
+- In the "settings" popup, select `Modules` from the left sidebar
 <img width="865" height="650" alt="image" src="https://github.com/user-attachments/assets/ea9d4013-b77b-47ef-84b5-f4d38fd7f044" />
 
-4. Click and drag `CART.py` from the file browser into the "Additional module paths" panel.
-5. Click "OK"; Slicer should prompt you that it needs to restart. Say "Yes".
+- Click and drag `CART.py` from the file browser into the "Additional module paths" panel.
+- Click "OK"; Slicer should prompt you that it needs to restart. Say "Yes".
 
 ### [Optional] Setting CART as your Default Module
 
