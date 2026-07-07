@@ -77,10 +77,10 @@ For this, you need to have `git` installed.
 
 ### [Optional] Setting CART as your Default Module
 
-1. Start Slicer
-2. Select `Edit` (top left) > `Application Settings`
-3. In the "settings" popup, select `Modules` from the left sidebar
-4. Under "Default startup module", Select `Utilities` > `CART`
+- Start Slicer
+- Go to `Edit` > `Application Settings`
+- In the "settings" popup, select `Modules` from the left sidebar
+- Under "Default startup module", Select `Utilities` > `CART`
 <img width="506" height="760" alt="image" src="https://github.com/user-attachments/assets/66a360ff-8ad6-406e-a498-7e1ff1ae6f20" />
 
 ## Getting Started
