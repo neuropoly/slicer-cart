@@ -1076,7 +1076,7 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
     def reset_task_registry(self):
         # Make sure the example tasks all exist before doing anything!
         missing_paths = []
-        for p in EXAMPLE_TASK_PATHS:
+        for p in EXAMPLE_TASK_PATHS.values():
             if not p.exists():
                 missing_paths.append(p)
 
