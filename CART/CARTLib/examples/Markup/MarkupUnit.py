@@ -62,7 +62,7 @@ class EditableMarkupResource(MarkupResource):
         "\n\n"
         "Any changes made to this resource will be saved when the case is saved. "
         "You can specify what markups you expect to see, as well as their properties, in the"
-        "GUI below. The 'value' column is only used when reading/writing to NiFTI format."
+        "GUI below. The 'value' column is only used when reading/writing to NIfTI format."
     )
 
     @classmethod
