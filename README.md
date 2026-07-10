@@ -1,5 +1,7 @@
 # Case Annotation and Review Tool (CART)
 
+![](./CART/Resources/Icons/CART.png)
+
 ## Table of Contents
 
 * [What is CART?](#what-is-cart)
@@ -16,17 +18,17 @@
 
 # What is CART?
 
-CART is a module for 3D Slicer designed to help implement, manage, and run iterative analyses on image datasets. You can think of CART as an assembly line for data analysis; you define how your data should be grouped ("cases"), and what process you want to apply to it ("tasks"), and CART tracks how many you've completed and ensures that each has been processed by the task sequentially.
+CART is a module for 3D Slicer designed to help implement, manage, and run iterative analyses on image datasets. You can think of CART as an assembly line for data analysis; you define how your data should be grouped ("cases"), what should be loaded for you ("resources"), and what process you want to apply to it ("tasks"), and CART will manage the rest for you! Most tasks will even track how many you've completed, ensuring that you don't repeat the same case twice (or skip over one by mistake).
 
 Currently, it provides the following capabilities:
 
 * Managing sequential cases (be they patients, sub-studies, or other collections of data).
 * Caching and memory management.
 * Defining and handling multiple jobs, which can be run independently of one another.
+* Custom task creation and registration [Latter currently done via Config file manipulation].
 
 A number of features are currently in progress as well:
 
-* Custom task creation and registration.
 * Case pre-fetching/deferred loading.
 
 ---
@@ -44,20 +46,20 @@ A number of features are currently in progress as well:
 
 #### Option 1 (preferred): Download stable release
 
-- Download the ZIP archive from the [latest release](https://github.com/neuropoly/slicer-cart/releases).
-- Unpack the resulting ZIP archive to where you would like CART to live (on most OS systems, double-clicking on the file should tell you how to do this)
+- Download the ZIP archive for the [latest release](https://github.com/neuropoly/slicer-cart/releases/latest).
+- Unpack said ZIP archive to where you would like CART to live (on most OS systems, double-clicking on the file should tell you how to do this)
 
-#### Option 2: Download dev version
+#### Option 2: Download Current Dev Build
 
-- Download the ZIP archive from [here](https://github.com/SomeoneInParticular/CART/archive/refs/heads/main.zip)
-- Unpack the resulting ZIP archive to where you would like CART to live (on most OS systems, double-clicking on the file should tell you how to do this)
+- Download the git repository as a ZIP archive from [here](https://github.com/SomeoneInParticular/CART/archive/refs/heads/main.zip)
+- Unpack said ZIP archive to where you would like CART to live (on most OS systems, double-clicking on the file should tell you how to do this)
 
-#### Option 3: Clone from GitHub
+#### Option 3: Clone a Specific Branch from GitHub
 
 For this, you need to have `git` installed. 
 
 - Open a terminal and navigate to the directory you'd like CART to live in.
-- Run the following command to clone the current `CART` repository:
+- Run the following command to clone the current `CART` repository, replacing `CART-main` with :
   ~~~
   git clone git@github.com:SomeoneInParticular/CART.git CART-main
   ~~~
@@ -123,20 +125,20 @@ In the future, you will be able to register and use custom tasks as well; this i
 
 #### Data Selection
 
-Here you define what files the job should use, where it should save its results, and how it should iterate through both. To select the former two, click the '...' to bring up the file browser to choose their respective folders.
+Here you define what files the job should use, where it should save its results, and how that data should be iterated via a "cohort" file. To select the former two, click the '...' to bring up the file browser to choose their respective folders.
 
 ![Preview of the 'Data Selection' Job Setup Wizard page.](CART/Resources/images/readme/data_selection_page.png)
 
-Assuming you've never used CART before, you'll probably not have a cohort file ready. If so, click the "New Cohort File Button"; this will walk you through the process of creating one using the contents of the input folder you provided and the task you selected previously. See TODO for further details on what a cohort is and how to generate one. If you have a cohort file already, however, you can just select it via the same '...' button described prior.
+Assuming you've never used CART before, you'll probably not have a cohort file ready. If so, click the "Create New Cohort File" button; this will walk you through the process of creating one using the contents of the input folder you provided and the task you selected previously. If you have a cohort file already, however, you can just select it via the same '...' button described prior, or by selecting the "Select Existing File" button.
+
+Once a file has been selected/created, a preview of its contents will be shown in the window at the bottom the panel. If you wish to edit its contents, select the "Edit Selected File" button to do so.
 
 #### Task-Specific Options
 
-As the name implies, what appears here depends on the task you selected previously. This is usually configuration options which dictate how the task will run or save its results (i.e. the file format of its outputs), but the specifics are up to the task's developer. Skim through it to ensure they are configured to your liking, then continue.
+As the name implies, what appears here depends on the task you selected previously. An example of options the Segmentation task provides is shown below: 
+![task_specific.png](CART/Resources/images/readme/task_specific.png)
 
-#### Final Review
-
-WORK IN PROGRESS!
-
+The contents of this are normally related to how files will be loaded into Slicer when a new case is started, or how the results of the task will be saved (ex. file format). Most tasks have sensible defaults for any configurations presented here, but you should skim through these options to be sure.
 
 ## Running a Job
 
@@ -148,9 +150,9 @@ The "Start" button will now have CART start the job; enjoy!
 
 ## Cohorts and You
 
-Within CART, a cohort dictates how CART's various tasks will iterate through the data specified within a job. Its stored as a `.csv` file, with each row indicates one "case" that will be run, with each column indicating a potential resource that each case could have; if it was generated using CART (see below), there will also be a `.json` sidecar file with it to provide additional metadata for CART's cohort utilities to use. 
+Within CART, a "cohort" dictates how CART's various tasks will iterate through the data specified within a job. It's stored as a `.csv` file, with each row indicating one "case" that will be run, and each column indicating a potential resource that each case could have. Given you generated the file through CART (see above), there will also be a `.json` sidecar file alongside it, providing additional metadata for CART to reference.
 
-Being a `.csv` file, you can create these from scratch, be it manually or via a script. However, CART provides the Cohort Generator and Cohort Editor to make doing so much more easy and intuitive, with both being accessible during Job creation and editing.
+Being a `.csv` file, you can create these from scratch, be it manually or via a script. However, we strongly encourage you use CART's provided "Cohort Generator" and "Cohort Editor", which make cohort creation and management both much easier and less prone to error (especially with task-specific settings).
 
 ### The Cohort Generator
 
@@ -158,17 +160,23 @@ When you click the "New Cohort File" button during Job creation/editting, you'll
 
 ![Preview of the 'New Cohort' prompt.](CART/Resources/images/readme/cohort_new.png)
 
-Naturally, the `.csv` file needs to go somewhere; use the `...` button to bring up a file browser, allowing you to decide where this should be (you can also select an existing file if you want to replace it; this cannot be undone, however!)
+The "Destination File" determines the name of the cohort file you want to create (with the desired `.csv` extension!); you can also specify the full path to a desired output destination if you'd like. Be careful; CART will happily overwrite pre-existing cohort files if you tell it too!
 
-You can then specify the cohort's "type", which how CART will identify and generate cases (rows). Select one to bring up details on how the given type will do so; you can also select "Blank Slate" if you want to create a cohort completely from scratch (with no cases identified by default _at all_). Once you click "Ok", a new cohort `.csv` (alongside a `.json` sidecar) will be created and opened in the Cohort Editor.
+You can then specify the cohort's "type", which dictates how CART will initially identify and generate cases (rows) in the cohort. Select one to bring up further details; you can also select "Blank Slate" if you want to create a cohort completely from scratch (with no cases identified by default _at all_). Once you click "Ok", a new cohort `.csv` (alongside a `.json` sidecar) will be created and opened in the Cohort Editor.
 
 ### The Cohort Editor
 
-Once you have a cohort `.csv` file (generate by CART or otherwise), you can use the CART Cohort Editor to extend and/or modify it:
+Once you have a cohort `.csv` file (generated by CART or otherwise), you can use the Cohort Editor to extend and/or modify it:
 
-![Preview of the 'New Cohort' prompt.](CART/Resources/images/readme/cohort_edit.png)
+![Preview of the 'Edit Cohort' prompt.](CART/Resources/images/readme/cohort_edit.png)
 
-The buttons along the bottom allow you to add or drop cases (rows) and resources (columns). If you want to edit exiting rows/columns, right-click on the cells and select the corresponding "Modify" option instead. In both cases, CART will try to fill in the cells of the table intelligently based on the settings of rows/columns which intersect with the modified element. If you need to manually enter something into the table, double-clicking on the cell will let you edit the contents directly w/o using CART's automatic updating. How this automatic updating is run is task-specific; refer to the task's specific documentation for further details.
+The buttons along the bottom allow you to add or drop cases (rows) and resources (columns). If you want to edit exiting rows/columns, either right-click on the relevant cells and select the corresponding "Modify" option, or select the row/column you'd like to edit and click the corresponding "Edit" button along the bottom. In both cases, CART will try to fill in the cells of the table intelligently based on the settings of rows/columns which intersect with the modified element. 
+
+If you need to manually enter something into the table, double-clicking on the cell will let you edit the contents directly w/o using CART's automatic updating. How this automatic updating is run is task-specific; refer to the task's specific documentation for further details.
+
+Like the job profile itself, many tasks can also have resource-specific configuration settings. An example of what this can look like is shown below, taken from the "Markup" task:
+
+![Example of the resource-specific GUI.](CART/Resources/images/readme/resource_specific.png)
 
 ---
 
@@ -176,7 +184,7 @@ The buttons along the bottom allow you to add or drop cases (rows) and resources
 
 ## Project Standards
 
-Below is a short summary of standards and format we use in CART; for more details, please refer to the [developer wiki](https://github.com/SomeoneInParticular/CART/wiki).
+Below is a short summary of standards and format we use in CART; for more details, please refer to the [WIP!] [developer wiki](https://github.com/SomeoneInParticular/CART/wiki).
 
 ### Python
 
@@ -197,6 +205,8 @@ To fix this, please mark the following directories as "source" folders in the Pr
 * `{This Directory}/CART`; exposes CARTLib and its contents.
 
 ## Example Data
+
+⚠️ This will be changed soon, replaced with a `git-annex` dataset to slim up the repository! ⚠️
 
 The example data consists of a subset (fold0) from the PI-CAI dataset, featuring prostate MRI images and their corresponding segmentations. The original data can be obtained from the [official website](https://zenodo.org/records/6624726) by downloading the `picai_public_images_fold0.zip` file.
 
