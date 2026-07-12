@@ -6,7 +6,7 @@ from pathlib import Path
 CART_PATH = Path(__file__).parent.parent.parent
 
 # Current version of CART; used to validate configuration files
-CART_VERSION = "0.0.1"
+CART_VERSION = "0.0.2"
 
 # Function which fetches the git hash if available; otherwise uses the version above
 @cache
