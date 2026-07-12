@@ -705,18 +705,23 @@ class _DataSelectionPage(qt.QWizardPage):
         self.setTitle(_("Data Selection"))
         layout = qt.QFormLayout(self)
 
+        subtitleFont = qt.QFont()
+        subtitleFont.setPointSize(11)
+        subtitleFont.setBold(True)
+
+        ## Data IO Header ##
+        ioTitleLabel = qt.QLabel("Data I/O")
+        ioTitleLabel.setFont(subtitleFont)
+        layout.addRow(ioTitleLabel)
+
         ## Instruction text ##
-        instructionText = _(
-            "Please define the directory containing the files to use (the “Input Path”), "
-            "where you would like the results saved (the “Output Path”), "
-            "and how you would like to iterate through it (the “Cohort File”)."
-            "\n\n"
-            "If you have a cohort file you would like to reuse, click the “...” button to select it; "
-            "otherwise, click 'New' to generate a cohort file from scratch."
+        ioInstructionText = _(
+            "Please define the directory containing the files to use (the “Data Path”) "
+            "and where you would like the results saved (the “Output Path”)."
         )
-        instructionLabel = qt.QLabel(instructionText)
-        instructionLabel.setWordWrap(True)
-        layout.addRow(instructionLabel)
+        ioInstructionLabel = qt.QLabel(ioInstructionText)
+        ioInstructionLabel.setWordWrap(True)
+        layout.addRow(ioInstructionLabel)
 
         ## Data Path ##
         dataPathLabel = qt.QLabel(_("Data Path:"))
@@ -761,37 +766,36 @@ class _DataSelectionPage(qt.QWizardPage):
         if out_path is not None:
             outputPathEntry.currentPath = str(out_path)
 
-        ## Cohort File ##
-        cohortFileLabel = qt.QLabel(_("Cohort File:"))
-        cohortFileSelector: CARTPathLineEdit = CARTPathLineEdit()
-        cohortFileToolTip = _(
-            "This file dictates how CART will iterate through your dataset and load files. "
-            "See your task's documentation for further details on what is required here, and "
-            "how it should be formatted."
+        ## Separator ##
+        separator = qt.QFrame(None)
+        # Give it a distinct frame
+        separator.setFrameShape(qt.QFrame.HLine)
+        # TODO: Figure out how to make this not look like shit
+        layout.addRow(separator)
+
+        ## Cohort Header ##
+        cohortSubtitle = qt.QLabel(_("Cohort Specification"))
+        cohortSubtitle.setFont(subtitleFont)
+        layout.addRow(cohortSubtitle)
+
+        ## Cohort Instructions ##
+        cohortFileInstructionText = _(
+            "This determines how CART will iterate through the data specified above, "
+            "and what files it will load at each step."
         )
-        cohortFileLabel.setToolTip(cohortFileToolTip)
-        cohortFileSelector.setToolTip(cohortFileToolTip)
-        # Make sure only CSV files are visible (and valid)
-        cohortFileSelector.filters = ctk.ctkPathLineEdit.Files
-        cohortFileSelector.nameFilters = [
-            "CSV files (*.csv)",
-        ]
-        # Update ourselves to match the config
-        cohort_file = config.cohort_path
-        if cohort_file is not None:
-            cohortFileSelector.currentPath = str(cohort_file)
-        # Add it to the layout and track for later
-        layout.addRow(cohortFileLabel, cohortFileSelector)
-        self._cohortFileSelector = cohortFileSelector
+        cohortFileInstructionLabel = qt.QLabel(cohortFileInstructionText)
+        cohortFileInstructionLabel.setWordWrap(True)
+        layout.addRow(cohortFileInstructionLabel)
 
         ## Cohort Button Panel ##
         buttonLayout = qt.QHBoxLayout()
 
         # Button to create the selected cohort file
         cohortCreationToolTip = _(
-            "Generate a new cohort file from scratch using the contents of your input path."
+            "Generate a new cohort file from scratch based "
+            "on the contents of your input path."
         )
-        createNewButton = qt.QPushButton(_("New Cohort File"))
+        createNewButton = qt.QPushButton(_("Create New Cohort File"))
         createNewButton.setToolTip(cohortCreationToolTip)
 
         def shouldEnableCreate():
@@ -801,13 +805,13 @@ class _DataSelectionPage(qt.QWizardPage):
 
         # Button to select an existing cohort file
         cohortSelectionToolTip = _(
-            "Select and existing cohort file to reference and use."
+            "Select an existing cohort file to re-use."
         )
-        selectButton = qt.QPushButton(_("Select Cohort File"))
+        selectButton = qt.QPushButton(_("Select Existing File"))
         selectButton.setToolTip(cohortSelectionToolTip)
 
         # Button to edit the currently selected cohort file
-        editCohortButton = qt.QPushButton(_("Edit Cohort File"))
+        editCohortButton = qt.QPushButton(_("Edit Selected File"))
         editCohortButton.setToolTip(
             _(
                 "Edit the selected selected cohort file. "
@@ -828,6 +832,21 @@ class _DataSelectionPage(qt.QWizardPage):
         buttonLayout.addWidget(selectButton)
         buttonLayout.addWidget(editCohortButton)
         layout.addRow(buttonLayout)
+
+        ## Cohort File Selection ##
+        cohortFileSelector: CARTPathLineEdit = CARTPathLineEdit()
+        # Make sure only CSV files are visible (and valid)
+        cohortFileSelector.filters = ctk.ctkPathLineEdit.Files
+        cohortFileSelector.nameFilters = [
+            "CSV files (*.csv)",
+        ]
+        # Update ourselves to match the config
+        cohort_file = config.cohort_path
+        if cohort_file is not None:
+            cohortFileSelector.currentPath = str(cohort_file)
+        # Add it to the layout and track for later
+        layout.addRow(cohortFileSelector)
+        self._cohortFileSelector = cohortFileSelector
 
         ## Cohort Preview ##
         cohortPreviewWidget = CohortTableWidget.from_path(

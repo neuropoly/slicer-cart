@@ -183,11 +183,7 @@ def load_nifti_markups(path: Path) -> slicer.vtkMRMLMarkupsFiducialNode:
     we work around this via a .json sidecar, but this is a non-standard format that
     WILL NOT WORK in a non-CART context!
 
-    TODO: Implement the aforementioned side-car implementation
-
     :param path: Path to the NIfTI file to load
-    :param reference_volume: Volume node to use as reference for IJK co-ordinates.
-        If none, the markups will be placed using their native IJK values
     """
     # We guard everything with a try-catch to ensure the scene is cleaned
     # up properly if an error occurs during runtime.
@@ -264,8 +260,8 @@ def load_nifti_markups(path: Path) -> slicer.vtkMRMLMarkupsFiducialNode:
             # Calculate the Voxel position into RAS co-ordinates
             ras_pos = _ijk_to_ras(ijk_pos)
 
-            # Determine the label for this markup
-            label = str(val)
+            # Determine the label for this markup (casting it to an int to avoid labeling errors)
+            label = str(int(val))
             if label_map is not None:
                 label = label_map.get(val, label)
 
@@ -325,6 +321,13 @@ def save_segmentation_to_nifti(segment_node, volume_node, path: Path):
             "ensure the file is a '.nii' file!"
         )
 
+    # If the segmentation node has no segments, raise an error to avoid an empty folder
+    if segment_node.GetSegmentation().GetNumberOfSegments() < 1:
+        raise ValueError(
+            f"Passed segment node had no segments, "
+            f"cannot safely save the file."
+        )
+
     # Convert the Segmentation back to a Label (for Nifti export)
     label_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
     try:
@@ -367,7 +370,7 @@ def save_markups_to_nifti(
     markup_node: "vtk.vtkMRMLMarkupsFiducialNode",
     reference_volume: "vtk.vtkMRMLScalarVolumeNode",
     path: Path,
-    master_profile: Optional[MasterProfileConfig] = None,
+    value_map: Optional[dict[str, int]] = None,
 ):
     """
     Saves a set of markup labels to a NIfTI file.
@@ -386,7 +389,7 @@ def save_markups_to_nifti(
     :param markup_node: The markup node whose contents should be saved
     :param reference_volume: A reference volume, for converting RAS -> IJK co-ordinates
     :param path: Path to a (presumably `.nii`) file where the data should be saved
-    :param master_profile: Profile config; used to build the JSON sidecar
+    :param value_map: An (optional) map of pre-existing NIfTI values to use for each label
     """
     # Confirm this is a NIfTI file
     if ".nii" not in path.suffixes:
@@ -439,62 +442,80 @@ def save_markups_to_nifti(
         # Track the result
         map_entry.append(markup_ijk_pos)
 
-    markup_segment_node = None
+    # Determine the value each markup label should have
+    if value_map is None:
+        final_value_map = dict()
+    else:
+        final_value_map = value_map.copy()
+    to_define_labels = list()
+    for l in label_map.keys():
+        # If the label is already in the value map, skip it
+        if l in final_value_map.keys():
+            continue
+
+        # Try to parse it to an integer value
+        # (indicates it was loaded from NIfTI w/o an existing label)
+        try:
+            new_l = int(l)
+            final_value_map[l] = new_l
+        # If that failed, reserve the value for later
+        except ValueError:
+            to_define_labels.append(l)
+    # Any values which do not already have a value assigned should be preserved
+    last_value = 1
+    for l in to_define_labels:
+        while last_value in final_value_map.values():
+            last_value += 1
+        final_value_map[l] = last_value
+
+    markup_volume_node = None
     try:
-        # Initialize the JSON sidecar's contents
+        # Prepare the sidecar's data
         sidecar_data = {}
-        creation_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # If we have a user profile, add its contents to the GeneratedBy entry
-        if master_profile:
-            sidecar_data[GENERATED_BY_KEY] = [
-                {
-                    "Name": "CART",
-                    "Author": master_profile.author,
-                    "Position": master_profile.position,
-                    "Date": creation_time,
-                }
-            ]
-        # Otherwise, just note that this was created by CART
-        else:
-            sidecar_data[GENERATED_BY_KEY] = [{"Name": "CART", "Date": creation_time}]
+        # If there's already a sidecar, load its contents to avoid data loss
+        sidecar_path = find_json_sidecar_path(path)
+        if sidecar_path.exists():
+            with open(sidecar_path, 'r') as fp:
+                sidecar_data = json.load(fp)
 
         # Add a map (dict) to track the label value -> label names in the sidecar
         sidecar_labelmap = dict()
         sidecar_data[NIFTI_SIDECAR_LABELS_KEY] = sidecar_labelmap
 
-        # Initiate a segmentation node to place the markup labels into
-        markup_segment_node = create_empty_segmentation_node(
-            name="CART_OUTPUT_TMP", reference_volume=reference_volume
-        )
+        # Create an empty volume node w/ the same specs as the reference
+        markup_volume_node = clone_volume(reference_volume, "CART_OUTPUT_TMP")
 
-        # Place segments into it, one per label
-        for idx, (label, pos_list) in enumerate(label_map.items()):
-            # Build the blank segment
-            segment_id = markup_segment_node.GetSegmentation().AddEmptySegment(
-                "", label
-            )
-            segment_array = slicer.util.arrayFromSegmentBinaryLabelmap(
-                markup_segment_node, segment_id, reference_volume
-            )
-            # Mark the corresponding positions in the segment
-            for i, j, k in pos_list:
-                segment_array[i, j, k] = 1
-            # Update the segmentation using the updated segment array
-            slicer.util.updateSegmentBinaryLabelmapFromArray(
-                segment_array, markup_segment_node, segment_id, reference_volume
-            )
+        # Get the array from the cloned node and "blank" it
+        markup_volume_voxels = slicer.util.arrayFromVolume(markup_volume_node)
+        markup_volume_voxels[::] = 0
+
+        # Place our markups within it, one at a time
+        for label, pos_list in label_map.items():
+            # Get the corresponding value from the value map
+            val = final_value_map[label]
+
+            # Stratify the pos list for better numpy usage
+            pos_xs = [p[0] for p in pos_list]
+            pos_ys = [p[1] for p in pos_list]
+            pos_zs = [p[2] for p in pos_list]
+
+            # Assign the corresponding co-ordinates to our value
+            markup_volume_voxels[pos_xs, pos_ys, pos_zs] = val
+
             # Add the corresponding label to the sidecar's label map
-            sidecar_labelmap[int(idx + 1)] = label
+            sidecar_labelmap[val] = label
 
-        # Save the segmentation to the designated path
-        save_segmentation_to_nifti(markup_segment_node, reference_volume, path)
+        # Notify Slicer that the "new" volume has been modified
+        slicer.util.arrayFromVolumeModified(markup_volume_node)
 
-        # Save the sidecar alongside it
+        # Save the result + its side-car labels
+        save_volume_to_nifti(markup_volume_node, path)
         save_json_sidecar(path, sidecar_data)
+
     finally:
-        # Ensure that, no matter what, the segmentation node is removed
-        if markup_segment_node:
-            slicer.mrmlScene.RemoveNode(markup_segment_node)
+        # Ensure that, no matter what, the placeholder volume node is removed
+        if markup_volume_node:
+            slicer.mrmlScene.RemoveNode(markup_volume_node)
 
 
 ## SIDECAR FILES ##
@@ -749,6 +770,15 @@ def create_subject(label: str, *child_nodes):
     return subject_id
 
 
+def clone_volume(
+    to_clone: "vtk.vtkMRMLScalarVolumeNode",
+    new_name: str = "cloned_volume",
+    scene: "slicer.vtkMRMLScene" = slicer.mrmlScene,
+):
+    logic = slicer.modules.volumes.logic()
+    return logic.CloneVolume(scene, to_clone, new_name)
+
+
 def create_empty_segmentation_node(
     name: str,
     reference_volume: slicer.vtkMRMLScalarVolumeNode,
@@ -814,6 +844,9 @@ def create_emtpy_markup_fiducial_node(
     display_node = slicer.vtkMRMLMarkupsDisplayNode()
     scene.AddNode(display_node)
     markup_node.SetAndObserveDisplayNodeID(display_node.GetID())
+
+    # Make this blank node display point labels like it does by default everywhere else
+    display_node.SetPointLabelsVisibility(True)
 
     # Return the result
     return markup_node
@@ -986,7 +1019,7 @@ class CARTStandardUnit(DataUnitBase):
         prior_data: dict = None,  # TODO: Utilize this to "recall" prior markups
         scene: slicer.vtkMRMLScene = slicer.mrmlScene,
     ) -> None:
-        super().__init__(case_data, data_path, scene)
+        super().__init__(case_data, data_path, prior_data, scene)
 
         # Initialize with a null subject ID for later
         self.subject_id = None

@@ -1,4 +1,5 @@
 import json
+import logging
 from abc import ABC, abstractmethod, ABCMeta
 from pathlib import Path
 import re
@@ -428,7 +429,7 @@ class MasterProfileConfig(DictBackedConfig):
         for k, v in registered_task_vals.items():
             p = Path(v)
             if not p.is_file():
-                print(f"WARNING: Task file '{v}' does not exist!")
+                logging.warning(f"Task file '{v}' for task '{k}' does not exist!")
                 return_dict[k] = None
             else:
                 return_dict[k] = p
@@ -669,7 +670,7 @@ class JobProfileConfig(DictBackedConfig):
             json.dump(self.backing_dict, fp, indent=2)
 
 
-## Utility Config managers ##
+## Utility Config Managers ##
 class ResourceSpecificConfig(DictBackedConfig):
     """
     Configuration instance for managing resource-specific configuration options;
