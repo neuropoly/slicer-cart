@@ -1127,7 +1127,7 @@ class CohortEditorDialog(ChangeTrackingDialogue):
         self._to_disconnect = []
 
         # Backing cohort manager
-        self._cohort: qt.QAbstractTableModel = cohort
+        self._cohort: "CohortModel" = cohort
 
         # Track a parent-less copy of the config
         # (parent-less to prevent changes propagating upwards prematurely)
@@ -1322,7 +1322,7 @@ class CohortEditorDialog(ChangeTrackingDialogue):
         msg.setStandardButtons(qt.QMessageBox.Yes | qt.QMessageBox.No)
         # Only apply the deletion if confirmed by the user
         if msg.exec() == qt.QMessageBox.Yes:
-            self._cohort.drop_filters(resource_names)
+            self._cohort.drop_resource(resource_names)
 
     @qt.Slot()
     def _addNewCase(self):
