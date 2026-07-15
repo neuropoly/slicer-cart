@@ -626,14 +626,14 @@ def _bids_cases(data_path: Path) -> CaseMap:
         for subject, val_list in subject_map.items():
             val_list.extend([
                 p.relative_to(data_path)
-                for p in derivative_path.glob(f"*/{subject}/")
+                for p in derivative_path.glob(f"**/{subject}/")
             ])
         # Parse session-based cases
         for key, val_list in session_map.items():
             subject, session = key.split("__")
             val_list.extend([
                 p.relative_to(data_path)
-                for p in derivative_path.glob(f"*/{subject}/{session}/")
+                for p in derivative_path.glob(f"**/{subject}/{session}/")
             ])
     # Stack everything together
     case_map = {k: v for k, v in subject_map.items()}
