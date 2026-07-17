@@ -52,9 +52,6 @@ class EditableMarkupResource(MarkupResource):
 
     id = "markup_editable"
     pretty_name = "To-Edit Markup"
-    user_warning = _(
-        "⚠ The resource name will be used as a suffix in the saved file! ⚠"
-    )
     description = _(
         "A set of markups to display over viewed volumes. "
         "If a case is missing this resource, a blank markup node will be created instead "
@@ -97,6 +94,15 @@ class EditableMarkupResource(MarkupResource):
 
         # Return the result
         return layout
+
+    def generate_user_warning(self, uid: str, resource_name: str = "") -> Optional[str]:
+        # If the user hasn't specified a resource name yet, give them a more intelligent warning
+        if resource_name == "":
+            return _("⚠ Markup outputs are a combination of the subject name "
+                     "+ this resource's name! ⚠")
+        # Otherwise, use the name
+        return _(f"⚠ Markup outputs are a combination of the subject name "
+                 f"+ this resource's name! (i.e. '{uid}_{resource_name}.nii.gz') ⚠")
 
 
 ## Markup Model ##

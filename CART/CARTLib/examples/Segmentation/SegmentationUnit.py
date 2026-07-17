@@ -34,7 +34,6 @@ class EditableSegmentationResource(SegmentationResource):
 
     id = "segmentation_editable"
     pretty_name = "To-Edit Segmentation"
-    user_warning = _("⚠ The resource name will be used as a suffix in the saved file! ⚠")
     description = _(
         "A discrete (integer) segmentation of anatomy you want to load and edit for a given case. "
         "If a case is missing this resource, a blank segmentation will be created instead "
@@ -58,6 +57,15 @@ class EditableSegmentationResource(SegmentationResource):
         resource_config.buildSegmentTableGUI(layout)
 
         return layout
+
+    def generate_user_warning(self, uid: str, resource_name: str = "") -> Optional[str]:
+        # If the user hasn't specified a resource name yet, give them a more intelligent warning
+        if resource_name == "":
+            return _("⚠ Output files will be the same as the reference volume file "
+                     "with the resource name appended! ⚠")
+        # Otherwise, use the name
+        return _(f"⚠ Output files are the reference volume's filename with the "
+                 f"resource name appended (i.e. '{uid}_{resource_name}.nii.gz')! ⚠")
 
 
 class ReferenceSegmentationResource(SegmentationResource):

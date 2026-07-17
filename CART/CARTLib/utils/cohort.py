@@ -1410,6 +1410,7 @@ class ResourceEditorDialogue(ChangeTrackingDialogue):
 
         # Warning to notify the user; managed by the resource-type GUI (below)
         self.warningLabel = qt.QLabel()
+        self.warningLabel.setWordWrap(True)
 
         ## Field Selection GUI ##
         self._generateResourceTypeGUI(layout)
@@ -1534,6 +1535,17 @@ class ResourceEditorDialogue(ChangeTrackingDialogue):
         layout.addWidget(stretch)
         layout.addWidget(buttonBox)
 
+        # Warning label connections
+        self.resourceTypeSelector.currentIndexChanged.connect(
+            self.updateWarning
+        )
+        self.nameField.textChanged.connect(
+            self.updateWarning
+        )
+
+        # Run an initial warning label update to keep things in sync
+        self.updateWarning()
+
         # Minimize ourselves to the minimum size vertically initially
         self.resize(self.width, self.minimumHeight)
 
@@ -1594,16 +1606,9 @@ class ResourceEditorDialogue(ChangeTrackingDialogue):
             if new_type is None:
                 # Update our description text to become our default widget
                 resourceTypeDescription.setMarkdown(default_description)
-                # Hide the warning label
-                self.warningLabel.setVisible(False)
             else:
                 # Update our description text to match
                 resourceTypeDescription.setMarkdown(new_type.description)
-                # Update the warning label to match
-                should_show = new_type.user_warning is not None
-                if should_show:
-                    self.warningLabel.setText(new_type.user_warning)
-                self.warningLabel.setVisible(should_show)
             # Mark ourselves as changed
             self.mark_changed()
             # Resize ourselves to account for any GUI changes if possible
@@ -1773,6 +1778,29 @@ class ResourceEditorDialogue(ChangeTrackingDialogue):
 
         # Transfer any changes made to the task config copy to the "real" config
         self.task_config.backing_dict = self.task_config_copy.backing_dict
+
+    @qt.Slot()
+    def updateWarning(self):
+        # Get the current resource type
+        if len(self._cohort.case_map) == 0:
+            uid = "sub-ABC"
+        else:
+            uid = next(iter(self._cohort.case_map.keys()))
+        if self.resource_type is None:
+            # Hide the warning label
+            self.warningLabel.setVisible(False)
+        else:
+            # Update the warning label to match our new state
+            warning_txt = self.resource_type.generate_user_warning(
+                # Honestly no idea why this is needed...
+                self.resource_type,
+                uid,
+                self.nameField.text,
+            )
+            should_show = warning_txt is not None
+            if should_show:
+                self.warningLabel.setText(warning_txt)
+            self.warningLabel.setVisible(should_show)
 
     ## Properties ##
     @property
