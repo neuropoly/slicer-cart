@@ -733,7 +733,7 @@ def _bids_cases(data_path: Path, parent: qt.QObject = None) -> Optional[CaseMap]
 
             # Find the derivatives associated with this case
             deriv_path = self.base_path / "derivatives"
-            search_glob = f"**/{self.subject_id}/"
+            search_glob = f"*/{self.subject_id}/"
             if self.session_id:
                 search_glob += f"{self.session_id}/"
             # Extend our valid paths with any that match the search pattern
