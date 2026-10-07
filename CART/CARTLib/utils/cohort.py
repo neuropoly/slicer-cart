@@ -708,14 +708,14 @@ def _bids_cases(data_path: Path, parent: qt.QObject = None) -> Optional[CaseMap]
 
         def __init__(
             self,
-            base_dir: Path,
+            base_path: Path,
             subject_id: str,
             session_id: Optional[str] = None
         ):
-            self.valid_paths = [Path(base_dir.name)]
+            self.valid_paths = list()
             self.subject_id = subject_id
             self.session_id = session_id
-            self.derivative_path = base_dir.parent / "derivatives"
+            self.base_path = base_path
 
             # Determine the label based on state
             if session_id is None:
@@ -725,15 +725,21 @@ def _bids_cases(data_path: Path, parent: qt.QObject = None) -> Optional[CaseMap]
 
         @qt.Slot()
         def run(self):
-            # Generate the glob pattern for this worker
+            # Initial valid path (the root of our session)
+            init_path = self.base_path / self.subject_id
+            if self.session_id:
+                init_path /= self.session_id
+            self.valid_paths.append(init_path.relative_to(self.base_path))
+
+            # Find the derivatives associated with this case
+            deriv_path = self.base_path / "derivatives"
             search_glob = f"**/{self.subject_id}/"
             if self.session_id:
                 search_glob += f"{self.session_id}/"
             # Extend our valid paths with any that match the search pattern
             self.valid_paths.extend(
-                [p.relative_to(data_path) for p in self.derivative_path.glob(search_glob)]
+                [p.relative_to(data_path) for p in deriv_path.glob(search_glob)]
             )
-            print(self.valid_paths)
 
     # Progress GUI setup (given we're not a CLI)
     progressDialog: qt.QProgressDialog = None
@@ -761,7 +767,7 @@ def _bids_cases(data_path: Path, parent: qt.QObject = None) -> Optional[CaseMap]
         if len(ses_ps) < 1:
             subject = p.parts[-1]
             w = _BIDSWorker(
-                p, subject
+                data_path, subject
             )
             workers.append(w)
 
@@ -770,7 +776,7 @@ def _bids_cases(data_path: Path, parent: qt.QObject = None) -> Optional[CaseMap]
             for p2 in ses_ps:
                 subject = p2.parts[-2]
                 session = p2.parts[-1]
-                w = _BIDSWorker(p, subject, session)
+                w = _BIDSWorker(data_path, subject, session)
                 workers.append(w)
 
     # Update the progress dialog if we have it
