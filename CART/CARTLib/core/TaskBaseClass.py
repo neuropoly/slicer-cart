@@ -10,7 +10,6 @@ from CARTLib.utils.config import (
     JobProfileConfig,
     MasterProfileConfig,
     DictBackedConfig,
-    ResourceSpecificConfig,
 )
 
 # Generic type hint class for anything which is a subclass of DataUnitBase
@@ -252,26 +251,3 @@ class TaskBaseClass(ABC, Generic[D]):
         `exit` is called right before most `cleanup` calls anyway.
         """
         pass
-
-
-class CARTTask(TaskBaseClass, ABC, Generic[D]):
-    """
-    Unique subclass which provided default implementations for resource-specific config
-    options, to match those used by CART's default resource types.
-    """
-
-    @classmethod
-    def drop_resource_config(
-        cls, resource_id: str, task_config: TaskBaseClass.TaskConfig
-    ):
-        # Use our resource-specific config manager to ensure standardization
-        resource_config = ResourceSpecificConfig(task_config)
-        resource_config.drop_resource_config(resource_id)
-
-    @classmethod
-    def rename_resource_config(
-        cls, old_id: str, new_id: str, task_config: TaskBaseClass.TaskConfig
-    ):
-        # Use our resource-specific config manager to ensure standardization
-        resource_config = ResourceSpecificConfig(task_config)
-        resource_config.rename_resource(old_id, new_id)

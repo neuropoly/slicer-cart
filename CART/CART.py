@@ -910,6 +910,9 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
         self._data_manager = data_manager
         self._task_instance = new_task
 
+        # Signal to the task that it's now in view
+        self._task_instance.enter()
+
         # Pass the appropriate case to the task, skipping to the first "incomplete" if requested
         if self.master_profile_config.skip_to_first_incomplete:
             try:
@@ -924,7 +927,7 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
             unit = self.data_manager.first()
         self._task_instance.receive(unit)
 
-        # Initialize the new task
+        # Track the current job configuration
         self.active_job_config = job_profile
 
         # Update the config to use this as our last job

@@ -970,8 +970,13 @@ class _DataSelectionPage(qt.QWizardPage):
 
         # Create the backing cohort (and its associated files)
         cohort = cohort_from_generator(
-            dialog.cohort_file, self.data_path, dialog.current_generator
+            dialog.cohort_file, self.data_path, dialog.current_generator, self
         )
+
+        # If the cohort is null (an error occurred), end here w/o proceeding
+        if cohort is None:
+            return
+
         # Immediately disconnect all of its signals to avoid a memory leak
         cohort.disconnectChangeEvents()
 

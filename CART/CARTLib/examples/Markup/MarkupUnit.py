@@ -48,6 +48,15 @@ slicer.app.aboutToQuit.connect(onSlicerQuit)
 
 
 ## Resources ##
+class SecondaryMarkupResource(MarkupResource):
+    id = "markup_reference"
+    pretty_name = "Secondary Markup"
+    description = _(
+        "A set of markups to display over viewed volumes. "
+        "Can be modified if desired, but the resulting changes will NOT be saved!"
+    )
+
+
 class EditableMarkupResource(MarkupResource):
 
     id = "markup_editable"
@@ -61,6 +70,7 @@ class EditableMarkupResource(MarkupResource):
         "You can specify what markups you expect to see, as well as their properties, in the"
         "GUI below. The 'value' column is only used when reading/writing to NIfTI format."
     )
+    required = True
 
     @classmethod
     def buildConfigGUI(
@@ -101,8 +111,7 @@ class EditableMarkupResource(MarkupResource):
             return _("⚠ Markup outputs are a combination of the subject name "
                      "+ this resource's name! ⚠")
         # Otherwise, use the name
-        return _(f"⚠ Markup outputs are a combination of the subject name "
-                 f"+ this resource's name! (i.e. '{uid}_{resource_name}.nii.gz') ⚠")
+        return _(f"⚠ Output for first case will be '{uid}_{resource_name}.nii.gz' ⚠")
 
 
 ## Markup Model ##
@@ -425,13 +434,16 @@ class MarkupModelManager:
 class MarkupUnit(CARTStandardUnit):
 
     # Replace the default Markup resource w/ our custom ones
-    RESOURCE_TYPES = {v.id: v for v in [
-        ReferenceVolumeResource,
-        VolumeResource,
-        SegmentationResource,
-        EditableMarkupResource,
-        MarkupResource,
-    ]}
+    RESOURCE_TYPES = {
+        v.id: v
+        for v in [
+            ReferenceVolumeResource,
+            VolumeResource,
+            SegmentationResource,
+            EditableMarkupResource,
+            SecondaryMarkupResource,
+        ]
+    }
 
     ## Setup ##
     def __init__(
@@ -685,6 +697,12 @@ class MarkupUnit(CARTStandardUnit):
 
         # Clear active observers for this unit
         self._clear_observers()
+
+        # Exit interaction mode (if we were in it)
+        # KO: This needs to be done *after* observers are cleared to prevent it restarting
+        inter_node = self._interactionNode
+        if inter_node.GetCurrentInteractionMode() == inter_node.Place:
+            inter_node.SetCurrentInteractionMode(inter_node.ViewTransform)
 
         # Python should handle cycling links; it does not for some reason
         self.markupModelManager._unit = None

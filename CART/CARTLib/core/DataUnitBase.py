@@ -30,6 +30,9 @@ class ResourceType(Protocol):
     description: str = _(
         "No description for this resource type was provided!"
     )
+    # Whether this resource is required for its associated task
+    # This is usually denoted w/ an asterisk in its name within GUIs
+    required: bool = False
 
     @abstractmethod
     def format_for_csv(self, resource_name: str) -> str:
@@ -62,6 +65,10 @@ class ResourceType(Protocol):
         Note that, if the user has not given the resource a name yet,
         `resource_name` will be "" (a blank string), identical to the default.
         You may want to detect this to tailor your custom messages.
+
+        :param uid: The first valid UID in the dataset.
+        :param resource_name: The current resource name the user has provided.
+        :returns: A warning message that should be presented to the user.
         """
         return None
 
