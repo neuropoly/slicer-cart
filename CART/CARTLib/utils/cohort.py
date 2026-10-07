@@ -1,3 +1,4 @@
+import concurrent.futures as futures
 import copy
 import csv
 import json
@@ -667,60 +668,159 @@ class CaseGenerator(Protocol):
     """
     Function-like Protocol class for generating an initial set of cases.
 
-    Allows for type-hinting, aiding in the registration of custom case generators for future extensions.
+    Allows for type-hinting, aiding in the registration of custom
+    case generators for future extensions.
+
+    If it's not extremely fast, it should keep the user informed on its
+    progress via GUI dialogue.
     """
 
-    def __call__(self, data_path: Path) -> CaseMap: ...
+    def __call__(self, data_path: Path, parent: qt.QObject = None) -> Optional[CaseMap]:
+        """
+        Return a Case Map generated from the passed root data path.
+
+        If "parent" is passed, that means this was launched from a GUI,
+        and you should set the passed object as the parent for any
+        GUIs you wish to show the user.
+
+        Should return None if the process failed, or the user explicitly
+        canceled the process via any GUI elements you present them.
+        """
+        ...
 
 
 # Default generators; simple BIDS support + blank slate
-def _bids_cases(data_path: Path) -> CaseMap:
-    # Identify the initial "source" paths
-    subject_map = {}
-    session_map = {}
-    # Search by subject first
+def _bids_cases(data_path: Path, parent: qt.QObject = None) -> Optional[CaseMap]:
+    """
+    Finds all cases within a BIDS folder (denoted with `sub-`) and generates
+    cases for each. A case is generated for each session a subject has if they
+    have any; if they don't, the subject itself is the case instead.
+
+    Search paths are also added for sub datasets within the `derivatives` folder,
+    with a recursive search being done to identify any multi-nested directories.
+    """
+    ## Setup ##
+    # Workers for Multi-Threading
+    class _BIDSWorker:
+        """
+        BIDS processing worker for each case in the set
+        """
+
+        def __init__(
+            self,
+            base_dir: Path,
+            subject_id: str,
+            session_id: Optional[str] = None
+        ):
+            self.valid_paths = [Path(base_dir.name)]
+            self.subject_id = subject_id
+            self.session_id = session_id
+            self.derivative_path = base_dir.parent / "derivatives"
+
+            # Determine the label based on state
+            if session_id is None:
+                self.label = subject_id
+            else:
+                self.label = f"{subject_id}__{session_id}"
+
+        @qt.Slot()
+        def run(self):
+            # Generate the glob pattern for this worker
+            search_glob = f"**/{self.subject_id}/"
+            if self.session_id:
+                search_glob += f"{self.session_id}/"
+            # Extend our valid paths with any that match the search pattern
+            self.valid_paths.extend(
+                [p.relative_to(data_path) for p in self.derivative_path.glob(search_glob)]
+            )
+            print(self.valid_paths)
+
+    # Progress GUI setup (given we're not a CLI)
+    progressDialog: qt.QProgressDialog = None
+    _progressFn = None
+    if parent is not None:
+        # Setup
+        progressDialog = qt.QProgressDialog(parent)
+        progressDialog.setWindowTitle(_("BIDS Generator"))
+        progressDialog.setLabelText(_(
+            "Identifying BIDS cases..."
+        ))
+
+        # Make it modal (prevent the user from doing anything else until complete or canceled)
+        progressDialog.setWindowModality(qt.Qt.WindowModal)
+
+        # Show the progress dialog
+        progressDialog.show()
+
+    # Identify all cases within the BIDS folder that need to be processed
+    workers: list[_BIDSWorker] = list()
     for p in data_path.glob("sub*/"):
         # Find any sessions associated with this subject
         ses_ps = list(p.glob("ses*/"))
         # If there were none, use the subject alone for this case
         if len(ses_ps) < 1:
             subject = p.parts[-1]
-            subject_map[subject] = [p.relative_to(data_path)]
+            w = _BIDSWorker(
+                p, subject
+            )
+            workers.append(w)
+
         # Otherwise, prepare a case for each session
         else:
             for p2 in ses_ps:
                 subject = p2.parts[-2]
                 session = p2.parts[-1]
-                key = f"{subject}__{session}"
-                session_map[key] = [p2.relative_to(data_path)]
+                w = _BIDSWorker(p, subject, session)
+                workers.append(w)
 
-    # Add associated derivative paths, if such a directory exists
-    derivative_path = data_path / "derivatives"
-    if not derivative_path.exists():
-        logging.warning("No derivatives path found for BIDS directory, skipping.")
-    else:
-        # Parse subject-only cases
-        for subject, val_list in subject_map.items():
-            val_list.extend([
-                p.relative_to(data_path)
-                for p in derivative_path.glob(f"**/{subject}/")
-            ])
-        # Parse session-based cases
-        for key, val_list in session_map.items():
-            subject, session = key.split("__")
-            val_list.extend([
-                p.relative_to(data_path)
-                for p in derivative_path.glob(f"**/{subject}/{session}/")
-            ])
-    # Stack everything together
-    case_map = {k: v for k, v in subject_map.items()}
-    case_map.update(session_map)
+    # Update the progress dialog if we have it
+    if progressDialog:
+        total_cases = len(workers)
+        progressDialog.setMaximum(total_cases)
+
+    # Iteratively process each case, one by one
+    # KO: While we can read from disk in a multithreaded manner,
+    #   disks can not be "multi-queried" in the same manner (barring
+    #   the data being split across multiple disks, anyway). As
+    #   such, one-by-one iteration is cleaner and just as efficient.
+    #   Random-access drives *might* be an exception to this, however;
+    #   might look into detecting this at a later date.
+    for i, w in enumerate(workers):
+        if progressDialog:
+            # End immediately if the user canceled out
+            if progressDialog.wasCanceled:
+                break
+            # Update the progress bar
+            progressDialog.setValue(i)
+            qt.QApplication.processEvents()
+        # Run the worker
+        w.run()
+
+    # Close the dialog
+    if progressDialog:
+        # Also end here if we were pre-maturely canceled
+        was_canceled = progressDialog.wasCanceled
+        progressDialog.close()
+        if was_canceled:
+            return None
+
+    # Otherwise, stack everything together
+    case_map = {
+        w.label: w.valid_paths for w in workers
+    }
+
     # Sort the results to make them easier to work with
     case_map = {k: case_map[k] for k in sorted(case_map.keys())}
+
+    # Return the result
     return case_map
 
 
-def _blank(__: Path) -> CaseMap:
+def _blank(__: Path, ___: qt.QObject = None) -> Optional[CaseMap]:
+    """
+    Does nothing for the user; just generates a blank map for them to
+    fill out themselves
+    """
     return dict()
 
 
@@ -752,17 +852,23 @@ def register_case_generator(label: str, description: str, generator: CaseGenerat
 
 
 def cohort_from_generator(
-    cohort_path: Path, data_path: Path, generator: CaseGenerator
-) -> CohortModel:
+    cohort_path: Path, data_path: Path, generator: CaseGenerator, parent: qt.QObject = None
+) -> Optional[CohortModel]:
     """
     Generate a cohort from scratch, using the provided generator and input dataset.
 
     :param cohort_path: The to-be-created (or overwritten) cohort file path
     :param data_path: The data path to reference when finding cases
     :param generator: The generator to user.
+    :param parent: The QT parent object to disable while its being run
     """
     # Build the case map from the generator
-    case_map = generator(data_path)
+    case_map = generator(data_path, parent)
+
+    # If the case map is null, something went wrong, end here
+    if case_map is None:
+        return None
+
     # Create the cohort model from that
     cohort = CohortModel.from_case_map(
         csv_path=cohort_path, data_path=data_path, case_map=case_map
