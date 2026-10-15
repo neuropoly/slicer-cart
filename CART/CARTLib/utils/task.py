@@ -1,8 +1,13 @@
 import inspect
+from abc import ABC
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Generic, Callable
 
-from CARTLib.core.TaskBaseClass import TaskBaseClass
+import qt
+import slicer.util
+
+from CARTLib.core.TaskBaseClass import TaskBaseClass, D
+from CARTLib.utils.config import ResourceSpecificConfig
 
 """
 Registry for loaded CART tasks
@@ -58,3 +63,58 @@ def cart_task(label: str):
         return cls
 
     return _register_task
+
+
+class CARTCloseEventFilter(qt.QObject):
+    """
+    Event filter which is applied when a `CARTTask` instance is
+    initializes (is "entered"). Disables Slicer's default
+    "the scene has been changed" dialogue and replaces it with
+    our own custom one to ensure the user doesn't get confused.
+    """
+    def eventFilter(self, window, event):
+        """
+        Bypass Slicer's default saving prompt, closing outright
+        instead.
+        """
+        if event.type() == qt.QEvent.Close:
+            event.accept()
+            return True
+        return False
+
+
+CART_TASK_EVENT_FILTER = CARTCloseEventFilter()
+
+
+class CARTTask(TaskBaseClass, ABC, Generic[D]):
+    """
+    Unique subclass which provided default implementations for resource-specific config
+    options, to match those used by CART's default resource types.
+    """
+    ## Configuration Template Usage ##
+    @classmethod
+    def drop_resource_config(
+        cls, resource_id: str, task_config: TaskBaseClass.TaskConfig
+    ):
+        # Use our resource-specific config manager to ensure standardization
+        resource_config = ResourceSpecificConfig(task_config)
+        resource_config.drop_resource_config(resource_id)
+
+    @classmethod
+    def rename_resource_config(
+        cls, old_id: str, new_id: str, task_config: TaskBaseClass.TaskConfig
+    ):
+        # Use our resource-specific config manager to ensure standardization
+        resource_config = ResourceSpecificConfig(task_config)
+        resource_config.rename_resource(old_id, new_id)
+
+    ## On-Exit Prompt Bypass ##
+    def enter(self):
+        """
+        To avoid having the user potentially save a very buggy scene
+        when prompted that "the scene has changed", we catch the
+        close event and handle it ourselves instead.
+        """
+        slicer.util.mainWindow().installEventFilter(
+            CART_TASK_EVENT_FILTER
+        )

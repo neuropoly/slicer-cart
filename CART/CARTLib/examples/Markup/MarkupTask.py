@@ -5,7 +5,6 @@ import qt
 import slicer
 from slicer.i18n import tr as _
 
-from CARTLib.core.TaskBaseClass import CARTTask
 from CARTLib.core.DataUnitBase import DataUnitFactory
 from CARTLib.utils.config import JobProfileConfig, DictBackedConfig, MasterProfileConfig
 from CARTLib.utils.data import (
@@ -13,7 +12,7 @@ from CARTLib.utils.data import (
     ReferenceVolumeResource,
     VolumeResource,
 )
-from CARTLib.utils.task import cart_task
+from CARTLib.utils.task import cart_task, CARTTask
 
 from MarkupConfig import MarkupConfig
 from MarkupIO import MarkupOutput

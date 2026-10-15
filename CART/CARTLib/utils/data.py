@@ -1029,6 +1029,7 @@ class ReferenceVolumeResource(VolumeResource):
         "The first of these (from left to right) will be used as the "
         "reference volume, with all other resources being aligned to it."
     )
+    required = True
 
     @classmethod
     def buildConfigGUI(

@@ -44,6 +44,7 @@ class EditableSegmentationResource(SegmentationResource):
         "You can customize the values the label(s) will have using the GUI below. "
         "Please define it to the best of your ability."
     )
+    required = True
 
     @classmethod
     def buildConfigGUI(
@@ -64,8 +65,7 @@ class EditableSegmentationResource(SegmentationResource):
             return _("⚠ Output files will be the same as the reference volume file "
                      "with the resource name appended! ⚠")
         # Otherwise, use the name
-        return _(f"⚠ Output files are the reference volume's filename with the "
-                 f"resource name appended (i.e. '{uid}_{resource_name}.nii.gz')! ⚠")
+        return _(f"⚠ Output for first case will be '{uid}_{resource_name}.nii.gz' ⚠")
 
 
 class ReferenceSegmentationResource(SegmentationResource):

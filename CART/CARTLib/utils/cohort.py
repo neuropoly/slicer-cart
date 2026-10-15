@@ -1,3 +1,4 @@
+import concurrent.futures as futures
 import copy
 import csv
 import json
@@ -199,9 +200,16 @@ class CohortModel(CSVBackedTableModel):
             If a case already exists with this label, replaces it; otherwise, a new case is created.
         :param search_paths: The paths that should be searched when finding files for this case.
         """
+        # Find the row position which matches our case label
+        row_idx = self.find_case_idx(case_label)
         # Get the list of paths for this case
-        new_paths = self.find_row_files(search_paths)
-        new_paths = np.array([str(k) if k is not None else "" for k in new_paths])
+        new_paths = self.find_row_files(search_paths, row_idx)
+        # If none was returned, do nothing and end here
+        if new_paths is None:
+            return
+        else:
+            # Otherwise, make sure things are formatted nicely for QT
+            new_paths = np.array([str(k) if k is not None else "" for k in new_paths])
 
         # If this is a new case, create a new column to match
         if case_label not in self.case_map.keys():
@@ -209,13 +217,9 @@ class CohortModel(CSVBackedTableModel):
             row_idx = self.rowCount()
             self.addRow(row_idx, new_paths)
             # Set the header to this new label
-            self.setHeaderData(
-                row_idx, qt.Qt.Vertical, case_label, qt.Qt.EditRole
-            )
+            self.setHeaderData(row_idx, qt.Qt.Vertical, case_label, qt.Qt.EditRole)
         # Otherwise, replace the row's values with the newly found paths
         else:
-            # Find the column position which matches our resource label
-            row_idx = np.argwhere(self.indices == case_label).flatten()[0]
             # Change the column's contents to our new list of paths
             self.setRow(row_idx, new_paths)
 
@@ -225,7 +229,11 @@ class CohortModel(CSVBackedTableModel):
     def rename_case(self, old_name: str, new_name: str):
         # Check if a case map with this name already exists
         if old_name not in self.case_map.keys():
-            raise ValueError(f"Cannot rename case '{old_name}'; it doesn't exist!")
+            raise ValueError(f"Cannot rename case '{old_name}'; it does not exist!")
+        # Check that there is a valid index in the table
+        row_idx = self.find_case_idx(old_name)
+        if row_idx < 0:
+            raise ValueError(f"Cannot rename case '{old_name}'; it does not exist!")
         # Update the backing model
         row_idx = np.argwhere(self.indices == old_name).flatten()[0]
         self.setHeaderData(row_idx, qt.Qt.Vertical, new_name, qt.Qt.EditRole)
@@ -243,7 +251,7 @@ class CohortModel(CSVBackedTableModel):
         # Do everything in one go to avoid partial corruption
         for name in names:
             # Update the backing model
-            row_idx = np.argwhere(self.indices == name).flatten()[0]
+            row_idx = self.find_case_idx(name)
             self.dropRow(row_idx)
             # Update the case map
             self.case_map.pop(name)
@@ -257,7 +265,8 @@ class CohortModel(CSVBackedTableModel):
         :param filter_entry: The filter entry to associate with the new/updated resource.
         """
         # Find and process the list of paths associated with this filter
-        new_paths = self.find_column_files(filter_entry)
+        col_idx = self.find_resource_idx(resource_label)
+        new_paths = self.find_column_files(filter_entry, col_idx)
         new_paths = np.array([str(k) if k is not None else "" for k in new_paths])
 
         # If this is a new resource, create a new column to match
@@ -271,8 +280,6 @@ class CohortModel(CSVBackedTableModel):
             )
         # Otherwise, replace the column's values with the newly found paths
         else:
-            # Find the column position which matches our resource label
-            col_idx = np.argwhere(self.header == resource_label).flatten()[0]
             # Change the model's contents to our new list of paths
             self.setColumn(col_idx, new_paths)
 
@@ -284,16 +291,19 @@ class CohortModel(CSVBackedTableModel):
 
     def rename_resource(self, old_name: str, new_name: str, task_config: Optional[DictBackedConfig] = None):
         # Check that there's actually a filter to rename
-        if old_name not in self.resource_map.keys():
-            raise ValueError(f"Cannot rename resource '{old_name}'; it doesn't exist!")
+        if old_name not in self.header:
+            raise ValueError(f"Cannot rename resource '{old_name}'; it does not exist!")
 
         # Update the backing model
-        col_idx = np.argwhere(self.header == old_name).flatten()[0]
+        col_idx = self.find_resource_idx(old_name)
+        if col_idx < 0:
+            raise ValueError(f"Cannot rename resource '{old_name}'; it does not exist!")
         self.setHeaderData(col_idx, qt.Qt.Horizontal, new_name, qt.Qt.EditRole)
 
         # Update the resource entry to reflect the change
-        resource_entry = self.resource_map.pop(old_name)
-        self.resource_map[new_name] = resource_entry
+        if old_name in self.resource_map.keys():
+            resource_entry = self.resource_map.pop(old_name)
+            self.resource_map[new_name] = resource_entry
 
         # If we have a reference task + config, have the task run renaming operations as well
         if self.reference_task and task_config:
@@ -309,7 +319,7 @@ class CohortModel(CSVBackedTableModel):
         # Do everything in one go to avoid partial corruption
         for name in names:
             # Update the backing model
-            col_idx = np.argwhere(self.header == name).flatten()[0]
+            col_idx = self.find_resource_idx(name)
             self.dropColumn(col_idx)
             # Update the case map
             self.resource_map.pop(name)
@@ -384,6 +394,60 @@ class CohortModel(CSVBackedTableModel):
             self.headerDataChanged(orientation, section, section)
 
     ## File Searching/Filtering ##
+    @staticmethod
+    def passes_filters(file_str: str, filters: ResourceFilter) -> bool:
+        """
+        Check if the provided file path passes the filters we've been given
+        """
+        # Check if this passes all inclusion filters
+        if len(filters.include) > 0 and any([i not in file_str for i in filters.include]):
+            return False
+        # Check if this passes all exclusion filters
+        elif len(filters.exclude) > 0 and any([i in file_str for i in filters.exclude]):
+            return False
+        # Check that the extension matches
+        elif filters.extension and not file_str.endswith(filters.extension):
+            return False
+        return True
+
+    def find_case_idx(self, case_label: str) -> int:
+        """
+        Tries to find the positional index within this model for
+        a case (row) with the passed label.
+
+        :param case_label: The label to search for.
+        :returns: The positional row index for the given label.
+            -1 if the label is not present in the model.
+        """
+        # Find the row position which matches this case label
+        if len(self.indices) > 0:
+            query_results = np.argwhere(self.indices == case_label).flatten()
+            if len(query_results) < 1:
+                return -1
+            return query_results[0]
+        else:
+            # Default to a placeholder value to allow initial insertions
+            return -1
+
+    def find_resource_idx(self, resource_label: str) -> int:
+        """
+        Tries to find the positional index within this model for
+        a resource (column) with the passed label.
+
+        :param resource_label: The label to search for.
+        :returns: The positional column index for the given label.
+            -1 if the label is not present in the model.
+        """
+        # Find the row position which matches this case label
+        if len(self.header) > 0:
+            query_results = np.argwhere(self.header == resource_label).flatten()
+            if len(query_results) < 1:
+                return -1
+            return query_results[0]
+        else:
+            # Default to a placeholder value to allow initial insertions
+            return -1
+
     def find_first_valid_file(
         self, search_paths: list[Path], filters: ResourceFilter
     ) -> Optional[Path]:
@@ -394,7 +458,7 @@ class CohortModel(CSVBackedTableModel):
         # If both filters are blank, assume the user wants nothing rather than an effectively random file.
         n_includes = len(filters.include)
         n_excludes = len(filters.exclude)
-        if n_includes < 1 and n_excludes < 1:
+        if n_includes < 1 and n_excludes < 1 and filters.extension == "":
             logging.info("No filters were given, assuming user wanted a blank entry.")
             return None
 
@@ -410,19 +474,9 @@ class CohortModel(CSVBackedTableModel):
                 r = Path(r)
                 for f in fs:
                     f = r / f
-                    file_string = str(f)
-                    # Check if all inclusion criterion were met
-                    if n_includes != 0 and any([i not in file_string for i in filters.include]):
-                        continue
-                    # Check that all exclusion criterion were met
-                    if n_excludes != 0 and any([i in file_string for i in filters.exclude]):
-                        continue
-                    # Check if our extension matches
-                    if not file_string.endswith(filters.extension):
-                        continue
-                    # If all prior checks passed, track the file and end
-                    result = f
-                    break
+                    if self.passes_filters(str(f), filters):
+                        result = f
+                        break
                 # Else-continue-break chain, allowing for the break to chain up the loops
                 else:
                     continue
@@ -440,19 +494,41 @@ class CohortModel(CSVBackedTableModel):
         else:
             return result
 
-    def find_row_files(self, search_paths: list[Path]) -> list[Optional[Path]]:
-        result_map = {}
-        for k, v in self.resource_map.items():
-            result_map[k] = self.find_first_valid_file(search_paths, v)
-        sorted_pathlist = [result_map.get(k, None) for k in self.header]
-        return sorted_pathlist
+    def find_row_files(
+        self, search_paths: list[Path], fallback_row_idx: int
+    ) -> list[Optional[Path]]:
+        # If we don't have any search paths, leave everything as is
+        if len(search_paths) < 1:
+            return None
 
-    def find_column_files(self, column_filters: ResourceFilter) -> list[Optional[Path]]:
-        result_map = {}
-        for k, v in self.case_map.items():
-            result_map[k] = self.find_first_valid_file(v, column_filters)
-        sorted_pathlist = [result_map.get(k, None) for k in self.indices]
-        return sorted_pathlist
+        # Get the list of results, in the same order of the original map
+        result_list = []
+        for col_id in self.header:
+            filters: ResourceFilter = self.resource_map.get(col_id, None)
+            result_list.append(self.find_first_valid_file(search_paths, filters))
+        return result_list
+
+    def find_column_files(
+        self, column_filters: ResourceFilter, fallback_col_idx: int = None
+    ) -> list[Optional[Path]]:
+
+        result_list = []
+        # Get the list of results, in the same order of the original map
+        for row_idx, row_id in enumerate(self.indices):
+            search_paths: list[Path] = self.case_map.get(row_id, None)
+            # If there is a set of search paths, do a regular search
+            if search_paths is not None and len(search_paths) > 0:
+                result_list.append(self.find_first_valid_file(
+                    search_paths, column_filters
+                ))
+            # Otherwise, see if the current value passes the filter instead
+            else:
+                prior_val = str(self.csv_data[row_idx, fallback_col_idx])
+                if self.passes_filters(prior_val, column_filters):
+                    result_list.append(prior_val)
+                else:
+                    result_list.append(None)
+        return result_list
 
     ## I/O ##
     VERSION_KEY = "cohort_version"
@@ -545,8 +621,9 @@ class CohortModel(CSVBackedTableModel):
     def csv_to_original(self, csv_label: str) -> Optional[str]:
         # Return the "original" name (provided by the user) for this resource
         resource = self.resource_map.get(csv_label)
+        # If there's no configured resource yet, just use the original label
         if resource is None:
-            return None
+            return csv_label
         return resource.original_name
 
     def csv_to_resource_type(self, csv_label: str) -> "Optional[ResourceType]":
@@ -568,13 +645,14 @@ class CohortModel(CSVBackedTableModel):
     def csv_to_pretty(self, csv_label: str) -> Optional[str]:
         # Get the resource for this label
         resource = self.resource_map.get(csv_label)
+        # If there's no resource yet (this column is unconfigured), just use the raw label w/ a marker
         if resource is None:
-            return None
+            return f"{csv_label} (UNCONFIGURED)"
 
         # Get the type of resource for this instance
         resource_type = self.csv_to_resource_type(csv_label)
         if resource_type is None:
-            return csv_label
+            return f"{csv_label} (UNCONFIGURED)"
 
         # If the resource doesn't have an original name, use the CSV name instead
         original_label = self.csv_to_original(csv_label)
@@ -590,60 +668,165 @@ class CaseGenerator(Protocol):
     """
     Function-like Protocol class for generating an initial set of cases.
 
-    Allows for type-hinting, aiding in the registration of custom case generators for future extensions.
+    Allows for type-hinting, aiding in the registration of custom
+    case generators for future extensions.
+
+    If it's not extremely fast, it should keep the user informed on its
+    progress via GUI dialogue.
     """
 
-    def __call__(self, data_path: Path) -> CaseMap: ...
+    def __call__(self, data_path: Path, parent: qt.QObject = None) -> Optional[CaseMap]:
+        """
+        Return a Case Map generated from the passed root data path.
+
+        If "parent" is passed, that means this was launched from a GUI,
+        and you should set the passed object as the parent for any
+        GUIs you wish to show the user.
+
+        Should return None if the process failed, or the user explicitly
+        canceled the process via any GUI elements you present them.
+        """
+        ...
 
 
 # Default generators; simple BIDS support + blank slate
-def _bids_cases(data_path: Path) -> CaseMap:
-    # Identify the initial "source" paths
-    subject_map = {}
-    session_map = {}
-    # Search by subject first
+def _bids_cases(data_path: Path, parent: qt.QObject = None) -> Optional[CaseMap]:
+    """
+    Finds all cases within a BIDS folder (denoted with `sub-`) and generates
+    cases for each. A case is generated for each session a subject has if they
+    have any; if they don't, the subject itself is the case instead.
+
+    Search paths are also added for sub datasets within the `derivatives` folder,
+    with a recursive search being done to identify any multi-nested directories.
+    """
+    ## Setup ##
+    # Workers for Multi-Threading
+    class _BIDSWorker:
+        """
+        BIDS processing worker for each case in the set
+        """
+
+        def __init__(
+            self,
+            base_path: Path,
+            subject_id: str,
+            session_id: Optional[str] = None
+        ):
+            self.valid_paths = list()
+            self.subject_id = subject_id
+            self.session_id = session_id
+            self.base_path = base_path
+
+            # Determine the label based on state
+            if session_id is None:
+                self.label = subject_id
+            else:
+                self.label = f"{subject_id}__{session_id}"
+
+        @qt.Slot()
+        def run(self):
+            # Initial valid path (the root of our session)
+            init_path = self.base_path / self.subject_id
+            if self.session_id:
+                init_path /= self.session_id
+            self.valid_paths.append(init_path.relative_to(self.base_path))
+
+            # Find the derivatives associated with this case
+            deriv_path = self.base_path / "derivatives"
+            search_glob = f"*/{self.subject_id}/"
+            if self.session_id:
+                search_glob += f"{self.session_id}/"
+            # Extend our valid paths with any that match the search pattern
+            self.valid_paths.extend(
+                [p.relative_to(data_path) for p in deriv_path.glob(search_glob)]
+            )
+
+    # Progress GUI setup (given we're not a CLI)
+    progressDialog: qt.QProgressDialog = None
+    _progressFn = None
+    if parent is not None:
+        # Setup
+        progressDialog = qt.QProgressDialog(parent)
+        progressDialog.setWindowTitle(_("BIDS Generator"))
+        progressDialog.setLabelText(_(
+            "Identifying BIDS cases..."
+        ))
+
+        # Make it modal (prevent the user from doing anything else until complete or canceled)
+        progressDialog.setWindowModality(qt.Qt.WindowModal)
+
+        # Show the progress dialog
+        progressDialog.show()
+
+    # Identify all cases within the BIDS folder that need to be processed
+    workers: list[_BIDSWorker] = list()
     for p in data_path.glob("sub*/"):
         # Find any sessions associated with this subject
         ses_ps = list(p.glob("ses*/"))
         # If there were none, use the subject alone for this case
         if len(ses_ps) < 1:
             subject = p.parts[-1]
-            subject_map[subject] = [p.relative_to(data_path)]
+            w = _BIDSWorker(
+                data_path, subject
+            )
+            workers.append(w)
+
         # Otherwise, prepare a case for each session
         else:
             for p2 in ses_ps:
                 subject = p2.parts[-2]
                 session = p2.parts[-1]
-                key = f"{subject}__{session}"
-                session_map[key] = [p2.relative_to(data_path)]
+                w = _BIDSWorker(data_path, subject, session)
+                workers.append(w)
 
-    # Add associated derivative paths, if such a directory exists
-    derivative_path = data_path / "derivatives"
-    if not derivative_path.exists():
-        logging.warning("No derivatives path found for BIDS directory, skipping.")
-    else:
-        # Parse subject-only cases
-        for subject, val_list in subject_map.items():
-            val_list.extend([
-                p.relative_to(data_path)
-                for p in derivative_path.glob(f"*/{subject}/")
-            ])
-        # Parse session-based cases
-        for key, val_list in session_map.items():
-            subject, session = key.split("__")
-            val_list.extend([
-                p.relative_to(data_path)
-                for p in derivative_path.glob(f"*/{subject}/{session}/")
-            ])
-    # Stack everything together
-    case_map = {k: v for k, v in subject_map.items()}
-    case_map.update(session_map)
+    # Update the progress dialog if we have it
+    if progressDialog:
+        total_cases = len(workers)
+        progressDialog.setMaximum(total_cases)
+
+    # Iteratively process each case, one by one
+    # KO: While we can read from disk in a multithreaded manner,
+    #   disks can not be "multi-queried" in the same manner (barring
+    #   the data being split across multiple disks, anyway). As
+    #   such, one-by-one iteration is cleaner and just as efficient.
+    #   Random-access drives *might* be an exception to this, however;
+    #   might look into detecting this at a later date.
+    for i, w in enumerate(workers):
+        if progressDialog:
+            # End immediately if the user canceled out
+            if progressDialog.wasCanceled:
+                break
+            # Update the progress bar
+            progressDialog.setValue(i)
+            qt.QApplication.processEvents()
+        # Run the worker
+        w.run()
+
+    # Close the dialog
+    if progressDialog:
+        # Also end here if we were pre-maturely canceled
+        was_canceled = progressDialog.wasCanceled
+        progressDialog.close()
+        if was_canceled:
+            return None
+
+    # Otherwise, stack everything together
+    case_map = {
+        w.label: w.valid_paths for w in workers
+    }
+
     # Sort the results to make them easier to work with
     case_map = {k: case_map[k] for k in sorted(case_map.keys())}
+
+    # Return the result
     return case_map
 
 
-def _blank(__: Path) -> CaseMap:
+def _blank(__: Path, ___: qt.QObject = None) -> Optional[CaseMap]:
+    """
+    Does nothing for the user; just generates a blank map for them to
+    fill out themselves
+    """
     return dict()
 
 
@@ -675,17 +858,23 @@ def register_case_generator(label: str, description: str, generator: CaseGenerat
 
 
 def cohort_from_generator(
-    cohort_path: Path, data_path: Path, generator: CaseGenerator
-) -> CohortModel:
+    cohort_path: Path, data_path: Path, generator: CaseGenerator, parent: qt.QObject = None
+) -> Optional[CohortModel]:
     """
     Generate a cohort from scratch, using the provided generator and input dataset.
 
     :param cohort_path: The to-be-created (or overwritten) cohort file path
     :param data_path: The data path to reference when finding cases
     :param generator: The generator to user.
+    :param parent: The QT parent object to disable while its being run
     """
     # Build the case map from the generator
-    case_map = generator(data_path)
+    case_map = generator(data_path, parent)
+
+    # If the case map is null, something went wrong, end here
+    if case_map is None:
+        return None
+
     # Create the cohort model from that
     cohort = CohortModel.from_case_map(
         csv_path=cohort_path, data_path=data_path, case_map=case_map
@@ -1127,7 +1316,7 @@ class CohortEditorDialog(ChangeTrackingDialogue):
         self._to_disconnect = []
 
         # Backing cohort manager
-        self._cohort: qt.QAbstractTableModel = cohort
+        self._cohort: "CohortModel" = cohort
 
         # Track a parent-less copy of the config
         # (parent-less to prevent changes propagating upwards prematurely)
@@ -1322,7 +1511,7 @@ class CohortEditorDialog(ChangeTrackingDialogue):
         msg.setStandardButtons(qt.QMessageBox.Yes | qt.QMessageBox.No)
         # Only apply the deletion if confirmed by the user
         if msg.exec() == qt.QMessageBox.Yes:
-            self._cohort.drop_filters(resource_names)
+            self._cohort.drop_resource(resource_names)
 
     @qt.Slot()
     def _addNewCase(self):
@@ -1352,6 +1541,13 @@ class CohortEditorDialog(ChangeTrackingDialogue):
 
 
 class ResourceEditorDialogue(ChangeTrackingDialogue):
+
+    # Default to compressed NIfTI format in filters
+    # (to avoid random JSONs if the user isn't paying attention)
+    DEFAULT_EXTENSION = ".nii.gz"
+
+    # Value to put into fields missing a value
+    MISSING_FIELD_VALUE = ""
 
     def __init__(
         self,
@@ -1398,11 +1594,16 @@ class ResourceEditorDialogue(ChangeTrackingDialogue):
         self._resource_type_map = {v.pretty_name: v for v in duf.resource_types().values()}
 
         # Initial setup
-        if resource_name:
+        if not resource_name:
+            # If this is a brand-new resource
+            self.setWindowTitle(_("Add New Resource"))
+        elif not self._prior_resource:
+            # If this a yet-to-be configured resource (a CSV w/o a sidecar)
+            self.setWindowTitle(_(f"Configuring '{resource_name}'"))
+        else:
+            # If this is an existing resource we're editing
             pretty_name = cohort.csv_to_pretty(resource_name)
             self.setWindowTitle(_(f"Editing Resource '{pretty_name}'"))
-        else:
-            self.setWindowTitle(_("Add New Resource"))
 
         # Initially widen to show more of the contents
         self.resize(500, self.minimumHeight)
@@ -1418,8 +1619,6 @@ class ResourceEditorDialogue(ChangeTrackingDialogue):
         ## Field Name GUI ##
         nameLabel = qt.QLabel(_("Resource Name:"))
         nameField = qt.QLineEdit()
-        if resource_name:
-            nameField.setText(cohort.csv_to_original(resource_name))
         nameField.setPlaceholderText(_("e.g. disk_labels, spinal_T2w, liver_segmentation"))
         nameTooltip = _(
             "The name you'd like this resource to have. "
@@ -1428,22 +1627,14 @@ class ResourceEditorDialogue(ChangeTrackingDialogue):
         nameLabel.setToolTip(nameTooltip)
         nameField.setToolTip(nameTooltip)
         layout.addRow(nameLabel, nameField)
-        nameField.textChanged.connect(self.mark_changed)
         self.nameField = nameField
 
         # Place the warning label (if any) here.
         layout.addRow(self.warningLabel)
 
-        ## Include/Exclude/Extension Fields ##
+        ### Include/Exclude/Extension Fields ###
         includeLabel = qt.QLabel(_("Include:"))
         includeField = qt.QLineEdit()
-        if resource_name:
-            resource = self._cohort.resource_map.get(resource_name)
-            include_vals = resource.include
-            if include_vals is None:
-                includeField.setText("")
-            else:
-                includeField.setText(", ".join(include_vals))
         includeTooltip = _(
             "Comma-separated elements that a file MUST have to be used for this resource. "
             "This incudes the directory the file is contained within!"
@@ -1456,12 +1647,6 @@ class ResourceEditorDialogue(ChangeTrackingDialogue):
 
         excludeLabel = qt.QLabel(_("Exclude:"))
         excludeField = qt.QLineEdit()
-        if resource_name:
-            resource = self._cohort.resource_map.get(resource_name, None)
-            if resource is None or resource.exclude is None:
-                excludeField.setText("")
-            else:
-                excludeField.setText(", ".join(resource.exclude))
         excludeTooltip = _(
             "Comma-separated elements that a file MUST NOT have to be used for this resource. "
             "This incudes the directory the file is contained within!"
@@ -1474,32 +1659,49 @@ class ResourceEditorDialogue(ChangeTrackingDialogue):
 
         extensionLabel = qt.QLabel(_("Extension:"))
         extensionField = qt.QLineEdit()
-        if resource_name:
-            resource = self._cohort.resource_map.get(resource_name, None)
-            if resource is None or resource.exclude is None:
-                extensionField.setText("")
-            else:
-                extensionField.setText(resource.extension)
         extensionTooltip = _(
             "The file extension to filter for. Leave blank to accept any file type."
         )
         extensionLabel.setToolTip(extensionTooltip)
         extensionField.setToolTip(extensionTooltip)
         extensionField.setPlaceholderText(_("e.g. .nii.gz"))
-        defaultExtension = ".nii.gz" # Default to NIfTI format
-        if resource_name:
-            resource = self._cohort.resource_map.get(resource_name)
-            prior_extension = resource.extension
-            if prior_extension is None:
-                extensionField.setText(defaultExtension)
-            else:
-                extensionField.setText(prior_extension)
-        else:
-            extensionField.setText(defaultExtension)
         self.extensionField = extensionField
         layout.addRow(extensionLabel, extensionField)
 
+        ## Data Fill-In ##
+        resource: ResourceFilter = self._cohort.resource_map.get(resource_name)
+        # Name field is unique, and should use the raw header is one is available
+        if resource_name:
+            original_name = cohort.csv_to_original(resource_name)
+            nameField.setText(original_name)
+        # Skip most data fill if this is a new/yet-to-be-configured resource
+        if resource is not None:
+            # Include
+            include_vals = resource.include
+            if include_vals is None:
+                includeField.setText(self.MISSING_FIELD_VALUE)
+            else:
+                includeField.setText(", ".join(include_vals))
+            # Exclude
+            exclude_vals = resource.exclude
+            if exclude_vals is None:
+                excludeField.setText(self.MISSING_FIELD_VALUE)
+            else:
+                excludeField.setText(", ".join(exclude_vals))
+            # Extension
+            extension_val = resource.extension
+            if extension_val is None:
+                # If there's (somehow) a null value, put a blank line instead
+                extensionField.setText(self.MISSING_FIELD_VALUE)
+            else:
+                # Otherwise, use the provided value
+                extensionField.setText(extension_val)
+        # The extension field has a default to use as a fallback
+        else:
+            extensionField.setText(self.DEFAULT_EXTENSION)
+
         # Mark the cohort as being changed if any of the fields change
+        nameField.textChanged.connect(self.mark_changed)
         includeField.textChanged.connect(self.mark_changed)
         excludeField.textChanged.connect(self.mark_changed)
         extensionField.textChanged.connect(self.mark_changed)
@@ -1553,7 +1755,10 @@ class ResourceEditorDialogue(ChangeTrackingDialogue):
         # Resource type selector and description
         resourceTypeLabel = qt.QLabel(_("Resource Type:"))
         resourceTypeSelector = qt.QComboBox(None)
-        resourceTypeSelector.addItems(list(self._resource_type_map.keys()))
+        # Mark "required" resources w/ an asterisk
+        resourceTypeSelector.addItems(
+            [f"*{k}" if v.required else k for k, v in self._resource_type_map.items()]
+        )
         resourceTypeToolTip = _(
             "The resource type for this column."
             "\n\n"
@@ -1637,7 +1842,7 @@ class ResourceEditorDialogue(ChangeTrackingDialogue):
                 duf = self._cohort.reference_task.getDataUnitFactory()
                 prior_type = duf.resource_types().get(prior_type_id)
                 if prior_type is not None:
-                    resourceTypeSelector.setCurrentText(prior_type.pretty_name)
+                    self.resource_type = prior_type
                     # Reset our change state to prevent an erroneous "Unsaved Changes" pop-up
                     self._has_changed = False
 
@@ -1764,7 +1969,7 @@ class ResourceEditorDialogue(ChangeTrackingDialogue):
         )
 
         # If this an updated resource, rename the resource to this new name
-        if self._prior_resource is not None:
+        if self._prior_resource_name is not None:
             self._cohort.rename_resource(self._prior_resource_name, csv_str)
 
         # Update cohort to use the new resource filter
@@ -1820,7 +2025,11 @@ class ResourceEditorDialogue(ChangeTrackingDialogue):
 
     @property
     def resource_type(self) -> "Optional[ResourceType]":
-        current_text = self.resourceTypeSelector.currentText.strip()
+        current_text: str = self.resourceTypeSelector.currentText.strip()
+        # Strip the leading asterisk if present
+        if current_text.startswith("*"):
+            current_text = current_text[1:]
+        # Fetch and return the datatype
         resource_type = self._resource_type_map.get(current_text)
         return resource_type
 
@@ -1831,8 +2040,12 @@ class ResourceEditorDialogue(ChangeTrackingDialogue):
             raise ValueError(
                 f"Resource type {new_type.pretty_name} is not a valid type for the selected data unit."
             )
+        display_name = new_type.pretty_name
+        # If this resource type is required, re-add the leading asterisk
+        if new_type.required:
+            display_name = f"*{display_name}"
         # Update our GUI (and everything else that follows) to match
-        self.resourceTypeSelector.setCurrentText(new_type.pretty_name)
+        self.resourceTypeSelector.setCurrentText(display_name)
 
 
 class CaseEditorDialog(ChangeTrackingDialogue):
