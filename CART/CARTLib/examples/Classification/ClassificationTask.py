@@ -6,6 +6,7 @@ import qt
 
 from CARTLib.core.TaskBaseClass import TaskBaseClass
 from CARTLib.core.DataUnitBase import DataUnitFactory
+from CARTLib.examples.Classification.ClassificationConfig import ClassificationConfig
 from CARTLib.examples.Classification.ClassificationOutputManager import ClassificationOutputManager
 from CARTLib.utils.config import JobProfileConfig, MasterProfileConfig
 from CARTLib.utils.task import cart_task
@@ -90,6 +91,10 @@ class ClassificationTask(TaskBaseClass[ClassificationUnit]):
         # If we have a GUI, show the result to the user
         if self.gui and result_msg:
             showSuccessPrompt(result_msg)
+
+    @classmethod
+    def init_config(cls, job_config: JobProfileConfig) -> ClassificationConfig:
+        return ClassificationConfig(job_config)
 
     @classmethod
     def getDataUnitFactory(cls) -> DataUnitFactory:

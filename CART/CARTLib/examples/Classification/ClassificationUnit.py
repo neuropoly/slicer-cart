@@ -16,9 +16,10 @@ class ClassificationUnit(CARTStandardUnit):
         self,
         case_data: dict[str, str],
         data_path: Path,
+        prior_data: dict = None,
         scene: slicer.vtkMRMLScene = slicer.mrmlScene,
     ):
-        super().__init__(case_data, data_path, scene)
+        super().__init__(case_data, data_path, prior_data, scene)
 
         # Current classifications for this case
         self._classes: set[str] = set()
