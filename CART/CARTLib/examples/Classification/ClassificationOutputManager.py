@@ -87,15 +87,6 @@ class ClassificationOutputManager:
         # Return the resulting data
         return csv_data
 
-    @property
-    def json_metadata_file(self) -> Path:
-        """
-        Where the JSON metadata should be saved too.
-
-        Read-only, as it's tightly associated with the output directory.
-        """
-        return self.output_dir / f"cart_classifications.json"
-
     def get_data_for(self, uid: str) -> Optional[tuple[set, str]]:
         idx = (uid, self.author)
         entry = self.csv_data.get(idx)
@@ -128,17 +119,3 @@ class ClassificationOutputManager:
             writer = csv.DictWriter(fp, fieldnames=self.LOG_HEADERS)
             writer.writeheader()
             writer.writerows(self.csv_data.values())
-
-    def read_metadata(self) -> dict[str, str]:
-        # If the JSON file doesn't exist, return an empty dict
-        if not self.json_metadata_file.exists():
-            return dict()
-        # Otherwise, read the JSON file's contents and return it
-        with open(self.json_metadata_file, "r") as fp:
-            class_map = json.load(fp)
-            return class_map
-
-    def save_metadata(self, class_map: dict[str, str]):
-        # Just dumps the provided class map to file
-        with open(self.json_metadata_file, "w") as fp:
-            json.dump(class_map, fp, indent=2)

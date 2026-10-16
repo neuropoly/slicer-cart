@@ -157,8 +157,8 @@ class ClassificationGUI:
         # Build the "other remarks" entry widget
         self._setupRemarksWidget(formLayout)
 
-        # Initialize the list entries to match our bound task
-        self._syncListEntriesWithTask()
+        # Sync with the task's (presumably first) data unit
+        self.syncWithDataUnit()
 
         # Return the layout
         return formLayout
@@ -172,6 +172,7 @@ class ClassificationGUI:
         addButton.setText("Add New Class")
 
         # When the button is pressed, generate the new class prompt
+        @qt.Slot()
         def promptNewClass():
             # Show a prompt asking for a new class entry
             newClassDialog = NewClassDialog(self.bound_task.config.classes)
@@ -179,21 +180,12 @@ class ClassificationGUI:
 
             # If the prompt was confirmed, try to add the new class
             if accepted:
-                # Raise an error if the class already exists
-                if (class_name := newClassDialog.class_name) in self.bound_task.class_map.keys():
-                    raise ValueError(
-                        f"Cannot add class {class_name}; a class with that name "
-                        f"was already registered!"
-                    )
+                name = newClassDialog.class_name
+                desc = newClassDialog.description
                 with self.block_signals():
-                    self.addNewClass(
-                        class_name,
-                        newClassDialog.description
-                    )
+                    self.addNewClass(name, desc)
 
-        addButton.clicked.connect(
-            promptNewClass
-        )
+        addButton.clicked.connect(promptNewClass)
 
         # Add it to our layout
         subLayout.addWidget(addButton)
@@ -226,6 +218,7 @@ class ClassificationGUI:
         listWidget = qt.QListWidget()
 
         # Ensure that any changes to each item in the list sync with the current data unit
+        @qt.Slot(qt.QListWidgetItem)
         def onItemChanged(item: qt.QListWidgetItem):
             self.current_unit.toggle_class(
                 item.text(),
@@ -255,13 +248,6 @@ class ClassificationGUI:
         layout.addWidget(remarksLabel)
         layout.addWidget(self.remarksEntry)
 
-    def _syncListEntriesWithTask(self):
-        # Block signals to avoid error spam
-        with self.block_signals():
-            # Add each entry in the class map to our list widget
-            for k, v in self.bound_task.class_map.items():
-                self._addListEntry(k, v)
-
     @property
     def current_unit(self) -> ClassificationUnit:
         # Shortcut to avoid repeated chained calls
@@ -280,9 +266,9 @@ class ClassificationGUI:
         self.classList.blockSignals(False)
         self.remarksEntry.blockSignals(False)
 
-    def _addListEntry(self, label: str, desc: str = None):
+    def _addListEntry(self, name: str, desc: str = None) -> qt.QListWidgetItem:
         # Add the entry to the list directly
-        newEntry = qt.QListWidgetItem(label, self.classList)
+        newEntry = qt.QListWidgetItem(name, self.classList)
 
         # Ensure it has a checkbox
         newEntry.setFlags(
@@ -301,42 +287,67 @@ class ClassificationGUI:
 
     def syncWithDataUnit(self):
         with self.block_signals():
-            # Calculate the sets of items to check in the GUI
-            checked_items = self.current_unit.classes
-            for i in range(self.classList.count):
-                item = self.classList.item(i)
-                if item.text() in checked_items:
-                    item.setCheckState(
-                        qt.Qt.Checked
-                    )
+            # Clear the list
+            self.classList.clear()
+
+            # Add each class which our task expects, checking those the unit already has
+            task_classes = self.bound_task.config.classes.keys()
+            unit_classes = self.bound_task.current_unit.classes
+            for k, v in self.bound_task.config.classes.items():
+                item = self._addListEntry(k, v)
+                if k in unit_classes:
+                    item.setCheckState(qt.Qt.Checked)
                 else:
-                    item.setCheckState(
-                        qt.Qt.Unchecked
-                    )
+                    item.setCheckState(qt.Qt.Unchecked)
+
+            # Add other list entries for any classes we don't know about
+            unknown_desc = (f"This class was not registered in this Job, "
+                            f"but was present from a previous run.")
+            for k in (unit_classes - task_classes):
+                item = self._addListEntry(k, unknown_desc)
+                item.setCheckState(qt.Qt.Checked)
+                font = item.font()
+                font.setItalic(True)
+                item.setFont(font)
 
             # Update the remarks contents
             remarks_text = self.current_unit.remarks
             self.remarksEntry.setPlainText(remarks_text)
 
-    def addNewClass(self, label: str, desc: str = None):
-        # Skip if we already have a class with this label
-        if label in self.bound_task.class_map.keys():
-            raise ValueError(f"Cannot add class {label}, already exists!")
+    def addNewClass(self, name: str, desc: str = None):
+        # Check if the label already exists
+        items = self.classList.findItems(name, qt.Qt.MatchExactly)
+        # If it does, the user wants to update an existing list item instead
+        if len(items) > 0:
+            item = items[0]
+            # Un-italicize it
+            font = item.font()
+            font.setItalic(False)
+            item.setFont(font)
+            # Update its tooltip to our new description
+            item.setToolTip(desc)
+        # Otherwise, add a new list entry as normal
+        else:
+            self._addListEntry(name, desc)
 
-        # Add it to our list
-        self._addListEntry(label, desc)
-
-        # Add it to our bound logic as well
-        self.bound_task.class_map[label] = desc
+        # Update the backing configuration file
+        self.bound_task.config.update_class(name, desc)
+        self.bound_task.config.save()
 
     def dropSelectedClass(self):
         # "Pop" the currently selected from the list widget
         row_idx = self.classList.currentRow
         droppedItem = self.classList.takeItem(row_idx)
 
+        # If that item was checked, remove its class from the data unit as well
+        if droppedItem.checkState() == qt.Qt.Checked:
+            label = droppedItem.text()
+            self.current_unit.drop_class(label)
+
         # Remove the corresponding class from our logic as well
         class_label = droppedItem.text()
-        del self.bound_task.class_map[class_label]
+        self.bound_task.config.drop_class(class_label)
+        self.bound_task.config.save()
 
         # De-select other entries in the list to avoid "double-click double-delete"
         self.classList.currentRow = -1

@@ -44,9 +44,6 @@ class ClassificationTask(CARTTask):
         # Currently managed data unit
         self.current_unit: Optional[ClassificationUnit] = None
 
-        # Currently registered classes, including their description
-        self.class_map: dict[str, str] = dict()
-
         # The output manager for this class
         self._output_manager: Optional[ClassificationOutputManager] = None
 
@@ -54,10 +51,6 @@ class ClassificationTask(CARTTask):
     def description(cls):
         with open(cls.README_PATH, 'r') as fp:
             return fp.read()
-
-    @property
-    def classes(self) -> list[str]:
-        return list(self.class_map.keys())
 
     @cached_property
     def output_manager(self):
@@ -71,9 +64,6 @@ class ClassificationTask(CARTTask):
         return self.init_config(self.job_profile)
 
     def setup(self, container: qt.QWidget):
-        # Try to retrieve the last-used class map from the metadata
-        self.class_map = self.output_manager.read_metadata()
-
         # Create and track the GUI
         self.gui = ClassificationGUI(self)
         gui_layout = self.gui.setup()
@@ -88,9 +78,8 @@ class ClassificationTask(CARTTask):
             self.gui.syncWithDataUnit()
 
     def save(self) -> Optional[str]:
-        # Attempt to save the data unit + current metadata
+        # Attempt to save the data unit through our output manager
         self.output_manager.save_unit(self.current_unit)
-        self.output_manager.save_metadata(self.class_map)
 
     @classmethod
     def init_config(cls, job_config: JobProfileConfig) -> ClassificationConfig:
