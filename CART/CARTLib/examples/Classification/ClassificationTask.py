@@ -15,7 +15,7 @@ from ClassificationUnit import ClassificationUnit
 
 
 @cart_task("Classification")
-class ClassificationTask(CARTTask):
+class ClassificationTask(CARTTask[ClassificationUnit]):
     """
     Task for classifying cases.
 
