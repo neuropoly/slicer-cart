@@ -1380,7 +1380,6 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
         for n, j in self.master_profile_config.registered_jobs.items():
             job_profile = JobProfileConfig(file_path=Path(j))
             job_profile.reload()
-            print(job_profile.task)
             if job_profile.task not in self.master_profile_config.registered_task_paths.keys():
                 invalid_jobs.append(n)
 
