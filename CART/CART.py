@@ -552,8 +552,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                             qt.QMessageBox.Ok,
                             qt.QMessageBox.Ok
                         )
-                    # Save the changes (as the job configs themselves are unchanged either way)
-                    self.logic.save_master_config()
+                    # Update our Task registry (saving the master config in turn)
+                    self.logic.reload_registered_tasks()
                 except Exception as e:
                     qt.QMessageBox.critical(
                         None,
@@ -865,7 +865,7 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
         self.reload_master_config()
 
         # Attempt to fetch all loaded tasks
-        self.load_registered_tasks()
+        self.reload_registered_tasks()
 
     ## Attributes
     @property
@@ -1010,9 +1010,9 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
         return self.author is not None
 
     ## Task Management ##
-    def load_registered_tasks(self):
+    def reload_registered_tasks(self):
         """
-        Attempt to load all registered tasks for reference throughout the program
+        Reset the registered task registry and re-load all registered tasks, one by one.
         """
         registered_tasks = self.master_profile_config.registered_task_paths
         # If there are no registered tasks, rebuild the registry from scratch
@@ -1025,6 +1025,8 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
             return
         # Otherwise, load each of our registered tasks
         else:
+            # Clear the task registry initially
+            CART_TASK_REGISTRY.clear()
             # Track the paths we've already loaded/failed to load from
             already_loaded = set()
             # Load all task paths
