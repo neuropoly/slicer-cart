@@ -66,6 +66,10 @@ class ClassificationTask(CARTTask):
             self.master_profile.author
         )
 
+    @cached_property
+    def config(self):
+        return self.init_config(self.job_profile)
+
     def setup(self, container: qt.QWidget):
         # Try to retrieve the last-used class map from the metadata
         self.class_map = self.output_manager.read_metadata()

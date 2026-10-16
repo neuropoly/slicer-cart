@@ -11,11 +11,16 @@ if TYPE_CHECKING:
 
 
 class NewClassDialog(qt.QDialog):
-    def __init__(self):
+    def __init__(self, taken_names: set[str], prior_name: str = None, prior_desc: str = None):
         super().__init__()
 
-        self.setWindowTitle("Add New Class")
+        # Track the passed arguments for later
+        self.taken_names = taken_names
+        self.prior_name = prior_name
+        self.prior_desc = prior_desc
 
+        # Define our UI elements
+        self.setWindowTitle("Add New Class")
         self._build_ui()
 
     def _build_ui(self):
@@ -31,21 +36,35 @@ class NewClassDialog(qt.QDialog):
         # Add button panel
         self._addButtons(layout)
 
-    def _buildDescEntry(self, layout):
-        descLabel = qt.QLabel("Description:")
-        self.descEntry = qt.QTextEdit()
-        self.descEntry.placeholderText = \
-            "Optional. Will become the tooltip to the list entry if given."
-        layout.addWidget(descLabel)
-        layout.addWidget(self.descEntry)
-
     def _buildClassEntry(self, layout):
+        # Build the GUI
         classLabel = qt.QLabel("Class Name:")
         self.classEntry = qt.QLineEdit()
         self.classEntry.placeholderText = \
             "Required. The name of this classification."
+
+        # If we had a prior name, use it
+        if self.prior_name is not None:
+            self.classEntry.setText(self.prior_name)
+
+        # Add it to the passed layout
         layout.addWidget(classLabel)
         layout.addWidget(self.classEntry)
+
+    def _buildDescEntry(self, layout):
+        # Build the GUI
+        descLabel = qt.QLabel("Description:")
+        self.descEntry = qt.QTextEdit()
+        self.descEntry.placeholderText = \
+            "Optional. Will become the tooltip to the list entry if given."
+
+        # If we had a prior description, use it
+        if self.prior_desc is not None:
+            self.descEntry.setText(self.prior_desc)
+
+        # Add it to the passed layout
+        layout.addWidget(descLabel)
+        layout.addWidget(self.descEntry)
 
     def _addButtons(self, layout):
         # The button box itself
@@ -80,11 +99,21 @@ class NewClassDialog(qt.QDialog):
         return self.descEntry.toPlainText()
 
     def onConfirm(self):
+        # If we don't have a name, warn the user and return to the dialog
         if not self.class_name:
-            # Show a warning message and do nothing
             msg = qt.QMessageBox()
             msg.setWindowTitle("Missing Name")
             msg.setText("Cannot register a classification without it having a name!")
+            msg.exec()
+        # If the name is already taken, do the same w/ a different message
+        elif self.class_name != self.prior_name and self.class_name in self.taken_names:
+            print(self.taken_names)
+            print(self.class_name)
+            msg = qt.QMessageBox()
+            msg.setWindowTitle("Invalid Name")
+            msg.setText(
+                f"Cannot register classification '{self.class_name}'; name is already in use!"
+            )
             msg.exec()
         else:
             self.accept()
@@ -145,7 +174,7 @@ class ClassificationGUI:
         # When the button is pressed, generate the new class prompt
         def promptNewClass():
             # Show a prompt asking for a new class entry
-            newClassDialog = NewClassDialog()
+            newClassDialog = NewClassDialog(self.bound_task.config.classes)
             accepted = newClassDialog.exec()
 
             # If the prompt was confirmed, try to add the new class
