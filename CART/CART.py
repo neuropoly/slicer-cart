@@ -1368,7 +1368,7 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
         # Filter any paths which no longer exist, or overlap with our example tasks
         from CARTLib.examples import EXAMPLE_TASK_PATHS
         for k, p in self.master_profile_config.registered_task_paths.items():
-            if p in EXAMPLE_TASK_PATHS.values() or not p.exists():
+            if p is None or p in EXAMPLE_TASK_PATHS.values():
                 self.master_profile_config.drop_task_path(p)
 
         # Re-add/overwrite the paths for our example tasks
