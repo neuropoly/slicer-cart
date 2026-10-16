@@ -63,7 +63,10 @@ class ClassificationTask(TaskBaseClass[ClassificationUnit]):
 
     @cached_property
     def output_manager(self):
-        return ClassificationOutputManager(self.job_profile)
+        return ClassificationOutputManager(
+            self.job_profile,
+            self.master_profile.author
+        )
 
     def setup(self, container: qt.QWidget):
         # Try to retrieve the last-used class map from the metadata
@@ -84,17 +87,27 @@ class ClassificationTask(TaskBaseClass[ClassificationUnit]):
 
     def save(self) -> Optional[str]:
         # Attempt to save the data unit + current metadata
-        result_msg = self.output_manager.save_unit(self.current_unit)
-
+        self.output_manager.save_unit(self.current_unit)
         self.output_manager.save_metadata(self.class_map)
-
-        # If we have a GUI, show the result to the user
-        if self.gui and result_msg:
-            showSuccessPrompt(result_msg)
 
     @classmethod
     def init_config(cls, job_config: JobProfileConfig) -> ClassificationConfig:
         return ClassificationConfig(job_config)
+
+    def isTaskComplete(self, case_data: dict[str, str]) -> Optional[bool]:
+        # Ensure there's a valid UID
+        uid = case_data.get("uid", None)
+        if uid is None:
+            return False
+
+        # Check an entry for this UID and author exists
+        case_entry = self.output_manager.get_data_for(uid)
+        # If not, return None (the task has not been run yet)
+        if case_entry is None:
+            return None
+        # Otherwise, return True (the task was run for this entry)
+        else:
+            return True
 
     @classmethod
     def getDataUnitFactory(cls) -> DataUnitFactory:
