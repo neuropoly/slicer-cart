@@ -6,17 +6,17 @@ import qt
 
 from CARTLib.core.TaskBaseClass import TaskBaseClass
 from CARTLib.core.DataUnitBase import DataUnitFactory
-from CARTLib.examples.GenericClassification.GenericClassificationOutputManager import GenericClassificationOutputManager
+from CARTLib.examples.Classification.ClassificationOutputManager import ClassificationOutputManager
 from CARTLib.utils.config import JobProfileConfig, MasterProfileConfig
 from CARTLib.utils.task import cart_task
 from CARTLib.utils.widgets import showSuccessPrompt
 
-from GenericClassificationGUI import GenericClassificationGUI
-from GenericClassificationUnit import GenericClassificationUnit
+from ClassificationGUI import ClassificationGUI
+from ClassificationUnit import ClassificationUnit
 
 
-@cart_task("Generic Classification")
-class GenericClassificationTask(TaskBaseClass[GenericClassificationUnit]):
+@cart_task("Classification")
+class ClassificationTask(TaskBaseClass[ClassificationUnit]):
     """
     Task for classifying cases.
 
@@ -37,19 +37,19 @@ class GenericClassificationTask(TaskBaseClass[GenericClassificationUnit]):
         super().__init__(master_profile, job_profile, cohort_features)
 
         # Track the active GUI instance, if any
-        self.gui: Optional[GenericClassificationGUI] = None
+        self.gui: Optional[ClassificationGUI] = None
 
         # CSV Log (path + contents)
         self.output_path: Optional[Path] = None
 
         # Currently managed data unit
-        self.current_unit: Optional[GenericClassificationUnit] = None
+        self.current_unit: Optional[ClassificationUnit] = None
 
         # Currently registered classes, including their description
         self.class_map: dict[str, str] = dict()
 
         # The output manager for this class
-        self._output_manager: Optional[GenericClassificationOutputManager] = None
+        self._output_manager: Optional[ClassificationOutputManager] = None
 
     @classmethod
     def description(cls):
@@ -62,18 +62,18 @@ class GenericClassificationTask(TaskBaseClass[GenericClassificationUnit]):
 
     @cached_property
     def output_manager(self):
-        return GenericClassificationOutputManager(self.job_profile)
+        return ClassificationOutputManager(self.job_profile)
 
     def setup(self, container: qt.QWidget):
         # Try to retrieve the last-used class map from the metadata
         self.class_map = self.output_manager.read_metadata()
 
         # Create and track the GUI
-        self.gui = GenericClassificationGUI(self)
+        self.gui = ClassificationGUI(self)
         gui_layout = self.gui.setup()
         container.setLayout(gui_layout)
 
-    def receive(self, data_unit: GenericClassificationUnit):
+    def receive(self, data_unit: ClassificationUnit):
         # Track the data unit for later
         self.current_unit = data_unit
 
@@ -93,4 +93,4 @@ class GenericClassificationTask(TaskBaseClass[GenericClassificationUnit]):
 
     @classmethod
     def getDataUnitFactory(cls) -> DataUnitFactory:
-        return GenericClassificationUnit
+        return ClassificationUnit

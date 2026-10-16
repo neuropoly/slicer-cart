@@ -6,13 +6,13 @@ from pathlib import Path
 
 from CARTLib.utils.config import JobProfileConfig
 
-from GenericClassificationUnit import GenericClassificationUnit
+from ClassificationUnit import ClassificationUnit
 
 
 VERSION = 0.01
 
 
-class GenericClassificationOutputManager:
+class ClassificationOutputManager:
 
     UID_KEY = "uid"
     JOB_NAME_KEY = "job_name"
@@ -100,7 +100,7 @@ class GenericClassificationOutputManager:
         """
         return self.output_dir / f"cart_classifications.json"
 
-    def save_unit(self, data_unit: GenericClassificationUnit):
+    def save_unit(self, data_unit: ClassificationUnit):
         # Generate the entry key
         entry_key = (data_unit.uid, self.job_name)
 

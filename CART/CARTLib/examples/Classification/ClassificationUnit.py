@@ -5,7 +5,7 @@ import slicer
 from CARTLib.utils.data import CARTStandardUnit
 
 
-class GenericClassificationUnit(CARTStandardUnit):
+class ClassificationUnit(CARTStandardUnit):
     """
     A data unit for the Generic Classification task.
 

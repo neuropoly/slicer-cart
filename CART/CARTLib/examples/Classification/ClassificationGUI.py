@@ -3,11 +3,11 @@ from typing import TYPE_CHECKING
 
 import qt
 
-from GenericClassificationUnit import GenericClassificationUnit
+from ClassificationUnit import ClassificationUnit
 
 # Type hint guard; only risk the cyclic import if type hints are running
 if TYPE_CHECKING:
-    from GenericClassificationTask import GenericClassificationTask
+    from ClassificationTask import ClassificationTask
 
 
 class NewClassDialog(qt.QDialog):
@@ -107,8 +107,8 @@ class NewClassDialog(qt.QDialog):
         self.reject()
 
 
-class GenericClassificationGUI:
-    def __init__(self, bound_task: "GenericClassificationTask"):
+class ClassificationGUI:
+    def __init__(self, bound_task: "ClassificationTask"):
         # The task (logic) this GUI should be bound too
         self.bound_task = bound_task
 
@@ -234,7 +234,7 @@ class GenericClassificationGUI:
                 self._addListEntry(k, v)
 
     @property
-    def current_unit(self) -> GenericClassificationUnit:
+    def current_unit(self) -> ClassificationUnit:
         # Shortcut to avoid repeated chained calls
         return self.bound_task.current_unit
 
