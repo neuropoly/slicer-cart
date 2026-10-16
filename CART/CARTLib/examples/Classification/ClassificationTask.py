@@ -4,20 +4,18 @@ from typing import Optional
 
 import qt
 
-from CARTLib.core.TaskBaseClass import TaskBaseClass
 from CARTLib.core.DataUnitBase import DataUnitFactory
 from CARTLib.examples.Classification.ClassificationConfig import ClassificationConfig
 from CARTLib.examples.Classification.ClassificationOutputManager import ClassificationOutputManager
 from CARTLib.utils.config import JobProfileConfig, MasterProfileConfig
-from CARTLib.utils.task import cart_task
-from CARTLib.utils.widgets import showSuccessPrompt
+from CARTLib.utils.task import cart_task, CARTTask
 
 from ClassificationGUI import ClassificationGUI
 from ClassificationUnit import ClassificationUnit
 
 
 @cart_task("Classification")
-class ClassificationTask(TaskBaseClass[ClassificationUnit]):
+class ClassificationTask(CARTTask):
     """
     Task for classifying cases.
 
