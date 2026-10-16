@@ -9,7 +9,7 @@ from CARTLib.utils.config import JobProfileConfig
 from ClassificationUnit import ClassificationUnit
 
 
-VERSION = 0.01
+VERSION = 0.02
 
 
 class ClassificationOutputManager:
