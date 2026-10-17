@@ -22,14 +22,8 @@ class ClassificationUnit(CARTStandardUnit):
         super().__init__(case_data, data_path, prior_data, scene)
 
         # Current classifications for this case
-        self._classes: set[str] = set()
-
-        # Other remarks for this case
-        self.remarks: str = ""
-
-    @property
-    def classes(self):
-        return self._classes
+        self.classes: set[str] = prior_data.get("classes", set())
+        self.remarks: str = prior_data.get("remarks", "")
 
     def toggle_class(self, label: str, new_state: bool):
         """
@@ -45,10 +39,10 @@ class ClassificationUnit(CARTStandardUnit):
     def add_class(self, new_class: str):
         if new_class in self.classes:
             print(f"WARNING: Class '{new_class}' was already registered!")
-        self._classes.add(new_class)
+        self.classes.add(new_class)
 
     def drop_class(self, drop_class: str):
-        if drop_class not in self._classes:
+        if drop_class not in self.classes:
             print(f"WARNING: Case was not class '{drop_class}' already, not removed.")
             return
-        self._classes.remove(drop_class)
+        self.classes.remove(drop_class)

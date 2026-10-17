@@ -93,7 +93,17 @@ class ClassificationOutputManager:
         if entry is None:
             return None
         else:
-            return entry[self.CLASSES_KEY], entry[self.REMARKS_KEY]
+            classes = entry[self.CLASSES_KEY]
+            # If the class is a string, convert it to a set first
+            if type(classes) == str:
+                if classes == "":
+                    classes = set()
+                else:
+                    classes = set(classes.strip("{").strip("}").split(", "))
+                # Track the set form for later to save ourselves some work
+                entry[self.CLASSES_KEY] = classes
+            remarks = entry[self.REMARKS_KEY]
+            return classes, remarks
 
     def save_unit(self, data_unit: ClassificationUnit):
         # Generate the entry key

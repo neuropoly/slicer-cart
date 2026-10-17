@@ -103,3 +103,16 @@ class ClassificationTask(CARTTask[ClassificationUnit]):
     @classmethod
     def getDataUnitFactory(cls) -> DataUnitFactory:
         return ClassificationUnit
+
+    def generate_prior_data_for(self, case_data: dict) -> Optional[dict]:
+        uid = case_data.get("uid")
+        case_overrides = {}
+
+        # Get the case's relevant contents
+        if (result := self.output_manager.get_data_for(uid)) is not None:
+            classes, remarks = result
+            case_overrides["classes"] = classes
+            case_overrides["remarks"] = remarks
+
+        # Return the overrides
+        return case_overrides
