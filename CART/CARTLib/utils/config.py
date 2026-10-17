@@ -22,6 +22,7 @@ JOB_PROFILE_DIR = CART_PATH / "job_profiles"
 
 # The location of the config file for this installation of CART.
 GLOBAL_CONFIG_PATH = CART_PATH / "configuration.json"
+GLOBAL_BACKUP_PATH = CART_PATH / "config_backup.json"
 
 
 ## Re-Usable Abstract Elements ##
@@ -438,6 +439,13 @@ class MasterProfileConfig(DictBackedConfig):
     def add_task_path(self, task_name: str, task_path: Path):
         registered_task_vals = self.get_or_default(self.REGISTERED_TASK_PATHS_KEY, {})
         registered_task_vals[task_name] = str(task_path.resolve())
+        self.has_changed = True
+
+    def drop_task_path(self, task_path: Path):
+        registered_task_vals = self.get_or_default(self.REGISTERED_TASK_PATHS_KEY, {})
+        for k, p in self.registered_task_paths.items():
+            if p == task_path:
+                registered_task_vals.pop(k)
         self.has_changed = True
 
     def clear_task_paths(self):

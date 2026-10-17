@@ -2,6 +2,7 @@ import importlib
 import logging
 import sys
 from pathlib import Path
+from shutil import copy
 from typing import Optional, TYPE_CHECKING, Tuple
 
 import ctk
@@ -17,7 +18,7 @@ from CARTLib.core.TaskBaseClass import TaskBaseClass
 from CARTLib.core.SetupWizard import CARTSetupWizard, JobSetupWizard
 from CARTLib.examples import EXAMPLE_TASK_PATHS
 from CARTLib.utils import get_cart_version
-from CARTLib.utils.config import JobProfileConfig, MasterProfileConfig
+from CARTLib.utils.config import JobProfileConfig, MasterProfileConfig, GLOBAL_CONFIG_PATH, GLOBAL_BACKUP_PATH
 from CARTLib.utils.task import CART_TASK_REGISTRY
 
 # These become available when Slicer initializes
@@ -522,6 +523,47 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Return the result
         return buttonPanel
 
+    def _checkForConfigurationValidation(self):
+        # Check if the versions within the configuration file match
+        if self.logic.has_run_before() and not self.logic.config_version_matches():
+            # If not, ask if the user wants to update
+            if self._updateConfigPrompt() == qt.QMessageBox.Yes:
+                # If so, have the logic update our contents and notify the user
+                try:
+                    invalid_jobs = self.logic.validate_config()
+                    # If there were no invalidated jobs, save the changes
+                    if len(invalid_jobs) < 1:
+                        qt.QMessageBox.information(
+                            None,
+                            _("Done!"),
+                            _("The configuration file has been validated successfully!"),
+                            qt.QMessageBox.Yes,
+                            qt.QMessageBox.Yes,
+                        )
+                    # If there were, notify the user and roll back the changes
+                    else:
+                        msg = _("The following jobs would not have a valid task after the changes:")
+                        msg += "\n\t• " + "\n\t• ".join(invalid_jobs)
+                        msg += _("\n Update them in the Job Wizard before trying to run them in CART.")
+                        qt.QMessageBox.warning(
+                            None,
+                            _("Broken Jobs Found"),
+                            msg,
+                            qt.QMessageBox.Ok,
+                            qt.QMessageBox.Ok
+                        )
+                    # Update our Task registry (saving the master config in turn)
+                    self.logic.reload_registered_tasks()
+                except Exception as e:
+                    qt.QMessageBox.critical(
+                        None,
+                        _("Error!"),
+                        _("Something went wrong! Please check the error log."),
+                        qt.QMessageBox.Ok,
+                        qt.QMessageBox.Ok,
+                    )
+                    raise e
+
     SAVE_BUTTON_DEFAULT_TEXT = _("Save")
     SAVE_BUTTON_SUCCESS_TEXT = _("Saved!")
     SAVE_BUTTON_FAILURE_TEXT = _("Failed to Save!")
@@ -581,12 +623,14 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     ## Connections ##
     def start(self, job_name=None):
-        # Check if a user profile exists, prompting the user to create one if not.
+        # Check if a user profile exists
         if not self.logic.has_run_before():
+            # Prompt the user to create on if it doesn't
             if self._noProfileFoundPrompt() != qt.QMessageBox.Yes:
                 return
             if not self.runProfileEdit(show_walkthrough=True):
                 return
+
         # If no job was specified, ask if they want to create one.
         if job_name is None:
             if self._createFirstJobPrompt() != qt.QMessageBox.Yes:
@@ -646,6 +690,20 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             _(
                 f"The configuration for {job_name} was deleted or is unavailable; "
                 "would you like to create a new job of the same name instead?"
+            ),
+            qt.QMessageBox.Yes | qt.QMessageBox.No,
+            qt.QMessageBox.Yes,
+        )
+
+    @staticmethod
+    def _updateConfigPrompt():
+        return qt.QMessageBox.question(
+            None,
+            _("[CART] Update Configuration File?"),
+            _(
+                "CART has updated since you last ran it, and may not run correctly; "
+                "would you like to validate your configuration files? This can result in "
+                "data loss (though CART will create a backup just in case)!"
             ),
             qt.QMessageBox.Yes | qt.QMessageBox.No,
             qt.QMessageBox.Yes,
@@ -759,6 +817,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Install our keyboard shortcuts
         self.installKeyboardShortcuts()
 
+        # Check if our configuration still matters
+        self._checkForConfigurationValidation()
+
     def exit(self):
         # Delegate to our logic to have tasks properly update
         self.logic.exit()
@@ -804,7 +865,7 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
         self.reload_master_config()
 
         # Attempt to fetch all loaded tasks
-        self.load_registered_tasks()
+        self.reload_registered_tasks()
 
     ## Attributes
     @property
@@ -949,9 +1010,9 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
         return self.author is not None
 
     ## Task Management ##
-    def load_registered_tasks(self):
+    def reload_registered_tasks(self):
         """
-        Attempt to load all registered tasks for reference throughout the program
+        Reset the registered task registry and re-load all registered tasks, one by one.
         """
         registered_tasks = self.master_profile_config.registered_task_paths
         # If there are no registered tasks, rebuild the registry from scratch
@@ -964,6 +1025,8 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
             return
         # Otherwise, load each of our registered tasks
         else:
+            # Clear the task registry initially
+            CART_TASK_REGISTRY.clear()
             # Track the paths we've already loaded/failed to load from
             already_loaded = set()
             # Load all task paths
@@ -1280,19 +1343,51 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
     def reload_master_config(self):
         # Pull the data from the config file
         self.master_profile_config.reload()
-        # If the config version doesn't match the current CART version, warn the user
+
+    def config_version_matches(self) -> bool:
+        # Check to see if the config's version matches our current version
         current_cart_version = get_cart_version()
         config_cart_version = self.master_profile_config.version
-        if config_cart_version != current_cart_version:
-            # Warn the user the versions are being updated.
-            # TODO: Prompt the user directly!
-            logging.warning(
-                f"Current CART version ({current_cart_version}) is not the same that was used to "
-                f"generate the user profile ({config_cart_version}). This may result in unexpected "
-                f"behaviour!"
-            )
-            # Update the config to use the new version
-            self.master_profile_config.version = current_cart_version
+        # Return the result for upstream management
+        return config_cart_version == current_cart_version
+
+    def validate_config(self) -> list[str]:
+        """
+        Run validation on the current configuration file to ensure it
+        will run correctly, after creating a backup.
+
+        Currently does the following:
+         * Filters tasks with paths that no longer exist
+         * Updates task names for example tasks
+         * Flags jobs which use tasks which no longer exist
+        """
+        # Create a backup of the config file, just in case
+        copy(GLOBAL_CONFIG_PATH, GLOBAL_BACKUP_PATH)
+
+        # Update its version to match ours
+        self.master_profile_config.version = get_cart_version()
+
+        # Filter any paths which no longer exist, or overlap with our example tasks
+        from CARTLib.examples import EXAMPLE_TASK_PATHS
+        for k, p in self.master_profile_config.registered_task_paths.items():
+            if p is None or p in EXAMPLE_TASK_PATHS.values():
+                self.master_profile_config.drop_task_path(p)
+
+        # Re-add/overwrite the paths for our example tasks
+        for k, p in EXAMPLE_TASK_PATHS.items():
+            self.master_profile_config.add_task_path(k, p)
+
+        # Check which jobs would are broken as a result of these changes
+        invalid_jobs = []
+        for n, j in self.master_profile_config.registered_jobs.items():
+            job_profile = JobProfileConfig(file_path=Path(j))
+            job_profile.reload()
+            if job_profile.task not in self.master_profile_config.registered_task_paths.keys():
+                invalid_jobs.append(n)
+
+        # Return the list of invalid jobs
+        return invalid_jobs
+
 
     ## GUI Management ##
     def enter(self):

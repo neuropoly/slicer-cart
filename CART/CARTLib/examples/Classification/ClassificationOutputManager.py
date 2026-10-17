@@ -3,19 +3,20 @@ import json
 from datetime import datetime
 from functools import cached_property
 from pathlib import Path
+from typing import Optional
 
 from CARTLib.utils.config import JobProfileConfig
 
-from GenericClassificationUnit import GenericClassificationUnit
+from ClassificationUnit import ClassificationUnit
 
 
-VERSION = 0.01
+VERSION = 0.02
 
 
-class GenericClassificationOutputManager:
+class ClassificationOutputManager:
 
     UID_KEY = "uid"
-    JOB_NAME_KEY = "job_name"
+    AUTHOR_KEY = "author"
     TIMESTAMP_KEY = "timestamp"
     VERSION_KEY = "version"
     CLASSES_KEY = "classifications"
@@ -23,7 +24,7 @@ class GenericClassificationOutputManager:
 
     LOG_HEADERS = [
         UID_KEY,
-        JOB_NAME_KEY,
+        AUTHOR_KEY,
         TIMESTAMP_KEY,
         VERSION_KEY,
         CLASSES_KEY,
@@ -32,19 +33,16 @@ class GenericClassificationOutputManager:
 
     def __init__(
         self,
-        config: JobProfileConfig
+        config: JobProfileConfig,
+        author: str
     ):
         # Core attributes
         self.config = config
+        self.author = author
 
     @property
     def output_dir(self) -> Path:
         return self.config.output_path
-
-    @property
-    def job_name(self) -> str:
-        # Simple alias to sidestep a common argument chain
-        return self.config.name
 
     @property
     def csv_data_file(self) -> Path:
@@ -79,30 +77,37 @@ class GenericClassificationOutputManager:
                         print(f"Skipped entry #{i} in {self.csv_data_file}, as it lacks a UID.")
                         continue
                     # Skip rows w/o a valid profile label
-                    uid = row.get(self.JOB_NAME_KEY, None)
-                    if not uid:
-                        print(f"Skipped entry #{i} in {self.csv_data_file}, as it lacks a Profile ID.")
+                    author = row.get(self.AUTHOR_KEY, None)
+                    if not author:
+                        print(f"Skipped entry #{i} in {self.csv_data_file}, as it lacks an author.")
                         continue
-                    # Generate a UID + profile pair to act as our key
-                    profile = row.get(self.JOB_NAME_KEY, None)
                     # Insert it into the data dict
-                    csv_data[(uid, profile)] = row
+                    csv_data[(uid, author)] = row
 
         # Return the resulting data
         return csv_data
 
-    @property
-    def json_metadata_file(self) -> Path:
-        """
-        Where the JSON metadata should be saved too.
+    def get_data_for(self, uid: str) -> Optional[tuple[set, str]]:
+        idx = (uid, self.author)
+        entry = self.csv_data.get(idx)
+        if entry is None:
+            return None
+        else:
+            classes = entry[self.CLASSES_KEY]
+            # If the class is a string, convert it to a set first
+            if type(classes) == str:
+                if classes == "":
+                    classes = set()
+                else:
+                    classes = set(classes.strip("{").strip("}").split(", "))
+                # Track the set form for later to save ourselves some work
+                entry[self.CLASSES_KEY] = classes
+            remarks = entry[self.REMARKS_KEY]
+            return classes, remarks
 
-        Read-only, as it's tightly associated with the output directory.
-        """
-        return self.output_dir / f"cart_classifications.json"
-
-    def save_unit(self, data_unit: GenericClassificationUnit):
+    def save_unit(self, data_unit: ClassificationUnit):
         # Generate the entry key
-        entry_key = (data_unit.uid, self.job_name)
+        entry_key = (data_unit.uid, self.author)
 
         # Edge-case; if no classes are provided, using "" instead of "set()"
         unit_classes = data_unit.classes
@@ -112,7 +117,7 @@ class GenericClassificationOutputManager:
         # Add/replace the corresponding entry in our data dict
         self.csv_data[entry_key] = {
             self.UID_KEY: data_unit.uid,
-            self.JOB_NAME_KEY: self.job_name,
+            self.AUTHOR_KEY: self.author,
             self.TIMESTAMP_KEY: datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             self.VERSION_KEY: VERSION,
             self.CLASSES_KEY: unit_classes,
@@ -124,23 +129,3 @@ class GenericClassificationOutputManager:
             writer = csv.DictWriter(fp, fieldnames=self.LOG_HEADERS)
             writer.writeheader()
             writer.writerows(self.csv_data.values())
-
-        # Return a success message
-        result_msg = (
-            f"Classifications saved to {str(self.csv_data_file.resolve())}."
-        )
-        return result_msg
-
-    def read_metadata(self) -> dict[str, str]:
-        # If the JSON file doesn't exist, return an empty dict
-        if not self.json_metadata_file.exists():
-            return dict()
-        # Otherwise, read the JSON file's contents and return it
-        with open(self.json_metadata_file, "r") as fp:
-            class_map = json.load(fp)
-            return class_map
-
-    def save_metadata(self, class_map: dict[str, str]):
-        # Just dumps the provided class map to file
-        with open(self.json_metadata_file, "w") as fp:
-            json.dump(class_map, fp, indent=2)
