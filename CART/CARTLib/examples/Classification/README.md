@@ -1,4 +1,4 @@
-# Generic Classification
+# Classification
 
 This task is designed to allow for rapid classification of subjects, sequences, or other sets of radiological data.
 
