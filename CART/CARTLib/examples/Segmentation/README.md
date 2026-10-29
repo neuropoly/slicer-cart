@@ -22,6 +22,20 @@ Once selected, you can edit the corresponding segmentation using the suite of to
 
 ![A large GUI with several buttons to the left, each with their own icon. To the right is a large table with only one entry labeled "1". Underneath it is another panel containing several options and details for the "Paint" tool.](./docs/segmentation_tools.png)
 
+### Keyboard Shortcuts
+
+On top of CART's own shortcuts (see the [main README](../../../../README.md#keyboard-shortcuts)), the following are available while you're editing a segmentation:
+
+| Shortcut | What it does |
+|---|---|
+| `G` | Show/hide the segmentation you're currently editing |
+| `1` | Threshold tool |
+| `2` | Paint tool |
+| `3` | Draw tool |
+| `4` | Erase tool |
+
+The number keys come from Slicer's Segment Editor, and continue on for the rest of the tools in the order they appear in the toolbar (`5` is Level Tracing, and so on). Slicer provides a few others as well, like `Ctrl + Z` and `Ctrl + Y` for undo/redo; the full list can be found in [Slicer's documentation](https://slicer.readthedocs.io/en/latest/user_guide/modules/segmenteditor.html).
+
 ### Adding a "Custom" Segmentation
 
 To add a "custom" segmentation (that is, a segmentation you want to make from-scratch for each case), simply click on the "Add Custom Segmentation" button at the bottom of the GUI:
