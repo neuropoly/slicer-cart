@@ -1,6 +1,7 @@
 import importlib
 import logging
 import sys
+from functools import cached_property
 from pathlib import Path
 from shutil import copy
 from typing import Optional, TYPE_CHECKING, Tuple
@@ -346,6 +347,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         caseSelectionPanel = self._caseSelectionPanel()
         layout.addWidget(caseSelectionPanel)
 
+        # Add the progress bar
+        layout.addWidget(self.progressBar)
+
         # Add the save button w/ proper padding
         savePanel = self._savePanel()
         layout.addWidget(savePanel)
@@ -460,6 +464,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         def updateCaseIcon(idx: int):
             # Update the previous case's state to match
             case_completed = self.logic.is_case_completed(idx)
+            # Store the status on the item itself, so the progress bar can count it
+            caseSelector.setItemData(idx, case_completed)
             if case_completed:
                 # True -> task saved correctly
                 caseSelector.setItemIcon(idx, COMPLETED_ICON)
@@ -475,7 +481,12 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 caseSelector.setItemIcon(idx, FAILED_ICON)
                 self.saveButton.setText(self.SAVE_BUTTON_FAILURE_TEXT)
                 self.saveStateTimer.start(5000)  # 5 seconds
-        self.logic.caseSaved.connect(updateCaseIcon)
+
+        @qt.Slot(int)
+        def onCaseSaved(idx: int):
+            updateCaseIcon(idx)
+            self.updateProgressBar(caseSelector)
+        self.logic.caseSaved.connect(onCaseSaved)
 
         @qt.Slot()
         def updateCaseOptions():
@@ -487,6 +498,8 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     caseSelector.addItem(u)
                     # Update the previous case's state to match
                     updateCaseIcon(i)
+                # Count the progress once every case has its status
+                self.updateProgressBar(caseSelector)
                 # Immediately set our save button's text back to default
                 self.saveButton.setText(self.SAVE_BUTTON_DEFAULT_TEXT)
             # Re-enable signals no matter what
@@ -563,6 +576,33 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                         qt.QMessageBox.Ok,
                     )
                     raise e
+
+    @cached_property
+    def progressBar(self) -> qt.QProgressBar:
+        progressBar = qt.QProgressBar(None)
+        progressBar.setAlignment(qt.Qt.AlignCenter)
+        progressBar.setToolTip(_("Cases saved without errors, out of all the cases in this job."))
+        progressBar.setVisible(False)
+        return progressBar
+
+    def updateProgressBar(self, caseSelector: qt.QComboBox):
+        # Each case's completion status is stored on its item in the case selector
+        statuses = [caseSelector.itemData(i) for i in range(caseSelector.count)]
+        total = len(statuses)
+        # Hide the bar if there is nothing it can count
+        if total == 0 or not self.logic.task_tracks_completion:
+            self.progressBar.setVisible(False)
+            return
+        # QT fills in the value, maximum, and percentage itself
+        text = _("%v / %m cases completed (%p%)")
+        failed = statuses.count(False)
+        if failed:
+            text += " · " + _("{count} failed").format(count=failed)
+        self.progressBar.setRange(0, total)
+        self.progressBar.setValue(statuses.count(True))
+        self.progressBar.setFormat(text)
+        self.progressBar.setVisible(True)
+
 
     SAVE_BUTTON_DEFAULT_TEXT = _("Save")
     SAVE_BUTTON_SUCCESS_TEXT = _("Saved!")
@@ -1184,6 +1224,13 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
         # Check if the selected case is completed or not
         case = self.data_manager.case_data[idx]
         return self._task_instance.isTaskComplete(case)
+
+    @property
+    def task_tracks_completion(self) -> bool:
+        if self._task_instance is None:
+            return False
+        # Tasks which don't override 'isTaskComplete' never report a case as done
+        return type(self._task_instance).isTaskComplete is not TaskBaseClass.isTaskComplete
 
     def has_next_case(self):
         if self._data_manager is None:
