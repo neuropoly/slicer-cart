@@ -555,7 +555,9 @@ class DataManager:
         This is in case the data inside references the DataManager (or one of its
          components), forming a cyclical reference that results in a memory leak
         """
-        del self.get_data_unit
+        # Skip if we were already cleaned (i.e. explicitly, before being garbage collected)
+        if hasattr(self, "get_data_unit"):
+            del self.get_data_unit
 
     def __del__(self):
         self.clean()

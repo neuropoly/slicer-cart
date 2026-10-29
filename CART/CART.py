@@ -1,3 +1,4 @@
+import gc
 import importlib
 import logging
 import sys
@@ -112,11 +113,17 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Widget which holds the task-specific GUI elements
         self.taskSubWidget: qt.QWidget = None
 
+        # Slicer's view layout from before the job started, restored when it stops
+        self.preJobLayout: Optional[int] = None
+
         # List of keyboard shortcuts to be installed/uninstalled within this widget
         self.keyboardShortcuts = []
 
         # When the logic changes our active job, update ourselves to match
         self.logic.jobChanged.connect(self._onJobChanged)
+
+        # When the logic stops our active job, return to job selection
+        self.logic.jobStopped.connect(self._onJobStopped)
 
     ## Keyboard Shortcuts ##
     NEXT_CASE_HOTKEY = _("PgDown")
@@ -342,6 +349,12 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Setup
         mainWidget = qt.QWidget(self.parent)
         layout = qt.QVBoxLayout(mainWidget)
+
+        # Add the stop button, which returns the user to job selection
+        stopButton = qt.QPushButton(_("Stop Job"))
+        stopButton.setToolTip(_("Stop the current job and return to job selection."))
+        stopButton.clicked.connect(self.stop)
+        layout.addWidget(stopButton)
 
         # Add the iteration panel
         caseSelectionPanel = self._caseSelectionPanel()
@@ -684,8 +697,15 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             # If the user backs out of re-creating the new job, end here
             if not self.editJob(job_name):
                 return
-        # Finally, initialize the job
+        # Finally, initialize the job, remembering Slicer's layout so it can be restored later
+        self.preJobLayout = slicer.app.layoutManager().layout
         self.logic.set_active_job(job_name)
+
+    def stop(self):
+        # Confirm the user actually wants to stop the job before doing so
+        if self._stopJobPrompt() != qt.QMessageBox.Yes:
+            return
+        self.logic.stop_active_job()
 
     def profileChanged(self):
         # Update the text in the profile to match the current config settings
@@ -720,6 +740,20 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             _("You have not run a CART job before. Would you like to set up a job now?"),
             qt.QMessageBox.Yes | qt.QMessageBox.No,
             qt.QMessageBox.Yes,
+        )
+
+    def _stopJobPrompt(self):
+        # Warn the user about what will happen to the current case
+        if self.logic.master_profile_config.autosave_on_switch:
+            case_note = _("The current case will be saved before stopping.")
+        else:
+            case_note = _("Any unsaved changes to the current case will be lost.")
+        return qt.QMessageBox.question(
+            None,
+            _("Stop Job?"),
+            _(f"Stop the current job and return to job selection? {case_note}"),
+            qt.QMessageBox.Yes | qt.QMessageBox.No,
+            qt.QMessageBox.No,
         )
 
     @staticmethod
@@ -838,6 +872,23 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Swap to this new job widget
         self.mainWidget.setCurrentIndex(self.jobWidgetIndex)
 
+    @qt.Slot()
+    def _onJobStopped(self):
+        # Replace the task's GUI container with a fresh one, as Qt only allows
+        #  a widget's layout to be set once
+        jobWidget = self.taskSubWidget.parentWidget()
+        newTaskWidget = qt.QWidget(jobWidget)
+        jobWidget.layout().replaceWidget(self.taskSubWidget, newTaskWidget)
+        self.taskSubWidget.deleteLater()
+        self.taskSubWidget = newTaskWidget
+
+        # Restore the view layout Slicer had before the job replaced it
+        if self.preJobLayout is not None:
+            slicer.app.layoutManager().setLayout(self.preJobLayout)
+
+        # Swap back to the job selection widget
+        self.mainWidget.setCurrentIndex(self.configWidgetIndex)
+
     ## View Management ##
     def cleanup(self) -> None:
         """
@@ -845,6 +896,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """
         # Disconnect from the signals we hooked into so Slicer can close cleanly
         self.logic.jobChanged.disconnect()
+        self.logic.jobStopped.disconnect()
         self.logic.jobListChanged.disconnect()
         self.logic.caseSaved.disconnect()
         self.logic.caseChanged.disconnect()
@@ -874,9 +926,11 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 # noinspection PyUnresolvedReferences
 class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
 
-    # Emitted when the active job has been changed;
-    # currently only happens once, when the first job is initialized.
+    # Emitted when a new job has been made active
     jobChanged = qt.Signal()
+
+    # Emitted when the active job has been stopped and unloaded
+    jobStopped = qt.Signal()
 
     # Emitted when the list of jobs managed by CART has changed
     # (a job was added, removed, or renamed)
@@ -1038,6 +1092,33 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
         # Emit our job changed + a syncing case changed signal
         self.jobChanged()
         self.caseChanged(-1, self.data_manager.current_case_index)
+
+    def stop_active_job(self):
+        """
+        Stops the active job, unloading its task and data so another job can be started.
+        """
+        # If there's no active job, there's nothing to stop
+        if self._task_instance is None:
+            return
+
+        # Auto-save the case, if the user has configured it
+        self._autosave_case()
+
+        # Signal to the task that it's no longer in view, and let it clean up after itself
+        self._task_instance.exit()
+        self._task_instance.cleanup()
+
+        # Drop the data manager's cached data units, then our references to everything
+        self._data_manager.clean()
+        self._data_manager = None
+        self._task_instance = None
+        self.active_job_config = None
+
+        # Data units are held in reference cycles; collect them now so their
+        #  nodes are removed from the MRML scene
+        gc.collect()
+
+        self.jobStopped()
 
     def register_job_config(self, job_config: JobProfileConfig):
         self.master_profile_config.register_new_job(job_config)
