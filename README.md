@@ -148,6 +148,23 @@ Once you've created your profile and created at least one job, select it from th
 
 The "Start" button will now have CART start the job; enjoy!
 
+### Keyboard Shortcuts
+
+Once a job is running, you can move between cases and save them without needing to click through the buttons each time:
+
+| Shortcut | What it does |
+|---|---|
+| `Page Down` | Go to the next case |
+| `Page Up` | Go to the previous case |
+| `Alt + Page Down` | Skip ahead to the next incomplete case |
+| `Alt + Page Up` | Go back to the previous incomplete case |
+| `Alt + S` | Save the current case |
+| `Alt + D` | Save the current case, then move on to the next one |
+
+If you're on a Mac, `Alt` is the `Option` key (so "save and next" is `Option + D`). Most Mac laptops don't have Page Up/Down keys either; `Fn + Up Arrow` and `Fn + Down Arrow` do the same thing.
+
+These only work while CART is the module currently open in Slicer; if you swap over to a different module, they'll be disabled until you come back. Some tasks add a few shortcuts of their own as well (like the [Segmentation task](CART/CARTLib/examples/Segmentation/README.md#keyboard-shortcuts)), so check the README for the task you're using too.
+
 ## Cohorts and You
 
 Within CART, a "cohort" dictates how CART's various tasks will iterate through the data specified within a job. It's stored as a `.csv` file, with each row indicating one "case" that will be run, and each column indicating a potential resource that each case could have. Given you generated the file through CART (see above), there will also be a `.json` sidecar file alongside it, providing additional metadata for CART to reference.
