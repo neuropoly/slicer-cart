@@ -22,6 +22,8 @@ class ClassificationUnit(CARTStandardUnit):
         super().__init__(case_data, data_path, prior_data, scene)
 
         # Current classifications for this case
+        if prior_data is None:
+            prior_data = {}
         self.classes: set[str] = prior_data.get("classes", set())
         self.remarks: str = prior_data.get("remarks", "")
 
