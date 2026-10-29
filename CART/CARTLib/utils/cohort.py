@@ -662,6 +662,23 @@ class CohortModel(CSVBackedTableModel):
         else:
             return resource_type.format_for_gui(original_label)
 
+    def missing_required_resources(self) -> "list[ResourceType]":
+        """
+        Get the resource types our reference task requires which no column
+        in this cohort provides.
+        """
+        # Without a reference task or any loaded data, there's nothing to check
+        if self.reference_task is None or self._csv_data is None or self._csv_data.size == 0:
+            return []
+
+        duf = self.reference_task.getDataUnitFactory()
+        csv_labels = self._csv_data[0]
+        return [
+            resource_type for resource_type in duf.resource_types().values()
+            if resource_type.required
+            and not any(resource_type.is_type(label) for label in csv_labels)
+        ]
+
 
 ## Generators ##
 class CaseGenerator(Protocol):
@@ -1354,6 +1371,11 @@ class CohortEditorDialog(ChangeTrackingDialogue):
             if button_role == qt.QDialogButtonBox.RejectRole:
                 self.reject()
             elif button_role == qt.QDialogButtonBox.AcceptRole:
+                # Refuse to save if the cohort lacks resources its task requires
+                missing_resources = self._cohort.missing_required_resources()
+                if missing_resources:
+                    self._missingResourcesPrompt(missing_resources)
+                    return
                 # Only save changes to the cohort when confirmed!
                 self._cohort.save()
                 # Update our original config w/ any changes made to our modified config
@@ -1483,6 +1505,18 @@ class CohortEditorDialog(ChangeTrackingDialogue):
         # Without this, the cells rapidly bloat after edits for some reason
         self.cohortWidget.tableView.resizeColumnsToContents()
         self.cohortWidget.tableView.resizeRowsToContents()
+
+    def _missingResourcesPrompt(self, missing_resources: "list[ResourceType]"):
+        resource_points = "\n".join(["  * " + r.pretty_name for r in missing_resources])
+        qt.QMessageBox.warning(
+            self,
+            _("Missing Required Resources"),
+            _(
+                "The selected task requires at least one column for each of the "
+                f"following resource types, which this cohort does not have:\n{resource_points}\n\n"
+                "Please add them (using 'New' under 'Resource (Column) Operations') before saving."
+            ),
+        )
 
     ## Slots ##
     @qt.Slot()

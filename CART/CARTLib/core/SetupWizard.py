@@ -865,6 +865,15 @@ class _DataSelectionPage(qt.QWizardPage):
         self._cohortPreviewWidget = cohortPreviewWidget
         layout.addRow(cohortPreviewWidget)
 
+        ## Missing Resource Warning ##
+        # Shown when the selected cohort lacks resources the selected task requires
+        missingResourceLabel = qt.QLabel()
+        missingResourceLabel.setWordWrap(True)
+        missingResourceLabel.setStyleSheet("color: red")
+        missingResourceLabel.setVisible(False)
+        layout.addRow(missingResourceLabel)
+        self._missingResourceLabel = missingResourceLabel
+
         # Update its reference task, if the provided config already had one
         task_ref = CART_TASK_REGISTRY.get(config.task)
         if task_ref is not None:
@@ -1031,7 +1040,13 @@ class _DataSelectionPage(qt.QWizardPage):
                 cohort_model.load()
                 self._cohortPreviewWidget.refresh()
 
+        # The cohort's columns may have changed, so re-check whether we're complete
+        self.completeChanged()
+
     def isComplete(self):
+        # Hide the missing resource warning until we confirm it applies
+        self._missingResourceLabel.setVisible(False)
+
         to_check = [self.data_path, self.output_path, self.cohort_path]
         # Ensure all fields are filled (not blank)
         if not all(to_check):
@@ -1040,6 +1055,18 @@ class _DataSelectionPage(qt.QWizardPage):
         if not self.data_path.is_dir() and self.output_path.is_dir():
             return False
         if not self.cohort_path.is_file():
+            return False
+        # Confirm the cohort provides every resource the selected task requires
+        missing_resources = self._cohortPreviewWidget.model.missing_required_resources()
+        if missing_resources:
+            resource_names = ", ".join([r.pretty_name for r in missing_resources])
+            self._missingResourceLabel.setText(
+                _(
+                    "The selected cohort has no column for the following required "
+                    f"resource types: {resource_names}. Edit the cohort to add them."
+                )
+            )
+            self._missingResourceLabel.setVisible(True)
             return False
         # If all checks pass, return True
         return True
