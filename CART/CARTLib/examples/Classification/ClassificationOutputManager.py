@@ -1,5 +1,5 @@
 import csv
-import json
+from ast import literal_eval
 from datetime import datetime
 from functools import cached_property
 from pathlib import Path
@@ -99,7 +99,10 @@ class ClassificationOutputManager:
                 if classes == "":
                     classes = set()
                 else:
-                    classes = set(classes.strip("{").strip("}").split(", "))
+                    classes = literal_eval(classes)
+                    if type(classes) != set:
+                        raise ValueError(f"Invalid entry for the classes in case '{uid}'.")
+                    # classes = set(classes.strip("{").strip("}").split(", "))
                 # Track the set form for later to save ourselves some work
                 entry[self.CLASSES_KEY] = classes
             remarks = entry[self.REMARKS_KEY]
