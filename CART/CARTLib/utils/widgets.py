@@ -733,6 +733,9 @@ class CARTSegmentationEditorWidget(
         display_node.SetAllSegmentsVisibility(not is_visible)
 
     def installShortcutOverrides(self):
+        # Remove any prior override first, as two would toggle the visibility twice
+        self.uninstallShortcutOverrides()
+
         # Overwritten `g` shortcut, allowing better control of segmentation visibility
         self.hideActiveSegmentationShortcut = qt.QShortcut(slicer.util.mainWindow())
         self.hideActiveSegmentationShortcut.setKey(self.TOGGLE_VISIBILITY_SHORTCUT_KEY)
@@ -741,6 +744,9 @@ class CARTSegmentationEditorWidget(
         )
 
     def uninstallShortcutOverrides(self):
+        # If the overrides aren't installed, there's nothing to remove
+        if self.hideActiveSegmentationShortcut is None:
+            return
         self.hideActiveSegmentationShortcut.activated.disconnect()
         self.hideActiveSegmentationShortcut.setParent(None)
         self.hideActiveSegmentationShortcut = None

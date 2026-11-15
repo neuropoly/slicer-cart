@@ -208,10 +208,17 @@ class SegmentationTask(
         if self.gui:
             self.gui.refresh()
 
+    def enter(self):
+        super().enter()
+        # Restore the GUI's shortcuts, as they were removed when CART was last exited
+        if self.gui:
+            self.gui.enter()
+
     def exit(self):
         if self.gui:
             self.gui.exit()
 
     def cleanup(self):
+        super().cleanup()
         # Break the cycling link
         self.gui = None

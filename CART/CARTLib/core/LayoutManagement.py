@@ -167,8 +167,8 @@ class LayoutHandler:
             dict[str, tuple[slicer.vtkMRMLVolumeNode, Orientation]]
         ] = None
 
-        # Tracked map of slice nodes, for re-use and clean-up
-        self._slice_node_map: dict[str, slicer.vtkMRMLSliceNode] = dict()
+        # Tracked map of view names -> every node Slicer created for that view, for clean-up
+        self._view_node_map: dict[str, list[slicer.vtkMRMLNode]] = dict()
 
     ## Properties ##
     @property
@@ -366,8 +366,15 @@ class LayoutHandler:
             # Link the node's together, so moving one moves the rest
             composite_node.SetLinkedControl(True)
 
-            # Track the slice node for later
-            self._slice_node_map[layout_name] = slice_node
+            # Track the slice node, plus the nodes Slicer created alongside it, for later
+            slice_logic = slice_widget.sliceLogic()
+            self._view_node_map[layout_name] = [
+                slice_node,
+                slice_logic.GetSliceCompositeNode(),
+                slice_logic.GetSliceModelNode(),
+                slice_logic.GetSliceModelDisplayNode(),
+                slice_logic.GetSliceModelTransformNode(),
+            ]
 
         # Snap everything to IJK
         snap_all_to_ijk()
@@ -384,9 +391,14 @@ class LayoutHandler:
 
     ## Memory Handling
     def clean(self):
-        # Clear all slice nodes from the MRML scene
-        for n in self._slice_node_map.values():
-            slicer.mrmlScene.RemoveNode(n)
+        # Clear all view nodes from the MRML scene, slice node first so Slicer closes its view
+        for view_nodes in self._view_node_map.values():
+            for n in view_nodes:
+                if n is not None and slicer.mrmlScene.IsNodePresent(n):
+                    slicer.mrmlScene.RemoveNode(n)
+
+        # Forget the removed nodes, so cleaning again does nothing
+        self._view_node_map.clear()
 
 
 ## Layout GUI ##
@@ -551,6 +563,10 @@ class OrientationButtonArrayWidget(ctk.ctkCollapsibleGroupBox):
 
         # Track the new layout handler
         self._bound_handler = new_handler
+
+    def clearLayoutHandler(self):
+        # Release the current handler, so the next one starts with its own layout settings
+        self._bound_handler = None
 
     def setOrientationShown(self, orientation: Orientation, val: bool):
         # Update the current orientation value

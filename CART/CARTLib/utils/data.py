@@ -1450,6 +1450,8 @@ class CARTStandardUnit(DataUnitBase):
         # If we are bound to a subject, remove it from the scene
         if self.subject_id is not None:
             self.hierarchy_node.RemoveItem(self.subject_id)
+            # Forget the subject, so cleaning again does nothing
+            self.subject_id = None
 
     def validate(self) -> None:
         """

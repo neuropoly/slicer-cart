@@ -111,9 +111,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Widget which holds the task-specific GUI elements
         self.taskSubWidget: qt.QWidget = None
 
-        # Slicer's view layout from before the job started, restored when it stops
-        self.preJobLayout: Optional[int] = None
-
         # List of keyboard shortcuts to be installed/uninstalled within this widget
         self.keyboardShortcuts = []
 
@@ -590,6 +587,9 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         self.logic.caseChanged.connect(onNewCase)
 
+        # Release the last case's layout once the job is stopped
+        self.logic.jobStopped.connect(layoutPanel.clearLayoutHandler)
+
         return layoutPanel
 
     ## Connections ##
@@ -613,8 +613,7 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             # If the user backs out of re-creating the new job, end here
             if not self.editJob(job_name):
                 return
-        # Finally, initialize the job, remembering Slicer's layout so it can be restored later
-        self.preJobLayout = slicer.app.layoutManager().layout
+        # Finally, initialize the job
         self.logic.set_active_job(job_name)
 
     def stop(self):
@@ -784,10 +783,6 @@ class CARTWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.taskSubWidget.deleteLater()
         self.taskSubWidget = newTaskWidget
 
-        # Restore the view layout Slicer had before the job replaced it
-        if self.preJobLayout is not None:
-            slicer.app.layoutManager().setLayout(self.preJobLayout)
-
         # Swap back to the job selection widget
         self.mainWidget.setCurrentIndex(self.configWidgetIndex)
 
@@ -850,6 +845,9 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
         self.active_job_config: Optional[JobProfileConfig] = None
         self._data_manager: Optional[DataManager] = None
         self._task_instance: Optional[TaskBaseClass] = None
+
+        # Slicer's view layout from before the job started, restored when it stops
+        self._pre_job_layout: Optional[int] = None
 
         # Logging
         self.logger = logging.getLogger("CARTLogic")
@@ -960,6 +958,12 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
             # the task to the data manager so it can "seek" them.
             data_manager.reference_task = new_task
 
+        # Remember Slicer's layout, avoiding the user view as CART overwrites it with its own
+        pre_job_layout = slicer.app.layoutManager().layout
+        if pre_job_layout == slicer.vtkMRMLLayoutNode.SlicerLayoutUserView:
+            pre_job_layout = slicer.vtkMRMLLayoutNode.SlicerLayoutConventionalView
+        self._pre_job_layout = pre_job_layout
+
         # Install the new task and give it its first data unit!
         self._data_manager = data_manager
         self._task_instance = new_task
@@ -1004,17 +1008,24 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
         self._autosave_case()
 
         # Signal to the task that it's no longer in view, and let it clean up after itself
-        self._task_instance.exit()
-        self._task_instance.cleanup()
+        try:
+            self._task_instance.exit()
+            self._task_instance.cleanup()
+        # Unload everything else even if the task failed, so the job is never left half stopped
+        finally:
+            self._unload_job()
 
-        # Drop the data manager's cached data units, then our references to everything
+    def _unload_job(self):
+        # Restore Slicer's prior layout first, so the job's views are no longer shown once removed
+        slicer.app.layoutManager().setLayout(self._pre_job_layout)
+
+        # Remove every loaded data unit from the scene, then drop our references to everything
         self._data_manager.clean()
         self._data_manager = None
         self._task_instance = None
         self.active_job_config = None
 
-        # Data units are held in reference cycles; collect them now so their
-        #  nodes are removed from the MRML scene
+        # Free the memory held by the cleaned data units right away
         gc.collect()
 
         self.jobStopped()

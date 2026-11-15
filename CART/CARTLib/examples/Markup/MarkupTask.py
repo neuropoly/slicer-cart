@@ -137,6 +137,7 @@ class MarkupTask(CARTTask):
         return MarkupConfig(job_config)
 
     def cleanup(self):
+        super().cleanup()
         if self.gui:
             self.gui.clean()
 
