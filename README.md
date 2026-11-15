@@ -9,6 +9,7 @@
   * [Setting up CART](#setting-up-cart)
   * [Getting Started](#getting-started)
   * [Starting a Task](#starting-a-task)
+  * [Tutorials](#tutorials)
 * [For Developers](#for-developers)
   * [Project Standards](#project-standards)
   * [IDE Set Up](#ide-set-up)
@@ -177,6 +178,10 @@ If you need to manually enter something into the table, double-clicking on the c
 Like the job profile itself, many tasks can also have resource-specific configuration settings. An example of what this can look like is shown below, taken from the "Markup" task:
 
 ![Example of the resource-specific GUI.](CART/Resources/images/readme/resource_specific.png)
+
+## Tutorials
+
+* [Correcting SCT Outputs with CART](tutorials/correcting_sct_outputs.md)
 
 ---
 
