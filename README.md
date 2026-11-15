@@ -148,6 +148,16 @@ Once you've created your profile and created at least one job, select it from th
 
 The "Start" button will now have CART start the job; enjoy!
 
+### Opening a Cohort from the Command Line
+
+You (or another tool) can also open CART straight onto a cohort file from the command line, skipping job creation:
+
+```bash
+Slicer --python-code "import CART; CART.open_cohort(r'/path/to/cohort.csv', 'Segmentation', r'/path/to/derivatives/labels')"
+```
+
+The three arguments are the cohort file, the task to run (`Segmentation`, `Markup`, or `Classification`), and the folder to save results to. The first time, CART creates a job named after the cohort file (pass `name='...'` to choose your own); running the same command again re-uses that job, along with your progress. CART must already be registered in Slicer (see [Registering CART in Slicer](#registering-cart-in-slicer)).
+
 ## Cohorts and You
 
 Within CART, a "cohort" dictates how CART's various tasks will iterate through the data specified within a job. It's stored as a `.csv` file, with each row indicating one "case" that will be run, and each column indicating a potential resource that each case could have. Given you generated the file through CART (see above), there will also be a `.json` sidecar file alongside it, providing additional metadata for CART to reference.
