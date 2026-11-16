@@ -342,7 +342,8 @@ class SegmentationIO:
             storage_node = seg_node.GetStorageNode()
             if storage_node is not None:
                 prior_path = Path(storage_node.GetFileName())
-                sidecar_data = load_json_sidecar(prior_path) or dict()
+                # Load the JSON sidecar, falling back to the "blank" dict if there wasn't one
+                sidecar_data = load_json_sidecar(prior_path) or sidecar_data
 
             # Update its relevant contents
             generated_by = sidecar_data.get("GeneratedBy", [])
