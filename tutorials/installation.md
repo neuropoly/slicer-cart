@@ -1,5 +1,7 @@
 ---
 title: Installing CART
+parent: Tutorials
+nav_order: 1
 layout: default
 ---
 
