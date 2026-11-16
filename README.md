@@ -18,77 +18,39 @@ Currently, it provides the following capabilities:
 
 Developers can also extend its capabilities further, creating custom tasks (with their own custom UI elements) that still hook into CART's case-based iteration and memory management utilities!
 
-# Using CART
+# Basic Usage
 
 * [Installation](tutorials/installation.md)
 * [Getting Started](tutorials/getting_started.md)
 * [Running a Job](tutorials/running_a_job.md)
 * FAQs (WIP)
 
+# Detailed Usage Guides
+
+WIP
+
+# Developer Documentation
+
+WIP
+
+# Contributors
+
+Original idea and first version of code from Dr. Laurent Létourneau-Guillon and his team in ICH_SEGMENTER_V2, SlicerCART, and Brain_Extraction. This is an effort to create a unified code for a configurable 3D Slicer extension.
+
+Contributors include:
+- Kalum Ost
+- Laurent Létourneau-Guillon
+- Emmanuel Montagnon
+- An Ni Wu
+- Maxime Bouthillier
+- Delphine Pilon
+- Julien Cohen-Adad
+
 ---
 
-## Getting Started
+**WIP; Contents below this region are being revised and should not be taken at face value!** 
 
-CART has a built-in wizard to walk you through initial set up; once you've installed CART, just click "Start" and follow its instructions!
-
-![Screenshot highlighting the 'Start' button.](CART/Resources/images/readme/start_button.png)
-
-Alternatively, you can follow the subsections below one at a time; both will help you set up CART to run, this document just provides more details on the intent and purpose of each step of the process.
-
-### Creating Your Profile
-
-The user profile allows CART to track your name and (optionally) position. How CART uses this depends on the task, with many tasks using this to log who ran a given job or keep separate outputs on a per-user basis. CART requires you provide a name to function, however, and cannot run any jobs until you do so.
-
-If you've just installed CART, you can click the "Edit Profile" button to fill in these credentials:
-
-![Screenshot highlighting the 'Edit Profile' button.](CART/Resources/images/readme/edit_profile_button.png)
-
-Fill in your name and (optionally) a position and confirm, and done! Your profile is now complete. You can edit it later by clicking the same button too, so no worries if you made a mistake or need to update it later.
-
-### Job Creation
-
-CART, much like a forman managing an assembly line, needs to have a method to tell the workers of the assembly line (3D Slicer) what they need to do. This includes what Slicer should expect to see (the "Cohort"), what it should do with it (the "Task"), and where to put results once they're done (the "Output"). Taken together, these form a "Job" for CART to reside over, and much like the forman, the boss (you) is the one that decides what the assembly line needs to be making.
-
-To make this easier, CART provides a Job Setup wizard to walk you through this process; just click the "New" button to bring it up, and follow its instructions. Don't worry if you make a mistake as well; you can edit (or delete) CART job's after they've been generated.
-
-![Screenshot highlighting the 'New' button.](CART/Resources/images/readme/new_button.png)
-
-#### Name and Task
-
-Here you provide the job's name and decide what it should do (its "Task").
-
-A job's name can be anything, so long as it isn't already used by another job registered in CART.
-
-Selecting a task from the dropdown will bring up details on what it is designed to do and how it will do it; give it a skim to confirm it's what you'd like to do before proceeding.
-
-![Preview of the 'Name and Task' Job Setup Wizard page.](CART/Resources/images/readme/name_and_task_page.png)
-
-In the future, you will be able to register and use custom tasks as well; this is still in development, however.
-
-#### Data Selection
-
-Here you define what files the job should use, where it should save its results, and how that data should be iterated via a "cohort" file. To select the former two, click the '...' to bring up the file browser to choose their respective folders.
-
-![Preview of the 'Data Selection' Job Setup Wizard page.](CART/Resources/images/readme/data_selection_page.png)
-
-Assuming you've never used CART before, you'll probably not have a cohort file ready. If so, click the "Create New Cohort File" button; this will walk you through the process of creating one using the contents of the input folder you provided and the task you selected previously. If you have a cohort file already, however, you can just select it via the same '...' button described prior, or by selecting the "Select Existing File" button.
-
-Once a file has been selected/created, a preview of its contents will be shown in the window at the bottom the panel. If you wish to edit its contents, select the "Edit Selected File" button to do so.
-
-#### Task-Specific Options
-
-As the name implies, what appears here depends on the task you selected previously. An example of options the Segmentation task provides is shown below: 
-![task_specific.png](CART/Resources/images/readme/task_specific.png)
-
-The contents of this are normally related to how files will be loaded into Slicer when a new case is started, or how the results of the task will be saved (ex. file format). Most tasks have sensible defaults for any configurations presented here, but you should skim through these options to be sure.
-
-## Running a Job
-
-Once you've created your profile and created at least one job, select it from the dropdown highlighted below:
-
-![Screenshot highlighting the job selection drop-down.](CART/Resources/images/readme/job_dropdown.png)
-
-The "Start" button will now have CART start the job; enjoy!
+---
 
 ## Cohorts and You
 
@@ -157,15 +119,4 @@ For this project, the first four subjects were selected and the images were conv
 1. Example `sample_data` is adapted from this original data and is located under `sample_data.zip`.
 2. Unzip the file to a folder of your choice.
 
-# Contributors
 
-Original idea and first version of code from Dr. Laurent Létourneau-Guillon and his team in ICH_SEGMENTER_V2, SlicerCART, and Brain_Extraction. This is an effort to create a unified code for a configurable 3D Slicer extension.
-
-Contributors include:
-- Kalum Ost
-- Laurent Létourneau-Guillon
-- Emmanuel Montagnon
-- An Ni Wu
-- Maxime Bouthillier
-- Delphine Pilon
-- Julien Cohen-Adad
