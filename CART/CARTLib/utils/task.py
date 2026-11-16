@@ -118,3 +118,9 @@ class CARTTask(TaskBaseClass, ABC, Generic[D]):
         slicer.util.mainWindow().installEventFilter(
             CART_TASK_EVENT_FILTER
         )
+
+    def cleanup(self):
+        # The task is done, so let Slicer prompt about the changed scene on close again
+        slicer.util.mainWindow().removeEventFilter(
+            CART_TASK_EVENT_FILTER
+        )

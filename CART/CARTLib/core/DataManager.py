@@ -138,6 +138,10 @@ def dynamic_lru_cache_wrapper(func: Callable, maxsize: int, n_hashing_vars: int 
         with lock:
             return key in cache.keys()
 
+    def cached_results() -> list:
+        with lock:
+            return [link[RESULT] for link in cache.values()]
+
     def clear_cache():
         nonlocal hits, misses, full
         with lock:
@@ -182,6 +186,7 @@ def dynamic_lru_cache_wrapper(func: Callable, maxsize: int, n_hashing_vars: int 
     wrapper.cache_misses = cache_misses
     wrapper.cache_size = cache_size
     wrapper.is_cached = is_cached
+    wrapper.cached_results = cached_results
     wrapper.clear_cache = clear_cache
     wrapper.set_maxsize = set_maxsize
 
@@ -550,11 +555,23 @@ class DataManager:
     ## Cleanup ##
     def clean(self):
         """
-        Explicitly delete the cache right before deletion.
+        Explicitly clean every cached data unit, then delete the cache right before deletion.
 
         This is in case the data inside references the DataManager (or one of its
          components), forming a cyclical reference that results in a memory leak
         """
+        # Skip if we were already cleaned, as the cache is already gone
+        if not hasattr(self, "get_data_unit"):
+            return
+
+        # Clean each unit now, as any lingering reference would otherwise keep its nodes in the scene
+        for data_unit in self.get_data_unit.cached_results():
+            try:
+                data_unit.clean()
+            except Exception as e:
+                logging.error(f"Failed to clean data unit '{data_unit.uid}'.", exc_info=e)
+
+        self.get_data_unit.clear_cache()
         del self.get_data_unit
 
     def __del__(self):
