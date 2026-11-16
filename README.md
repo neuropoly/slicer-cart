@@ -1,7 +1,8 @@
 ---
-title: Home
+title: README
 layout: default
 nav_enabled: false
+nav_exclude: true
 ---
 
 # Case Annotation and Review Tool (CART)
