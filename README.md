@@ -7,7 +7,7 @@ nav_exclude: true
 
 # Case Annotation and Review Tool (CART)
 
-<img src="./resources/icon.png" width="150">
+<img src="resources/icon/icon.png" width="150">
 
 # What is CART?
 
