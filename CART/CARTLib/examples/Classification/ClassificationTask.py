@@ -1,0 +1,118 @@
+from functools import cached_property
+from pathlib import Path
+from typing import Optional
+
+import qt
+
+from CARTLib.core.DataUnitBase import DataUnitFactory
+from CARTLib.examples.Classification.ClassificationConfig import ClassificationConfig
+from CARTLib.examples.Classification.ClassificationOutputManager import ClassificationOutputManager
+from CARTLib.utils.config import JobProfileConfig, MasterProfileConfig
+from CARTLib.utils.task import cart_task, CARTTask
+
+from ClassificationGUI import ClassificationGUI
+from ClassificationUnit import ClassificationUnit
+
+
+@cart_task("Classification")
+class ClassificationTask(CARTTask[ClassificationUnit]):
+    """
+    Task for classifying cases.
+
+    Can be run in two modes:
+    * Single Class: Only one classification can be selected per case
+    * Multi-class: Multiple classifications can be selected per case
+
+    Saves the classification(s) into a CSV folder
+    """
+    README_PATH = Path(__file__).parent / "README.md"
+
+    def __init__(
+        self,
+        master_profile: MasterProfileConfig,
+        job_profile: JobProfileConfig,
+        cohort_features: list[str],
+    ):
+        super().__init__(master_profile, job_profile, cohort_features)
+
+        # Track the active GUI instance, if any
+        self.gui: Optional[ClassificationGUI] = None
+
+        # CSV Log (path + contents)
+        self.output_path: Optional[Path] = None
+
+        # Currently managed data unit
+        self.current_unit: Optional[ClassificationUnit] = None
+
+        # The output manager for this class
+        self._output_manager: Optional[ClassificationOutputManager] = None
+
+    @classmethod
+    def description(cls):
+        with open(cls.README_PATH, 'r') as fp:
+            return fp.read()
+
+    @cached_property
+    def output_manager(self):
+        return ClassificationOutputManager(
+            self.job_profile,
+            self.master_profile.author
+        )
+
+    @cached_property
+    def config(self):
+        return self.init_config(self.job_profile)
+
+    def setup(self, container: qt.QWidget):
+        # Create and track the GUI
+        self.gui = ClassificationGUI(self)
+        gui_layout = self.gui.setup()
+        container.setLayout(gui_layout)
+
+    def receive(self, data_unit: ClassificationUnit):
+        # Track the data unit for later
+        self.current_unit = data_unit
+
+        # Refresh the GUI to match the new data unit's contents
+        if self.gui:
+            self.gui.syncWithDataUnit()
+
+    def save(self) -> Optional[str]:
+        # Attempt to save the data unit through our output manager
+        self.output_manager.save_unit(self.current_unit)
+
+    @classmethod
+    def init_config(cls, job_config: JobProfileConfig) -> ClassificationConfig:
+        return ClassificationConfig(job_config)
+
+    def isTaskComplete(self, case_data: dict[str, str]) -> Optional[bool]:
+        # Ensure there's a valid UID
+        uid = case_data.get("uid", None)
+        if uid is None:
+            return False
+
+        # Check an entry for this UID and author exists
+        case_entry = self.output_manager.get_data_for(uid)
+        # If not, return None (the task has not been run yet)
+        if case_entry is None:
+            return None
+        # Otherwise, return True (the task was run for this entry)
+        else:
+            return True
+
+    @classmethod
+    def getDataUnitFactory(cls) -> DataUnitFactory:
+        return ClassificationUnit
+
+    def generate_prior_data_for(self, case_data: dict) -> Optional[dict]:
+        uid = case_data.get("uid")
+        case_overrides = {}
+
+        # Get the case's relevant contents
+        if (result := self.output_manager.get_data_for(uid)) is not None:
+            classes, remarks = result
+            case_overrides["classes"] = classes
+            case_overrides["remarks"] = remarks
+
+        # Return the overrides
+        return case_overrides

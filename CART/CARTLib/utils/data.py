@@ -1137,7 +1137,7 @@ class CARTStandardUnit(DataUnitBase):
         self,
         case_data: dict[str, str],
         data_path: Path,
-        prior_data: dict = None,  # TODO: Utilize this to "recall" prior markups
+        prior_data: dict = None,
         scene: slicer.vtkMRMLScene = slicer.mrmlScene,
     ) -> None:
         super().__init__(case_data, data_path, prior_data, scene)
