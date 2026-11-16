@@ -1,6 +1,7 @@
 ---
 title: Home
 layout: default
+nav_enabled: false
 ---
 
 # Case Annotation and Review Tool (CART)
