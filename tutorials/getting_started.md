@@ -31,7 +31,7 @@ In CART, these are collected together to form a "Job". Once created, the Job's s
 
 > You can always modify a Job's settings later; don't be afraid to experiment!
 
-### Job Name and Task
+## Job Name and Task
 
 After you finish reading the introduction page, click "Next" to bring up the following:
 
@@ -45,7 +45,7 @@ Here you can give the Job a name as well as the "Task" it will be designated to 
 
 Selecting a task will bring up its documentation for your review. Feel free to read through each; for this tutorial, however, we will be using the **Segmentation** Task. Once you have given the task a name and selected the "Segmentation" task, click "Next".
 
-### Data and Output
+## Data and Output
 
 You should now be presented with the following:
 
@@ -61,7 +61,7 @@ For the "Data Path", click the "..." button to its right and navigate to the exa
 
 ![Screenshot showing the initial "Data Selection" page of the Job Setup Wizard, now with filled "Data Path" and "Output Path" fields.](../resources/getting_started/io_cohort_prompt_partial.png)
 
-### The Cohort
+## The Cohort
 
 The Cohort is a bit more complex; it dictates how CART will iterate through the data, and what files should be loaded for each iteration. We'll need to create one for the Job to function; click "Create New Cohort File" to begin; the following prompt should appear:
 
@@ -71,7 +71,7 @@ While our data is BIDS formatted, select the "Blank Slate" cohort type; this wil
 
 ![Screenshot showing the initial blank-slate state of the Cohort Editor](../resources/getting_started/cohort_editor_prompt_init.png)
 
-#### Managing Cases
+### Managing Cases
 
 For this tutorial, we want to iterate through each subject one by one; this makes each subject a "Case". That means we will add a row for each. To do so, click the "New" button within the "Case (Row) Operations" panel, along the bottom; the following should appear:
 
@@ -93,7 +93,7 @@ Repeat this process for the other two subjects (`sub-amu02` and `sub-amu03`); on
 
 ![Screenshot showing the state of the Cohort Editor, now with a three rows labelled "sub-amu01", "sub-amu02", and "sub-amu03"](../resources/getting_started/cohort_editor_prompt_full_cases.png)
 
-#### Managing Resources
+### Managing Resources
 
 Now to specify our resources (that is, what each case should load and present to us when initially loaded). To do so, click the "New" button, this time in the "Resource (Column) Operations" panel. You should be prompted with the following:
 
@@ -115,7 +115,7 @@ Excellent! Let's add the other required resource type now, "To-Edit Segmentation
 
 ![Screenshot showing the "New Resource" with the "To-Edit Segmentation" resource type selected. The window now has a warning describing how the output files will be named, as well as a new check box and table along the bottom.](../resources/getting_started/new_resource_special.png)
 
-This a custom type that the Segmentation task has extended; as the warning suggests, changes made to this resource will be saved as _output_. For this tutorial, lets assume we want to use review and correct the T2w segmentations of the spinal cord (SC); as such, we'll name this resource "tutorial-corrections". The corresponding segmentation files share the same naming convention as before; each contains "T2w" and "SC" in its name, and are contained within the "labels" folder. Updating our field to represent this should show the following:
+This is a custom type that the Segmentation task has extended; as the warning suggests, changes made to this resource will be saved as _output_. For this tutorial, lets assume we want to use review and correct the T2w segmentations of the spinal cord (SC); as such, we'll name this resource "tutorial-corrections". The corresponding segmentation files share the same naming convention as before; each contains "T2w" and "SC" in its name, and are contained within the "labels" folder. Updating our field to represent this should show the following:
 
 > You can separate multiple search elements with a comma (,)
 
@@ -143,7 +143,7 @@ Click OK, and the cohort will save and be tracked by the job!
 
 Now, onto the final step!
 
-### Task Configuration
+## Task Configuration
 
 All that's left is Task-specific configuration; each Task will have its own set of options here. In the case of the Segmentation Task, we get the following:
 
