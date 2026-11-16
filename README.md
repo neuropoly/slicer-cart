@@ -20,13 +20,9 @@ Developers can also extend its capabilities further, creating custom tasks (with
 
 # Using CART
 
-* [Installation](./pages/installation.md)
-* [Getting Started](./pages/getting_started.md)
+* [Installation](tutorials/installation.md)
+* [Getting Started](tutorials/getting_started.md)
 * FAQs (WIP)
-
----
-
-**DOCUMENTATION IS WIP; BELOW IS KEPT FOR LATER REVISION**
 
 ---
 
