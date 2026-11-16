@@ -1,3 +1,8 @@
+---
+title: Installing CART
+layout: default
+---
+
 # Installing CART
 
 ## Prerequisites

@@ -1,3 +1,8 @@
+---
+title: Getting Started
+layout: default
+---
+
 # Getting Started
 
 This page acts as a tutorial, helping to familiarize yourself with CART jobs and showing how they are configured.
