@@ -26,9 +26,9 @@ Developers can also extend its capabilities further, creating custom tasks (with
 
 # Basic Usage
 
-* [Installation](tutorials/installation.md)
-* [Getting Started](tutorials/getting_started.md)
-* [Running a Job](tutorials/running_a_job.md)
+* [Installation]({% link tutorials/installation.md %})
+* [Getting Started]({% link tutorials/getting_started.md %})
+* [Running a Job]({% link tutorials/running_a_job.md %})
 * FAQs (WIP)
 
 # Detailed Usage Guides

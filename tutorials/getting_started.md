@@ -162,4 +162,4 @@ Notice the following:
 * Slicer has only loaded the files we requested for the first case (`sub-amu01`)
 * The segmentation is loaded as an overlay, in the color you specified, and named as requested
 
-We'll continue to demonstrate CART's utilities in the [next section](./running_a_job.md).
+We'll continue to demonstrate CART's utilities in the [next section]({% link tutorials/running_a_job.md %}).
