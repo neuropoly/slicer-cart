@@ -65,3 +65,5 @@ A dialogue like the following should appear:
 ![Screenshot showing the default "Edit Profile" prompt.](../resources/installation/profile_prompt.png)
 
 Fill it out and toggle the configuration settings to your liking, then confirm with "Finish". Your profile should now be created (or updated, if it already exists)!
+
+Once done, you can move onto [getting started with your first job](./getting_started.md).

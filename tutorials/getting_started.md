@@ -1,6 +1,6 @@
 # Getting Started
 
-This page acts as a tutorial, helping to familiarize yourself with CART's capabilities and showing you its workflow.
+This page acts as a tutorial, helping to familiarize yourself with CART jobs and showing how they are configured.
 
 ## Prerequisites
 
@@ -8,7 +8,6 @@ This page acts as a tutorial, helping to familiarize yourself with CART's capabi
 * A copy of CART that has been [installed in Slicer](./installation.md) with a user profile.
 * A copy of the example dataset (available [here]()), unzipped and in a location you know.
 
-> [!NOTE]
 > If you would like a more "hands on" tutorial, you can just click "Start" at the bottom of the page; CART will walk you through each step, albeit in less detail than this tutorial.
 
 ## Introduction; What is a "Job"?
@@ -24,7 +23,6 @@ In CART, these are collected together to form a "Job". Once created, the Job's s
 
 ![Screenshot showing the initial "Introduction" page of the Job Setup Wizard.](../resources/getting_started/initial_prompt.png)
 
-> [!TIP]
 > You can always modify a Job's settings later; don't be afraid to experiment!
 
 ### Job Name and Task
@@ -113,7 +111,6 @@ Excellent! Let's add the other required resource type now, "To-Edit Segmentation
 
 This a custom type that the Segmentation task has extended; as the warning suggests, changes made to this resource will be saved as _output_. For this tutorial, lets assume we want to use review and correct the T2w segmentations of the spinal cord (SC); as such, we'll name this resource "tutorial-corrections". The corresponding segmentation files share the same naming convention as before; each contains "T2w" and "SC" in its name, and are contained within the "labels" folder. Updating our field to represent this should show the following:
 
-> [!TIP]
 > You can separate multiple search elements with a comma (,)
 
 ![Screenshot showing the "New Resource" with the "To-Edit Segmentation" resource type selected. The name and include fields are now filled, and the warning has changed to preview the output file name.](../resources/getting_started/new_resource_special_partial.png)
@@ -126,7 +123,6 @@ Seems that this element allows us to define what segmentations we expect to see!
 
 ![Screenshot showing the "New Resource" with the "To-Edit Segmentation" resource type selected. A tooltip over the "New Class" button is now shown.](../resources/getting_started/new_resource_special_filled.png)
 
-> [!NOTE]
 > Most tasks will have their own documentation detailing each of these features explicitly; if in doubt, check them out!
 
 Once you're satisfied, click "OK" to confirm. A second column (which has automatically selected the corresponding files) should now appear:
@@ -137,7 +133,6 @@ Click OK, and the cohort will save and be tracked by the job!
 
 ![Screenshot showing the initial "Data Selection" page of the Job Setup Wizard, now with all fields filled and a preview of the cohort we just created in the bottom window.](../resources/getting_started/io_cohort_prompt_filled.png)
 
-> [!TIP]
 > You can re-use cohort files you've already created in other jobs; simply select their `.csv` using the "Select Existing File" button, and save yourself the hassle!
 
 Now, onto the final step!

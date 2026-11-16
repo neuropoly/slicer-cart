@@ -22,6 +22,7 @@ Developers can also extend its capabilities further, creating custom tasks (with
 
 * [Installation](tutorials/installation.md)
 * [Getting Started](tutorials/getting_started.md)
+* [Running a Job](tutorials/running_a_job.md)
 * FAQs (WIP)
 
 ---
