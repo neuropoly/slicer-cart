@@ -1,8 +1,3 @@
----
-title: Home
-layout: default
----
-
 # Case Annotation and Review Tool (CART)
 
 <img src="./resources/icon.png" width="150">
