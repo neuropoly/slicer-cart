@@ -18,10 +18,10 @@ callouts:
   important:
     title: Important
     color: blue
-  new:
+  note:
     title: Note
     color: green
-  note:
+  new:
     title: New
     color: grey-lt
   warning:
