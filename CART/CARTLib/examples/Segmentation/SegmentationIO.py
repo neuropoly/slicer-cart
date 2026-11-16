@@ -338,11 +338,12 @@ class SegmentationIO:
             # Only generate + update the sidecar if the output is NIfTI
             sidecar_data = dict()
 
-            # Load the previous sidecar's contents as a "basis"
+            # Load the previous sidecar's contents as a "basis", if it had one
             storage_node = seg_node.GetStorageNode()
             if storage_node is not None:
                 prior_path = Path(storage_node.GetFileName())
-                sidecar_data = load_json_sidecar(prior_path)
+                # Load the JSON sidecar, falling back to the "blank" dict if there wasn't one
+                sidecar_data = load_json_sidecar(prior_path) or sidecar_data
 
             # Update its relevant contents
             generated_by = sidecar_data.get("GeneratedBy", [])
