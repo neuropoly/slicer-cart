@@ -1461,3 +1461,66 @@ class CARTLogic(ScriptedLoadableModuleLogic, qt.QObject):
         """
         if self._task_instance:
             self._task_instance.exit()
+
+
+#
+# Command Line Launch
+#
+def open_cohort(cohort, task: str, output, name: Optional[str] = None) -> str:
+    """
+    Start CART on a cohort file, letting other tools open it from the command line.
+
+    The job already made for this cohort and task is re-used if there is one,
+    keeping its progress and settings. Otherwise, a new job is created for it.
+    Returns the name of the job that was started.
+    """
+    cohort = Path(cohort).resolve()
+    output = Path(output).resolve()
+    if not cohort.is_file():
+        raise ValueError(f"Cannot open cohort '{cohort}', the file does not exist!")
+
+    # Open the CART module first, as the job needs its widget to run in
+    slicer.util.selectModule("CART")
+    widget = slicer.util.getModuleWidget("CART")
+    logic = widget.logic
+
+    if CART_TASK_REGISTRY.get(task) is None:
+        raise ValueError(
+            f"Cannot open cohort with task '{task}', it has not been registered! "
+            f"Registered tasks are {', '.join(CART_TASK_REGISTRY)}."
+        )
+
+    # Re-use the job already made for this cohort and task, if there is one
+    job_config = None
+    for job_path in logic.registered_jobs.values():
+        if not Path(job_path).is_file():
+            continue
+        candidate = JobProfileConfig(file_path=Path(job_path))
+        candidate.reload()
+        same_cohort = candidate.cohort_path is not None and candidate.cohort_path.resolve() == cohort
+        if same_cohort and candidate.task == task:
+            job_config = candidate
+            break
+
+    # Otherwise create a new job, named after the cohort file unless that name is taken
+    if job_config is None:
+        base_name = name or cohort.stem
+        job_name = base_name
+        i = 2
+        while job_name in logic.registered_jobs:
+            job_name = f"{base_name}_{i}"
+            i += 1
+        job_config = JobProfileConfig()
+        job_config.name = job_name
+        job_config.task = task
+        job_config.cohort_path = cohort
+        job_config.data_path = cohort.parent
+
+    # Save to the requested folder, creating it if it doesn't exist yet
+    output.mkdir(parents=True, exist_ok=True)
+    job_config.output_path = output
+    job_config.save()
+    logic.register_job_config(job_config)
+
+    widget.start(job_config.name)
+    return job_config.name
