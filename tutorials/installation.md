@@ -7,6 +7,8 @@ layout: default
 
 # Installing CART
 
+Following this tutorial will show you how to install CART and set up your user profile within it.
+
 ## Prerequisites
 
 Please ensure you have downloaded the following for your specific operating system before beginning:

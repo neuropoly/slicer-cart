@@ -6,7 +6,7 @@ layout: default
 
 # Getting Started
 
-This page acts as a tutorial, helping to familiarize yourself with CART jobs and showing how they are configured.
+Following this tutorial will help familiarize yourself with CART jobs and showing how they are configured.
 
 ## Prerequisites
 
@@ -163,4 +163,4 @@ Notice the following:
 * Slicer has only loaded the files we requested for the first case (`sub-amu01`)
 * The segmentation is loaded as an overlay, in the color you specified, and named as requested
 
-We'll continue to demonstrate CART's utilities in the [next section]({% link tutorials/running_a_job.md %}).
+We'll continue to demonstrate CART's utilities in the [next section]({% link tutorials/running_a_job.md %}); if you want to follow along, restart Slicer first!
