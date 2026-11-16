@@ -2,88 +2,33 @@
 
 <img src="./resources/icon.png" width="150">
 
-## Table of Contents
-
-* [What is CART?](#what-is-cart)
-* [For Users](#for-users)
-  * [Setting up CART](#setting-up-cart)
-  * [Getting Started](#getting-started)
-  * [Starting a Task](#starting-a-task)
-* [For Developers](#for-developers)
-  * [Project Standards](#project-standards)
-  * [IDE Set Up](#ide-set-up)
-  * [Example Data](#example-data)
-
----
-
 # What is CART?
 
 CART is a module for 3D Slicer designed to help implement, manage, and run iterative analyses on image datasets. You can think of CART as an assembly line for data analysis; you define how your data should be grouped ("cases"), what should be loaded for you ("resources"), and what process you want to apply to it ("tasks"), and CART will manage the rest for you! Most tasks will even track how many you've completed, ensuring that you don't repeat the same case twice (or skip over one by mistake).
 
 Currently, it provides the following capabilities:
 
-* Managing sequential cases (be they patients, sub-studies, or other collections of data).
-* Caching and memory management.
-* Defining and handling multiple jobs, which can be run independently of one another.
-* Custom task creation and registration [Latter currently done via Config file manipulation].
+* Managing sequential cases (be they patients, sub-studies, or other collections of data)
+* Automatic caching and memory management (including recent case caching)
+* Defining and handling multiple jobs, which can be run independently of one another
+* Several common tasks out-of-the-box, including:
+  * Segmentation Review, Creation, and Correction
+  * Markup Management and Review
+  * Case Classification and Modification
 
-A number of features are currently in progress as well:
+Developers can also extend its capabilities further, creating custom tasks (with their own custom UI elements) that still hook into CART's case-based iteration and memory management utilities!
 
-* Case pre-fetching/deferred loading.
+# Using CART
+
+* [Installation](./pages/installation.md)
+* [Getting Started](./pages/getting_started.md)
+* FAQs (WIP)
 
 ---
 
+**DOCUMENTATION IS WIP; BELOW IS KEPT FOR LATER REVISION**
 
-# For Users
-
-## Installing CART
-
-### Prerequisites
-
-- Slicer v5.8 (other versions may work, without guarantee)
-
-### Obtaining the Files
-
-#### Option 1 (preferred): Download stable release
-
-- Download the ZIP archive for the [latest release](https://github.com/neuropoly/slicer-cart/releases/latest).
-- Unpack said ZIP archive to where you would like CART to live (on most OS systems, double-clicking on the file should tell you how to do this)
-
-#### Option 2: Download Current Dev Build
-
-- Download the git repository as a ZIP archive from [here](https://github.com/SomeoneInParticular/CART/archive/refs/heads/main.zip)
-- Unpack said ZIP archive to where you would like CART to live (on most OS systems, double-clicking on the file should tell you how to do this)
-
-#### Option 3: Clone a Specific Branch from GitHub
-
-For this, you need to have `git` installed. 
-
-- Open a terminal and navigate to the directory you'd like CART to live in.
-- Run the following command to clone the current `CART` repository, replacing `CART-main` with :
-  ~~~
-  git clone git@github.com:SomeoneInParticular/CART.git CART-main
-  ~~~
-
-### Registering CART in Slicer
-
-- Open a file browser window and navigate to the downloaded `slicer-cart/` directory. Then, navigate to the `CART` subdirectory, which should contain a `CART.py` file.
-- Start up Slicer.
-- Go to `Edit` > `Application Settings`
-<img width="1066" height="154" alt="image" src="https://github.com/user-attachments/assets/1f2c4d4f-ce10-46fd-8165-09c0df87a7e6" />
-
-- In the "settings" popup, select `Modules` from the left sidebar
-<img width="865" height="650" alt="image" src="https://github.com/user-attachments/assets/ea9d4013-b77b-47ef-84b5-f4d38fd7f044" />
-
-- Click and drag `CART.py` from the file browser into the "Additional module paths" panel.
-- Click "OK"; Slicer should prompt you that it needs to restart. Say "Yes".
-
-### [Optional] Setting CART as your Default Module
-
-- Start Slicer
-- Go to `Edit` > `Application Settings`
-- In the "settings" popup, select `Modules` from the left sidebar
-- Under "Default startup module", Select `Utilities` > `CART`
-<img width="506" height="760" alt="image" src="https://github.com/user-attachments/assets/66a360ff-8ad6-406e-a498-7e1ff1ae6f20" />
+---
 
 ## Getting Started
 
