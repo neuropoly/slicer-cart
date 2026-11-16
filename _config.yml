@@ -3,6 +3,9 @@ title: CART
 description: The Case Annotation and Review Tool (CART) for 3D Slicer!
 theme: just-the-docs
 
+# Use the CART logo instead of its name
+logo: "/resources/icon.png"
+
 url: https://just-the-docs.github.io
 
 # Gives the site a dark theme so it doesn't hurt to look at
