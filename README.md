@@ -11,7 +11,7 @@ nav_exclude: true
 
 # What is CART?
 
-CART is a module for 3D Slicer designed to help implement, manage, and run iterative analyses on image datasets. You can think of CART as an assembly line for data analysis; you define how your data should be grouped ("cases"), what should be loaded for you ("resources"), and what process you want to apply to it ("tasks"), and CART will manage the rest for you! Most tasks will even track how many you've completed, ensuring that you don't repeat the same case twice (or skip over one by mistake).
+CART is a module for 3D Slicer designed to help implement, manage, and run iterative analyses on image datasets. You can think of CART as an assembly line for data analysis; you define how your data should be grouped (the "Cases"), what should be loaded for you (the "Resources"), and what process you want to apply to it (the "Task"), and CART will manage the rest for you! Most tasks will even track how many you've completed, ensuring that you don't repeat the same case twice (or skip over one by mistake), even after rebooting Slicer.
 
 Currently, it provides the following capabilities:
 
