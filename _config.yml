@@ -1,4 +1,12 @@
+# Basic site parameters
+title: CART
+description: The Case Annotation and Review Tool (CART) for 3D Slicer!
+theme: just-the-docs
+
+url: https://just-the-docs.github.io
+
 # Gives the site a dark theme so it doesn't hurt to look at
-remote_theme: pages-themes/midnight@v0.2.0
-plugins:
-- jekyll-remote-theme
+color_scheme: dark
+
+aux_links:
+  Template Repository: https://github.com/just-the-docs/just-the-docs-template
