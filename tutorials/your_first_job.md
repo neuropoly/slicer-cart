@@ -2,6 +2,7 @@
 title: Your First Job
 parent: Tutorials
 layout: default
+nav_order: 2
 ---
 
 # Your First Job

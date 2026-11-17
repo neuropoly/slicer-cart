@@ -2,6 +2,7 @@
 title: Running a Job
 parent: Tutorials
 layout: default
+nav_order: 3
 ---
 
 # Running a Job
