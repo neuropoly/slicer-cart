@@ -16,7 +16,7 @@ CART is lossless by design; unless you explicitly set the Job's output directory
 * Have a working installation of Slicer v5.8 or newer (tested up to v5.12)
 * A copy of CART that has been [installed in Slicer](./installation.md) with a user profile.
 * A copy of the example dataset (available [here]()), unzipped and in a location you know.
-* You have either followed our [previous tutorial]({% link tutorials/getting_started.md %}), or created another Job yourself, and have restarted Slicer.
+* You have either followed our [previous tutorial]({% link tutorials/your_first_job.md %}), or created another Job yourself, and have restarted Slicer.
 
 ## Selecting Our Job
 

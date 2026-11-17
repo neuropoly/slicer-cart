@@ -28,7 +28,7 @@ Developers can also extend its capabilities further, creating custom tasks (with
 # Basic Usage
 
 * [Installation]({% link tutorials/installation.md %})
-* [Getting Started]({% link tutorials/getting_started.md %})
+* [Your First Job]({% link tutorials/your_first_job.md %})
 * [Running a Job]({% link tutorials/running_a_job.md %})
 * FAQs (WIP)
 

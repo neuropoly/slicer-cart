@@ -75,4 +75,4 @@ A dialogue like the following should appear:
 
 Fill it out and toggle the configuration settings to your liking, then confirm with "Finish". Your profile should now be created (or updated, if it already exists)!
 
-Once done, you can move onto [getting started with your first job]({% link tutorials/getting_started.md %}).
+Once done, you can move onto [getting started with your first job]({% link tutorials/your_first_job.md %}).

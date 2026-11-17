@@ -1,10 +1,10 @@
 ---
-title: Getting Started
+title: Your First Job
 parent: Tutorials
 layout: default
 ---
 
-# Getting Started
+# Your First Job
 
 Following this tutorial will help familiarize yourself with CART jobs and showing how they are configured.
 

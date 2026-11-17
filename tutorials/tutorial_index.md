@@ -10,7 +10,7 @@ layout: default
 The following provide written, hands-on tutorials for the various features and contents of CART. You can follow these guides, in the order presented below, to learn the basics of CART.
 
 * [Installation]({% link tutorials/installation.md %}): Get CART up and running on your system.
-* [Getting Started]({% link tutorials/getting_started.md %}): Create your first CART Job, step-by-step.
+* [Your First Job]({% link tutorials/your_first_job.md %}): Create your first CART Job, step-by-step.
 * [Running a Job]({% link tutorials/running_a_job.md %}): Running the Job you just made, and how to save your results.
 
 # Other Features
